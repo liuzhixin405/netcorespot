@@ -29,9 +29,6 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             
             try
             {
-                // 等待应用程序完全启动
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-                
                 // 启动数据同步
                 await StartDataSyncAsync();
                 _logger.LogInformation("✅ BinanceService 数据同步已启动");

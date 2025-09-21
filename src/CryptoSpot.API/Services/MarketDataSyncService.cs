@@ -29,9 +29,6 @@ namespace CryptoSpot.API.Services
 
             try
             {
-                // 等待应用程序完全启动
-                await Task.Delay(5000, stoppingToken);
-
                 using var scope = _serviceScopeFactory.CreateScope();
                 
                 // 获取所有市场数据提供者

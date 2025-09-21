@@ -91,7 +91,7 @@ builder.Services.AddHostedService<CacheInitializationService>();
 builder.Services.AddHostedService<AutoTradingService>();
 builder.Services.AddHostedService<OrderBookPushService>();
 builder.Services.AddHostedService<MarketDataSyncService>();
-builder.Services.AddHostedService<DatabaseHealthService>();
+
 
 
 

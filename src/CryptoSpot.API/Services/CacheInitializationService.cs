@@ -26,8 +26,7 @@ namespace CryptoSpot.API.Services
             {
                 _logger.LogInformation("开始初始化缓存服务");
 
-                // 等待一小段时间确保其他服务都已启动
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+               
 
                 // 初始化所有缓存
                 await _cacheService.RefreshAllCacheAsync();

@@ -257,8 +257,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                // 初始延迟
-                await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+
                 
                 while (!cancellationToken.IsCancellationRequested)
                 {
@@ -283,8 +282,6 @@ namespace CryptoSpot.Application.Services
                         _logger.LogError(ex, "执行交易逻辑时出错");
                     }
                     
-                    // 等待10秒，减少数据库负载和连接冲突
-                    await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
                 }
             }
             catch (OperationCanceledException)
