@@ -121,6 +121,9 @@ namespace CryptoSpot.Application.Services
                         .ThenBy(o => o.CreatedAt) // 同价格按时间优先
                         .ToList();
 
+                    _logger.LogInformation("📊 订单撮合开始: Symbol={Symbol}, 买单数量={BuyCount}, 卖单数量={SellCount}", 
+                        symbol, buyOrders.Count, sellOrders.Count);
+
                     // 匹配订单
                     foreach (var buyOrder in buyOrders)
                     {
@@ -133,18 +136,34 @@ namespace CryptoSpot.Application.Services
                             // 检查价格是否匹配
                             if (buyOrder.Price >= sellOrder.Price)
                             {
+                                _logger.LogInformation("💰 发现价格匹配: 买单价格={BuyPrice}, 卖单价格={SellPrice}, 买单ID={BuyOrderId}, 卖单ID={SellOrderId}", 
+                                    buyOrder.Price, sellOrder.Price, buyOrder.Id, sellOrder.Id);
+                                
                                 // 检查是否可以匹配（不能自成交，除非是系统账号）
                                 if (await CanMatchOrderAsync(buyOrder, sellOrder))
                                 {
+                                    _logger.LogInformation("✅ 订单可以匹配，开始执行交易");
                                     var trade = await ExecuteTradeAsync(buyOrder, sellOrder);
                                     if (trade != null)
                                     {
                                         trades.Add(trade);
+                                        _logger.LogInformation("🎉 交易执行成功: TradeId={TradeId}, Price={Price}, Quantity={Quantity}", 
+                                            trade.TradeId, trade.Price, trade.Quantity);
                                     }
+                                    else
+                                    {
+                                        _logger.LogWarning("❌ 交易执行失败");
+                                    }
+                                }
+                                else
+                                {
+                                    _logger.LogInformation("⚠️ 订单无法匹配（可能是自成交限制）");
                                 }
                             }
                             else
                             {
+                                _logger.LogDebug("⏭️ 价格不匹配: 买单价格={BuyPrice}, 卖单价格={SellPrice}", 
+                                    buyOrder.Price, sellOrder.Price);
                                 // 价格不匹配，跳出内层循环
                                 break;
                             }

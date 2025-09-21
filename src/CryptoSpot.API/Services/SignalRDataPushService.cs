@@ -49,34 +49,6 @@ namespace CryptoSpot.API.Services
             }
         }
 
-        public async Task PushHistoricalKLineDataAsync(string symbol, string interval, IEnumerable<KLineData> historicalData)
-        {
-            try
-            {
-                var groupName = $"kline_{symbol}_{interval}";
-                
-                // 转换为前端期望的格式
-                var historicalKLines = historicalData.Select(k => new
-                {
-                    symbol = symbol,
-                    interval = interval,
-                    timestamp = k.OpenTime,
-                    open = k.Open,
-                    high = k.High,
-                    low = k.Low,
-                    close = k.Close,
-                    volume = k.Volume
-                }).ToList();
-
-                await _hubContext.Clients.Group(groupName).SendAsync("HistoricalKLineData", historicalKLines);
-                
-                _logger.LogDebug($"Pushed {historicalKLines.Count} historical KLine records for {symbol} {interval}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, $"Failed to push historical KLine data for {symbol} {interval}");
-            }
-        }
 
         public async Task PushPriceDataAsync(string symbol, object priceData)
         {

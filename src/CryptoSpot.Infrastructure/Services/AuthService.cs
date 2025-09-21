@@ -1,7 +1,6 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.Auth;
 using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Core.Interfaces.Repositories;
 using CryptoSpot.Core.Commands.Auth;
 using CryptoSpot.Core.Extensions;
 using Microsoft.Extensions.Configuration;
@@ -16,18 +15,18 @@ namespace CryptoSpot.Infrastructure.Services
 {
     public class AuthService : IAuthService
     {
-        private readonly IUserRepository _userRepository;
+        private readonly IUserService _userService;
         private readonly IAssetService _assetService;
         private readonly IConfiguration _configuration;
         private readonly ILogger<AuthService> _logger;
 
         public AuthService(
-            IUserRepository userRepository,
+            IUserService userService,
             IAssetService assetService,
             IConfiguration configuration,
             ILogger<AuthService> logger)
         {
-            _userRepository = userRepository;
+            _userService = userService;
             _assetService = assetService;
             _configuration = configuration;
             _logger = logger;
@@ -37,7 +36,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var user = await _userRepository.GetByUsernameAsync(command.Username);
+                var user = await _userService.GetUserByUsernameAsync(command.Username);
                 if (user == null)
                 {
                     _logger.LogWarning("Login attempt with non-existent username: {Username}", command.Username);
@@ -52,7 +51,7 @@ namespace CryptoSpot.Infrastructure.Services
 
                 // Update last login time
                 user.LastLoginAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
-                await _userRepository.UpdateAsync(user);
+                await _userService.UpdateUserAsync(user);
 
                 var token = GenerateJwtToken(user);
 
@@ -76,14 +75,16 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 // Check if username already exists
-                if (await _userRepository.UsernameExistsAsync(command.Username))
+                var existingUserByUsername = await _userService.GetUserByUsernameAsync(command.Username);
+                if (existingUserByUsername != null)
                 {
                     _logger.LogWarning("Registration attempt with existing username: {Username}", command.Username);
                     return null;
                 }
 
                 // Check if email already exists
-                if (await _userRepository.EmailExistsAsync(command.Email))
+                var existingUserByEmail = await _userService.GetUserByEmailAsync(command.Email);
+                if (existingUserByEmail != null)
                 {
                     _logger.LogWarning("Registration attempt with existing email: {Email}", command.Email);
                     return null;
@@ -97,7 +98,7 @@ namespace CryptoSpot.Infrastructure.Services
                     IsActive = true
                 };
 
-                var createdUser = await _userRepository.AddAsync(user);
+                var createdUser = await _userService.CreateUserAsync(user);
 
                 // Initialize user assets
                 var initialBalances = new Dictionary<string, decimal>
@@ -132,7 +133,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await _userRepository.GetByIdAsync(userId);
+                return await _userService.GetUserByIdAsync(userId);
             }
             catch (Exception ex)
             {

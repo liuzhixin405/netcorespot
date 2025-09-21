@@ -27,7 +27,7 @@ namespace CryptoSpot.API.Hubs
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, groupName);
         }
 
-        // 订阅K线数据
+        // 订阅K线数据（只订阅实时更新，不推送历史数据）
         public async Task SubscribeKLineData(string symbol, string interval)
         {
             try
@@ -35,29 +35,10 @@ namespace CryptoSpot.API.Hubs
                 var groupName = $"kline_{symbol}_{interval}";
                 await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
                 
-                // 发送历史数据
-                var historicalData = await _klineDataService.GetKLineDataAsync(symbol, interval, 100);
-                if (historicalData.Any())
-                {
-                    var historicalKLines = historicalData.Select(k => new
-                    {
-                        symbol = symbol,
-                        interval = interval,
-                        timestamp = k.OpenTime,
-                        open = k.Open,
-                        high = k.High,
-                        low = k.Low,
-                        close = k.Close,
-                        volume = k.Volume
-                    }).ToList();
-
-                    await Clients.Caller.SendAsync("HistoricalKLineData", historicalKLines);
-                }
-                
-                // 通知客户端订阅成功
+                // 通知客户端订阅成功（历史数据通过API获取）
                 await Clients.Caller.SendAsync("KLineSubscribed", symbol, interval);
                 
-                _logger.LogDebug($"Client {Context.ConnectionId} subscribed to {symbol} {interval} K-line data");
+                _logger.LogDebug($"Client {Context.ConnectionId} subscribed to {symbol} {interval} K-line real-time updates");
             }
             catch (Exception ex)
             {

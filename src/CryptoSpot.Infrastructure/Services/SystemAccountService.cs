@@ -1,6 +1,6 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.System;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Extensions;
 using Microsoft.Extensions.Logging;
 
@@ -8,14 +8,14 @@ namespace CryptoSpot.Infrastructure.Services
 {
     public class SystemAccountService : ISystemAccountService
     {
-        private readonly IRepository<User> _userRepository;
+        private readonly IUserService _userService;
         private readonly ILogger<SystemAccountService> _logger;
 
         public SystemAccountService(
-            IRepository<User> userRepository,
+            IUserService userService,
             ILogger<SystemAccountService> logger)
         {
-            _userRepository = userRepository;
+            _userService = userService;
             _logger = logger;
         }
 
@@ -23,7 +23,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var user = await _userRepository.GetByIdAsync(id);
+                var user = await _userService.GetUserByIdAsync(id);
                 return user?.Type != UserType.Regular ? user : null;
             }
             catch (Exception ex)
@@ -37,7 +37,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await _userRepository.FindAsync(u => u.Type == type && u.Type != UserType.Regular);
+                var allUsers = await _userService.GetSystemUsersAsync();
+                return allUsers.Where(u => u.Type == type);
             }
             catch (Exception ex)
             {
@@ -50,7 +51,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await _userRepository.FindAsync(u => u.Type != UserType.Regular && u.IsActive);
+                return await _userService.GetActiveSystemUsersAsync();
             }
             catch (Exception ex)
             {
@@ -75,7 +76,7 @@ namespace CryptoSpot.Infrastructure.Services
                     DailyTradedAmount = 0m,
                 };
 
-                var createdAccount = await _userRepository.AddAsync(systemAccount);
+                var createdAccount = await _userService.CreateUserAsync(systemAccount);
                 _logger.LogInformation("Created system account {Name} of type {Type}", name, type);
 
                 return createdAccount;
@@ -91,8 +92,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                account.Touch();
-                await _userRepository.UpdateAsync(account);
+                await _userService.UpdateUserAsync(account);
                 
                 _logger.LogInformation("Updated system account {Id}", account.Id);
                 return account;

@@ -26,14 +26,6 @@ export const useSignalRKLineData = (
   
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  // 处理历史K线数据
-  const handleHistoricalData = useCallback((historicalData: KLineData[]) => {
-    setMinuteData(historicalData);
-    setLoading(false);
-    setError(null);
-    setIsConnected(true);
-    setLastUpdate(Date.now());
-  }, []);
 
   // 处理实时K线更新
   const handleKLineUpdate = useCallback((klineData: KLineData, isNewKLine: boolean) => {
@@ -97,11 +89,10 @@ export const useSignalRKLineData = (
       // 短暂延迟确保清理完成
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // 始终订阅1分钟K线数据
+      // 始终订阅1分钟K线数据（只订阅实时更新）
       const unsubscribe = await signalRClient.subscribeKLineData(
         symbol,
         '1m', // 固定订阅1分钟数据
-        handleHistoricalData,
         handleKLineUpdate,
         handleError
       );
@@ -113,7 +104,7 @@ export const useSignalRKLineData = (
       setIsConnected(false);
       setLoading(false);
     }
-  }, [symbol, handleHistoricalData, handleKLineUpdate, handleError]);
+  }, [symbol, handleKLineUpdate, handleError]);
 
   // 从1分钟数据计算目标时间段
   useEffect(() => {

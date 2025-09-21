@@ -81,11 +81,10 @@ export class SignalRClient {
     }
   }
 
-  // 订阅K线数据
+  // 订阅K线数据（只订阅实时更新）
   async subscribeKLineData(
     symbol: string,
     interval: string,
-    onHistoricalData: (data: KLineData[]) => void,
     onKLineUpdate: (data: KLineData, isNewKLine: boolean) => void,
     onError?: (error: any) => void
   ): Promise<() => void> {
@@ -101,26 +100,6 @@ export class SignalRClient {
       if (!this.connection || this.connection.state !== 'Connected') {
         throw new Error('SignalR连接状态异常');
       }
-
-      // 设置历史数据接收处理器
-      this.connection.off('HistoricalKLineData');
-      this.connection.on('HistoricalKLineData', (response: any) => {
-        console.log('Received HistoricalKLineData:', response);
-        
-        // 后端直接发送数组，不是包装在data字段中
-        if (Array.isArray(response)) {
-          const klineData: KLineData[] = response.map((item: any) => ({
-            timestamp: item.timestamp,
-            open: Number(item.open),
-            high: Number(item.high),
-            low: Number(item.low),
-            close: Number(item.close),
-            volume: Number(item.volume)
-          }));
-          
-          onHistoricalData(klineData);
-        }
-      });
 
       // 设置实时K线更新处理器
       this.connection.off('KLineUpdate');
@@ -142,7 +121,7 @@ export class SignalRClient {
         }
       });
 
-      // 发送订阅请求
+      // 发送订阅请求（只订阅实时更新）
       await this.connection.invoke('SubscribeKLineData', symbol, interval);
 
       // 返回取消订阅函数

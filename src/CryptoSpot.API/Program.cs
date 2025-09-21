@@ -6,6 +6,7 @@ using CryptoSpot.Core.Interfaces.Auth;
 using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.Repositories;
 using CryptoSpot.Core.Interfaces;
+using CryptoSpot.Core.Interfaces.Caching;
 using CryptoSpot.Infrastructure.Data;
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Repositories;
@@ -44,8 +45,13 @@ builder.Services.AddTransient<IKLineDataRepository, KLineDataRepository>();
 // Database Coordinator (Singleton for thread safety)
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 
+// Cache Services (Singleton for global cache management)
+builder.Services.AddSingleton<ICacheEventService, CacheEventService>();
+builder.Services.AddSingleton<ICacheService, CacheService>();
+
 // Infrastructure Services (Data Access & External Services)
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IPriceDataService, PriceDataService>();
 builder.Services.AddScoped<IKLineDataService, KLineDataService>();
 builder.Services.AddScoped<ITradingPairService, TradingPairService>();
@@ -62,6 +68,10 @@ builder.Services.AddScoped<DataInitializationService>();
 builder.Services.AddScoped<ITradingService, TradingService>();
 builder.Services.AddScoped<IOrderMatchingEngine, OrderMatchingEngine>();
 
+// Use Cases
+builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.LoginUseCase>();
+builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.RegisterUseCase>();
+
 
 // SignalR Data Push Service
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
@@ -71,9 +81,10 @@ builder.Services.AddScoped<IMarketDataProvider, BinanceMarketDataProvider>();
 builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 
 // Background Services
+builder.Services.AddHostedService<CacheInitializationService>();
 builder.Services.AddHostedService<AutoTradingService>();
-builder.Services.AddHostedService<BinanceService>();
 builder.Services.AddHostedService<OrderBookPushService>();
+builder.Services.AddHostedService<MarketDataSyncService>();
 
 
 
@@ -155,26 +166,6 @@ builder.Services.AddCors(options =>
               .AllowCredentials();
     });
     
-    // 开发环境允许所有来源（但不允许凭据）
-    if (builder.Environment.IsDevelopment())
-    {
-        options.AddPolicy("AllowAll", policy =>
-        {
-            policy.AllowAnyOrigin()
-                  .AllowAnyHeader()
-                  .AllowAnyMethod();
-        });
-        
-        // 开发环境允许特定来源和凭据（用于 SignalR）
-        options.AddPolicy("AllowAllWithCredentials", policy =>
-        {
-            policy.WithOrigins("http://localhost:3000", "http://localhost:3001", "https://localhost:3000", "https://localhost:3001", 
-                              "http://localhost:5000", "https://localhost:5001")
-                  .AllowAnyHeader()
-                  .AllowAnyMethod()
-                  .AllowCredentials();
-        });
-    }
 });
 // Add SignalR
 builder.Services.AddSignalR(options =>
@@ -194,14 +185,9 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection(); // Commented out for HTTP development
 
 // 在开发环境使用 AllowAllWithCredentials 策略，生产环境使用 AllowReactApp 策略
-if (app.Environment.IsDevelopment())
-{
-    app.UseCors("AllowAllWithCredentials");
-}
-else
-{
+
     app.UseCors("AllowReactApp");
-}
+
 app.UseRouting();
 
 

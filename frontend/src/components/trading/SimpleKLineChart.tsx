@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from 'styled-components';
 import { useTradingPair } from '../../hooks/useTrading';
-import { useSignalRKLineData } from '../../hooks/useSignalRKLineData';
+import { useKLineWithRealTime } from '../../hooks/useKLineWithRealTime';
 
 const Container = styled.div`
   height: 100%;
@@ -455,7 +455,7 @@ const SimpleKLineChart: React.FC<SimpleKLineChartProps> = ({ symbol, timeframe, 
   const [scrollOffset, setScrollOffset] = useState(0);
   const [selectedVolumeIndex, setSelectedVolumeIndex] = useState<number | null>(null);
   
-  // 使用SignalR实时推送获取K线数据
+  // 使用API获取历史数据，SignalR获取实时更新
   const dataLimit = Math.max(Math.min(Math.floor(100 / zoomLevel), 200), 50); // 最少50条数据以支持MA30
   const { 
     data: klineData, 
@@ -463,8 +463,13 @@ const SimpleKLineChart: React.FC<SimpleKLineChartProps> = ({ symbol, timeframe, 
     error: klineError, 
     isConnected,
     lastUpdate,
+    refresh,
     reconnect
-  } = useSignalRKLineData(symbol, timeframe, dataLimit);
+  } = useKLineWithRealTime({
+    symbol,
+    timeframe,
+    limit: dataLimit
+  });
   const { pair, loading: pairLoading } = useTradingPair(symbol);
 
   // 更新当前价格和变化
