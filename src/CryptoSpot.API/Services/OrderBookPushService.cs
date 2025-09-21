@@ -13,7 +13,7 @@ namespace CryptoSpot.API.Services
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<OrderBookPushService> _logger;
-        private readonly Timer _pushTimer;
+        private readonly CancellationTokenSource _cancellationTokenSource = new();
 
         // 支持的交易对
         private readonly string[] _supportedSymbols = { "BTCUSDT", "ETHUSDT", "SOLUSDT" };
@@ -24,21 +24,15 @@ namespace CryptoSpot.API.Services
         {
             _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
-            
-            // 每5秒推送一次订单簿数据
-            _pushTimer = new Timer(PushOrderBookData, null, Timeout.Infinite, Timeout.Infinite);
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("订单簿推送服务启动");
             
-            // 启动定时器，每5秒推送一次
-            _pushTimer.Change(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
-
             try
             {
-                await Task.Delay(Timeout.Infinite, stoppingToken);
+                await PushOrderBookLoopAsync(stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -46,42 +40,58 @@ namespace CryptoSpot.API.Services
             }
             finally
             {
-                _pushTimer.Change(Timeout.Infinite, Timeout.Infinite);
                 _logger.LogInformation("订单簿推送服务已停止");
             }
         }
 
-        private async void PushOrderBookData(object? state)
+        private async Task PushOrderBookLoopAsync(CancellationToken cancellationToken)
         {
             try
             {
-                using var scope = _serviceScopeFactory.CreateScope();
-                var realTimeDataPushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
-
-                // 为每个支持的交易对推送订单簿数据
-                var tasks = _supportedSymbols.Select(async symbol =>
+                // 初始延迟
+                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                
+                while (!cancellationToken.IsCancellationRequested)
                 {
                     try
                     {
-                        await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                        using var scope = _serviceScopeFactory.CreateScope();
+                        var realTimeDataPushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+
+                        // 为每个支持的交易对推送订单簿数据
+                        var tasks = _supportedSymbols.Select(async symbol =>
+                        {
+                            try
+                            {
+                                await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "推送 {Symbol} 订单簿数据失败", symbol);
+                            }
+                        });
+
+                        await Task.WhenAll(tasks);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "推送 {Symbol} 订单簿数据失败", symbol);
+                        _logger.LogError(ex, "推送订单簿数据时出错");
                     }
-                });
-
-                await Task.WhenAll(tasks);
+                    
+                    // 等待5秒
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                }
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                _logger.LogError(ex, "推送订单簿数据时出错");
+                _logger.LogInformation("订单簿推送循环已取消");
             }
         }
 
         public override void Dispose()
         {
-            _pushTimer?.Dispose();
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource?.Dispose();
             base.Dispose();
         }
     }

@@ -1,6 +1,7 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
@@ -9,18 +10,18 @@ namespace CryptoSpot.Infrastructure.Services
     {
         private readonly IRepository<Trade> _tradeRepository;
         private readonly IRepository<Order> _orderRepository;
-        private readonly ITradingPairRepository _tradingPairRepository;
+        private readonly ITradingPairService _tradingPairService;
         private readonly ILogger<TradeService> _logger;
 
         public TradeService(
             IRepository<Trade> tradeRepository,
             IRepository<Order> orderRepository,
-            ITradingPairRepository tradingPairRepository,
+            ITradingPairService tradingPairService,
             ILogger<TradeService> logger)
         {
             _tradeRepository = tradeRepository;
             _orderRepository = orderRepository;
-            _tradingPairRepository = tradingPairRepository;
+            _tradingPairService = tradingPairService;
             _logger = logger;
         }
 
@@ -38,7 +39,7 @@ namespace CryptoSpot.Infrastructure.Services
                     Quantity = quantity,
                     Fee = CalculateFee(price, quantity),
                     FeeAsset = "USDT", // 默认使用USDT作为手续费
-                    ExecutedAt = DateTime.UtcNow
+                    ExecutedAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
                 };
 
                 var createdTrade = await _tradeRepository.AddAsync(trade);
@@ -75,7 +76,7 @@ namespace CryptoSpot.Infrastructure.Services
                 }
                 else
                 {
-                    var tradingPair = await _tradingPairRepository.GetBySymbolAsync(symbol);
+                    var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
                     if (tradingPair == null)
                     {
                         return new List<Trade>();
@@ -105,7 +106,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var tradingPair = await _tradingPairRepository.GetBySymbolAsync(symbol);
+                var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
                 if (tradingPair == null)
                 {
                     return new List<Trade>();
@@ -124,10 +125,10 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var tradingPair = await _tradingPairRepository.GetBySymbolAsync(symbol);
+                var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
                 if (tradingPair == null) return 0;
 
-                var fromTime = DateTime.UtcNow - timeRange;
+                var fromTime = DateTimeExtensions.GetCurrentUnixTimeMilliseconds() - (long)timeRange.TotalMilliseconds;
                 var trades = await _tradeRepository.FindAsync(t => 
                     t.TradingPairId == tradingPair.Id && t.ExecutedAt >= fromTime);
                     
@@ -144,10 +145,10 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var tradingPair = await _tradingPairRepository.GetBySymbolAsync(symbol);
+                var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
                 if (tradingPair == null) return (0, 0);
 
-                var fromTime = DateTime.UtcNow - timeRange;
+                var fromTime = DateTimeExtensions.GetCurrentUnixTimeMilliseconds() - (long)timeRange.TotalMilliseconds;
                 var trades = await _tradeRepository.FindAsync(t => 
                     t.TradingPairId == tradingPair.Id && t.ExecutedAt >= fromTime);
                     
@@ -179,7 +180,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<IEnumerable<Trade>> GetTradesByOrderIdAsync(long orderId)
+        public async Task<IEnumerable<Trade>> GetTradesByOrderIdAsync(int orderId)
         {
             try
             {
@@ -197,7 +198,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         private string GenerateTradeId()
         {
-            return $"TRD_{DateTime.UtcNow:yyyyMMddHHmmss}_{Random.Shared.Next(1000, 9999)}";
+            return $"TRD_{DateTime.Now:yyyyMMddHHmmss}_{Random.Shared.Next(1000, 9999)}";
         }
 
         private decimal CalculateFee(decimal price, decimal quantity)

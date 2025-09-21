@@ -8,7 +8,7 @@ namespace CryptoSpot.Application.Services
 {
     public class TradingService : ITradingService
     {
-        private readonly ITradingPairRepository _tradingPairRepository;
+        private readonly ITradingPairService _tradingPairService;
         private readonly IKLineDataRepository _klineDataRepository;
         private readonly IUserRepository _userRepository;
         private readonly IAssetService _assetService;
@@ -18,7 +18,7 @@ namespace CryptoSpot.Application.Services
         private readonly ILogger<TradingService> _logger;
 
         public TradingService(
-            ITradingPairRepository tradingPairRepository,
+            ITradingPairService tradingPairService,
             IKLineDataRepository klineDataRepository,
             IUserRepository userRepository,
             IAssetService assetService,
@@ -27,7 +27,7 @@ namespace CryptoSpot.Application.Services
             IOrderMatchingEngine orderMatchingEngine,
             ILogger<TradingService> logger)
         {
-            _tradingPairRepository = tradingPairRepository;
+            _tradingPairService = tradingPairService;
             _klineDataRepository = klineDataRepository;
             _userRepository = userRepository;
             _assetService = assetService;
@@ -41,7 +41,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                return await _tradingPairRepository.GetTopPairsAsync(5);
+                return await _tradingPairService.GetTopTradingPairsAsync(5);
             }
             catch (Exception ex)
             {
@@ -54,7 +54,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                return await _tradingPairRepository.GetBySymbolAsync(symbol);
+                return await _tradingPairService.GetTradingPairAsync(symbol);
             }
             catch (Exception ex)
             {
@@ -178,7 +178,7 @@ namespace CryptoSpot.Application.Services
             }
         }
 
-        public async Task<bool> CancelOrderAsync(int userId, long orderId)
+        public async Task<bool> CancelOrderAsync(int userId, int orderId)
         {
             try
             {

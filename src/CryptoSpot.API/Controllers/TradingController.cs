@@ -334,7 +334,7 @@ namespace CryptoSpot.API.Controllers
         }
 
         [HttpDelete("orders/{orderId}")]
-        public async Task<IActionResult> CancelOrder(long orderId)
+        public async Task<IActionResult> CancelOrder(int orderId)
         {
             try
             {

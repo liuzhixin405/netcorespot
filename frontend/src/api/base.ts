@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
 // API基础配置
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+export const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://localhost:5001/api';
 
 // 创建axios实例
 export const apiClient: AxiosInstance = axios.create({

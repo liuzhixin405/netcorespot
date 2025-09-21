@@ -1,19 +1,17 @@
+using CryptoSpot.Core.Extensions;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace CryptoSpot.Core.Entities
 {
     [Table("Trades")]
-    public class Trade
+    public class Trade : BaseEntity
     {
-        [Key]
-        public long Id { get; set; }
+        [Required]
+        public int BuyOrderId { get; set; }
 
         [Required]
-        public long BuyOrderId { get; set; }
-
-        [Required]
-        public long SellOrderId { get; set; }
+        public int SellOrderId { get; set; }
 
         [Required]
         public int TradingPairId { get; set; }
@@ -36,7 +34,11 @@ namespace CryptoSpot.Core.Entities
         [StringLength(10)]
         public string FeeAsset { get; set; } = string.Empty;
 
-        public DateTime ExecutedAt { get; set; } = DateTime.UtcNow;
+        /// <summary>
+        /// 执行时间戳 (Unix timestamp in milliseconds)
+        /// </summary>
+        [Column(TypeName = "bigint")]
+        public long ExecutedAt { get; set; }
 
         // Navigation properties
         [ForeignKey("BuyOrderId")]
@@ -51,5 +53,8 @@ namespace CryptoSpot.Core.Entities
         // Computed properties
         [NotMapped]
         public decimal TotalValue => Price * Quantity;
+
+        [NotMapped]
+        public DateTime ExecutedDateTime => DateTimeExtensions.FromUnixTimeMilliseconds(ExecutedAt);
     }
 }

@@ -8,19 +8,14 @@ namespace CryptoSpot.Core.Interfaces.Trading
     public interface IOrderService
     {
         /// <summary>
-        /// 创建用户订单
+        /// 创建订单
         /// </summary>
         Task<Order> CreateOrderAsync(int userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null);
         
         /// <summary>
-        /// 创建订单（支持系统账号）
-        /// </summary>
-        Task<Order> CreateOrderAsync(int? userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null, int? systemAccountId = null);
-        
-        /// <summary>
         /// 取消订单
         /// </summary>
-        Task<bool> CancelOrderAsync(long orderId, int? userId);
+        Task<bool> CancelOrderAsync(int orderId, int? userId);
         
         /// <summary>
         /// 获取用户订单
@@ -30,7 +25,7 @@ namespace CryptoSpot.Core.Interfaces.Trading
         /// <summary>
         /// 获取订单详情
         /// </summary>
-        Task<Order?> GetOrderByIdAsync(long orderId, int? userId);
+        Task<Order?> GetOrderByIdAsync(int orderId, int? userId);
         
         /// <summary>
         /// 获取活跃订单
@@ -40,7 +35,7 @@ namespace CryptoSpot.Core.Interfaces.Trading
         /// <summary>
         /// 更新订单状态
         /// </summary>
-        Task UpdateOrderStatusAsync(long orderId, OrderStatus status, decimal filledQuantity = 0, decimal averagePrice = 0);
+        Task UpdateOrderStatusAsync(int orderId, OrderStatus status, decimal filledQuantity = 0, decimal averagePrice = 0);
         
         /// <summary>
         /// 获取过期订单

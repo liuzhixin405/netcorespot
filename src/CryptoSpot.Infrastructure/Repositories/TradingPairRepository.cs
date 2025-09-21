@@ -1,4 +1,5 @@
 using CryptoSpot.Core.Entities;
+using CryptoSpot.Core.Extensions;
 using CryptoSpot.Core.Interfaces.Repositories;
 using CryptoSpot.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,6 @@ namespace CryptoSpot.Infrastructure.Repositories
         public async Task<TradingPair?> GetBySymbolAsync(string symbol)
         {
             return await _dbSet
-                .Include(tp => tp.KLineData)
                 .FirstOrDefaultAsync(tp => tp.Symbol == symbol && tp.IsActive);
         }
 
@@ -45,7 +45,7 @@ namespace CryptoSpot.Infrastructure.Repositories
                 tradingPair.Volume24h = volume24h;
                 tradingPair.High24h = high24h;
                 tradingPair.Low24h = low24h;
-                tradingPair.LastUpdated = DateTime.UtcNow;
+                tradingPair.LastUpdated = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
 
                 await _context.SaveChangesAsync();
             }

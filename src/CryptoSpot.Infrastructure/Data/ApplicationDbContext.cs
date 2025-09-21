@@ -16,20 +16,25 @@ namespace CryptoSpot.Infrastructure.Data
         public DbSet<Asset> Assets { get; set; }
         public DbSet<Order> Orders { get; set; }
         public DbSet<Trade> Trades { get; set; }
-        public DbSet<SystemAccount> SystemAccounts { get; set; }
-        public DbSet<SystemAsset> SystemAssets { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // 配置并发检测
+
 
             // Configure User entity
             modelBuilder.Entity<User>(entity =>
             {
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Username).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.Email).IsRequired().HasMaxLength(100);
-                entity.Property(e => e.PasswordHash).IsRequired().HasMaxLength(255);
+                entity.Property(e => e.Email).HasMaxLength(100);
+                entity.Property(e => e.PasswordHash).HasMaxLength(255);
+                entity.Property(e => e.Description).HasMaxLength(200);
+                entity.Property(e => e.MaxRiskRatio).HasColumnType("decimal(5,4)");
+                entity.Property(e => e.DailyTradingLimit).HasColumnType("decimal(18,8)");
+                entity.Property(e => e.DailyTradedAmount).HasColumnType("decimal(18,8)");
                 entity.HasIndex(e => e.Username).IsUnique();
                 entity.HasIndex(e => e.Email).IsUnique();
             });
@@ -69,6 +74,8 @@ namespace CryptoSpot.Infrastructure.Data
                 entity.Property(e => e.Symbol).IsRequired().HasMaxLength(10);
                 entity.Property(e => e.Available).HasColumnType("decimal(18,8)");
                 entity.Property(e => e.Frozen).HasColumnType("decimal(18,8)");
+                entity.Property(e => e.MinReserve).HasColumnType("decimal(18,8)");
+                entity.Property(e => e.TargetBalance).HasColumnType("decimal(18,8)");
                 entity.HasIndex(e => new { e.UserId, e.Symbol }).IsUnique();
             });
 
@@ -98,34 +105,6 @@ namespace CryptoSpot.Infrastructure.Data
                 entity.HasIndex(e => e.ExecutedAt);
             });
 
-            // Configure SystemAccount entity
-            modelBuilder.Entity<SystemAccount>(entity =>
-            {
-                entity.HasKey(e => e.Id);
-                entity.Property(e => e.Name).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.Description).HasMaxLength(200);
-                entity.Property(e => e.MaxRiskRatio).HasColumnType("decimal(5,4)");
-                entity.Property(e => e.DailyTradingLimit).HasColumnType("decimal(18,8)");
-                entity.Property(e => e.DailyTradedAmount).HasColumnType("decimal(18,8)");
-                entity.HasIndex(e => e.Name).IsUnique();
-            });
-
-            // Configure SystemAsset entity
-            modelBuilder.Entity<SystemAsset>(entity =>
-            {
-                entity.HasKey(e => e.Id);
-                entity.Property(e => e.Symbol).IsRequired().HasMaxLength(10);
-                entity.Property(e => e.Available).HasColumnType("decimal(18,8)");
-                entity.Property(e => e.Frozen).HasColumnType("decimal(18,8)");
-                entity.Property(e => e.MinReserve).HasColumnType("decimal(18,8)");
-                entity.Property(e => e.TargetBalance).HasColumnType("decimal(18,8)");
-                entity.HasIndex(e => new { e.SystemAccountId, e.Symbol }).IsUnique();
-                
-                entity.HasOne(e => e.SystemAccount)
-                    .WithMany(e => e.Assets)
-                    .HasForeignKey(e => e.SystemAccountId)
-                    .OnDelete(DeleteBehavior.Cascade);
-            });
 
             // Configure relationships
             modelBuilder.Entity<KLineData>()
@@ -152,11 +131,6 @@ namespace CryptoSpot.Infrastructure.Data
                 .HasForeignKey(o => o.TradingPairId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<Order>()
-                .HasOne(o => o.SystemAccount)
-                .WithMany(sa => sa.Orders)
-                .HasForeignKey(o => o.SystemAccountId)
-                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Trade>()
                 .HasOne(t => t.BuyOrder)

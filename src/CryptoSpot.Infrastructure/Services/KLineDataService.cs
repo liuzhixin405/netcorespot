@@ -8,16 +8,13 @@ namespace CryptoSpot.Infrastructure.Services
     public class KLineDataService : IKLineDataService
     {
         private readonly IKLineDataRepository _klineDataRepository;
-        private readonly ITradingPairRepository _tradingPairRepository;
         private readonly ILogger<KLineDataService> _logger;
 
         public KLineDataService(
             IKLineDataRepository klineDataRepository,
-            ITradingPairRepository tradingPairRepository,
             ILogger<KLineDataService> logger)
         {
             _klineDataRepository = klineDataRepository;
-            _tradingPairRepository = tradingPairRepository;
             _logger = logger;
         }
 
@@ -34,17 +31,38 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<IEnumerable<KLineData>> GetHistoricalKLineDataAsync(string symbol, string interval, DateTime startTime, DateTime endTime)
+        public async Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string interval, long? startTime, long? endTime, int limit = 100)
         {
             try
             {
-                // 将 DateTime 转换为时间戳进行查询
-                var fromTime = startTime;
-                var recentData = await _klineDataRepository.GetRecentDataAsync(symbol, interval, fromTime);
+                var allData = await _klineDataRepository.GetBySymbolAndTimeFrameAsync(symbol, interval, limit * 2); // 获取更多数据用于过滤
                 
-                // 过滤结束时间
-                var endTimestamp = ((DateTimeOffset)endTime).ToUnixTimeMilliseconds();
-                return recentData.Where(k => k.OpenTime <= endTimestamp);
+                var filteredData = allData.AsQueryable();
+                
+                if (startTime.HasValue)
+                {
+                    filteredData = filteredData.Where(k => k.OpenTime >= startTime.Value);
+                }
+                
+                if (endTime.HasValue)
+                {
+                    filteredData = filteredData.Where(k => k.OpenTime <= endTime.Value);
+                }
+                
+                return filteredData.OrderByDescending(k => k.OpenTime).Take(limit).ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting K-line data with time range for {Symbol} {Interval}", symbol, interval);
+                return new List<KLineData>();
+            }
+        }
+
+        public async Task<IEnumerable<KLineData>> GetHistoricalKLineDataAsync(string symbol, string interval, long startTime, long endTime)
+        {
+            try
+            {
+                return await GetKLineDataAsync(symbol, interval, startTime, endTime, 1000);
             }
             catch (Exception ex)
             {

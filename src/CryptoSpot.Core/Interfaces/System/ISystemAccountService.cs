@@ -10,27 +10,27 @@ namespace CryptoSpot.Core.Interfaces.System
         /// <summary>
         /// 获取系统账号
         /// </summary>
-        Task<SystemAccount?> GetSystemAccountAsync(int id);
+        Task<User?> GetSystemAccountAsync(int id);
         
         /// <summary>
         /// 获取指定类型的系统账号
         /// </summary>
-        Task<IEnumerable<SystemAccount>> GetSystemAccountsByTypeAsync(SystemAccountType type);
+        Task<IEnumerable<User>> GetSystemAccountsByTypeAsync(UserType type);
         
         /// <summary>
         /// 获取活跃的系统账号
         /// </summary>
-        Task<IEnumerable<SystemAccount>> GetActiveSystemAccountsAsync();
+        Task<IEnumerable<User>> GetActiveSystemAccountsAsync();
         
         /// <summary>
         /// 创建系统账号
         /// </summary>
-        Task<SystemAccount> CreateSystemAccountAsync(string name, SystemAccountType type, string description = "");
+        Task<User> CreateSystemAccountAsync(string name, UserType type, string description = "");
         
         /// <summary>
         /// 更新系统账号
         /// </summary>
-        Task<SystemAccount> UpdateSystemAccountAsync(SystemAccount account);
+        Task<User> UpdateSystemAccountAsync(User account);
         
         /// <summary>
         /// 启用/禁用自动交易

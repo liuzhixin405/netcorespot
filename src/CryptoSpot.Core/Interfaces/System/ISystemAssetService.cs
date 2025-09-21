@@ -10,22 +10,22 @@ namespace CryptoSpot.Core.Interfaces.System
         /// <summary>
         /// 获取系统账号的所有资产
         /// </summary>
-        Task<IEnumerable<SystemAsset>> GetSystemAssetsAsync(int systemAccountId);
+        Task<IEnumerable<Asset>> GetSystemAssetsAsync(int systemAccountId);
         
         /// <summary>
         /// 获取系统账号的特定资产
         /// </summary>
-        Task<SystemAsset?> GetSystemAssetAsync(int systemAccountId, string symbol);
+        Task<Asset?> GetSystemAssetAsync(int systemAccountId, string symbol);
         
         /// <summary>
         /// 创建系统资产
         /// </summary>
-        Task<SystemAsset> CreateSystemAssetAsync(int systemAccountId, string symbol, decimal initialBalance = 0);
+        Task<Asset> CreateSystemAssetAsync(int systemAccountId, string symbol, decimal initialBalance = 0);
         
         /// <summary>
         /// 更新资产余额
         /// </summary>
-        Task<SystemAsset> UpdateAssetBalanceAsync(int systemAccountId, string symbol, decimal available, decimal frozen);
+        Task<Asset> UpdateAssetBalanceAsync(int systemAccountId, string symbol, decimal available, decimal frozen);
         
         /// <summary>
         /// 冻结资产（下单时）

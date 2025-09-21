@@ -3,6 +3,7 @@ using CryptoSpot.Core.Interfaces.Auth;
 using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Interfaces.Repositories;
 using CryptoSpot.Core.Commands.Auth;
+using CryptoSpot.Core.Extensions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -50,7 +51,7 @@ namespace CryptoSpot.Infrastructure.Services
                 }
 
                 // Update last login time
-                user.LastLoginAt = DateTime.UtcNow;
+                user.LastLoginAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
                 await _userRepository.UpdateAsync(user);
 
                 var token = GenerateJwtToken(user);
@@ -60,7 +61,7 @@ namespace CryptoSpot.Infrastructure.Services
                     Token = token,
                     Username = user.Username,
                     Email = user.Email,
-                    ExpiresAt = DateTime.UtcNow.AddDays(7)
+                    ExpiresAt = DateTime.UtcNow.AddDays(7) // 7天
                 };
             }
             catch (Exception ex)
@@ -93,7 +94,6 @@ namespace CryptoSpot.Infrastructure.Services
                     Username = command.Username,
                     Email = command.Email,
                     PasswordHash = HashPassword(command.Password),
-                    CreatedAt = DateTime.UtcNow,
                     IsActive = true
                 };
 
@@ -118,7 +118,7 @@ namespace CryptoSpot.Infrastructure.Services
                     Token = token,
                     Username = createdUser.Username,
                     Email = createdUser.Email,
-                    ExpiresAt = DateTime.UtcNow.AddDays(7)
+                    ExpiresAt = DateTime.UtcNow.AddDays(7)// 7天
                 };
             }
             catch (Exception ex)
@@ -233,7 +233,7 @@ namespace CryptoSpot.Infrastructure.Services
                     new Claim(ClaimTypes.Name, user.Username),
                     new Claim(ClaimTypes.Email, user.Email)
                 }),
-                Expires = DateTime.UtcNow.AddDays(7),
+                Expires = DateTime.UtcNow.AddDays(7), // 7天
                 Issuer = issuer,
                 Audience = audience,
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)

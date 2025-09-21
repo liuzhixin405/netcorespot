@@ -27,10 +27,11 @@ namespace CryptoSpot.Application.Services
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            using var scope = _serviceScopeFactory.CreateScope();
+            
             try
             {
                 // 获取自动交易逻辑服务
-                using var scope = _serviceScopeFactory.CreateScope();
                 _autoTradingLogicService = scope.ServiceProvider.GetRequiredService<IAutoTradingService>();
                 
                 if (_autoTradingLogicService == null)

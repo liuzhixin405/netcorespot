@@ -1,14 +1,12 @@
+using CryptoSpot.Core.Extensions;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace CryptoSpot.Core.Entities
 {
     [Table("KLineData")]
-    public class KLineData
+    public class KLineData : BaseEntity
     {
-        [Key]
-        public long Id { get; set; }
-
         [Required]
         public int TradingPairId { get; set; }
 
@@ -16,7 +14,16 @@ namespace CryptoSpot.Core.Entities
         [StringLength(10)]
         public string TimeFrame { get; set; } = string.Empty;
 
+        /// <summary>
+        /// 开盘时间戳 (Unix timestamp in milliseconds)
+        /// </summary>
+        [Column(TypeName = "bigint")]
         public long OpenTime { get; set; }
+
+        /// <summary>
+        /// 收盘时间戳 (Unix timestamp in milliseconds)
+        /// </summary>
+        [Column(TypeName = "bigint")]
         public long CloseTime { get; set; }
 
         [Column(TypeName = "decimal(18, 8)")]
@@ -34,10 +41,15 @@ namespace CryptoSpot.Core.Entities
         [Column(TypeName = "decimal(18, 8)")]
         public decimal Volume { get; set; }
 
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
         // Navigation properties
         [ForeignKey("TradingPairId")]
         public virtual TradingPair TradingPair { get; set; } = null!;
+
+        // Computed properties
+        [NotMapped]
+        public DateTime OpenDateTime => DateTimeExtensions.FromUnixTimeMilliseconds(OpenTime);
+
+        [NotMapped]
+        public DateTime CloseDateTime => DateTimeExtensions.FromUnixTimeMilliseconds(CloseTime);
     }
 }

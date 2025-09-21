@@ -56,10 +56,8 @@ namespace CryptoSpot.Infrastructure.Repositories
             await _context.SaveChangesAsync();
         }
 
-        public async Task<IEnumerable<KLineData>> GetRecentDataAsync(string symbol, string timeFrame, DateTime fromTime)
+        public async Task<IEnumerable<KLineData>> GetRecentDataAsync(string symbol, string timeFrame, long fromTimestamp)
         {
-            var fromTimestamp = ((DateTimeOffset)fromTime).ToUnixTimeMilliseconds();
-            
             return await _dbSet
                 .Include(k => k.TradingPair)
                 .Where(k => k.TradingPair.Symbol == symbol && 
@@ -67,6 +65,12 @@ namespace CryptoSpot.Infrastructure.Repositories
                            k.OpenTime >= fromTimestamp)
                 .OrderBy(k => k.OpenTime)
                 .ToListAsync();
+        }
+
+        public async Task<IEnumerable<KLineData>> GetRecentDataAsync(string symbol, string timeFrame, DateTime fromTime)
+        {
+            var fromTimestamp = ((DateTimeOffset)fromTime).ToUnixTimeMilliseconds();
+            return await GetRecentDataAsync(symbol, timeFrame, fromTimestamp);
         }
     }
 }

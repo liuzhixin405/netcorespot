@@ -5,6 +5,7 @@ using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Interfaces.Auth;
 using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Infrastructure.Data;
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Repositories;
@@ -29,24 +30,33 @@ builder.Services.AddSwaggerGen();
 
 // Database
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseMySql(builder.Configuration.GetConnectionString("DefaultConnection"), 
-        new MySqlServerVersion(new Version(8, 0, 0))));
-
+{
+    options.UseMySql(builder.Configuration.GetConnectionString("DefaultConnection"), ServerVersion.Parse("8.0"));
+    options.EnableThreadSafetyChecks(false); // 禁用线程安全检查
+    options.EnableServiceProviderCaching(false); // 禁用服务提供者缓存
+}, ServiceLifetime.Transient); 
 // Repository Layer
-builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
-builder.Services.AddScoped<IUserRepository, UserRepository>();
-builder.Services.AddScoped<ITradingPairRepository, TradingPairRepository>();
-builder.Services.AddScoped<IKLineDataRepository, KLineDataRepository>();
+builder.Services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddTransient<IUserRepository, UserRepository>();
+builder.Services.AddTransient<ITradingPairRepository, TradingPairRepository>();
+builder.Services.AddTransient<IKLineDataRepository, KLineDataRepository>();
+
+// Database Coordinator (Singleton for thread safety)
+builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 
 // Infrastructure Services (Data Access & External Services)
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPriceDataService, PriceDataService>();
 builder.Services.AddScoped<IKLineDataService, KLineDataService>();
+builder.Services.AddScoped<ITradingPairService, TradingPairService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IAssetService, AssetService>();
 builder.Services.AddScoped<ITradeService, TradeService>();
 builder.Services.AddScoped<ISystemAssetService, SystemAssetService>();
 builder.Services.AddScoped<ISystemAccountService, SystemAccountService>();
+
+// Data Initialization Service
+builder.Services.AddScoped<DataInitializationService>();
 
 // Application Services (Business Logic)
 builder.Services.AddScoped<ITradingService, TradingService>();
@@ -139,13 +149,32 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins("http://localhost:3000", "http://localhost:3001")
               .AllowAnyHeader()
               .AllowAnyMethod()
-              //.AllowAnyOrigin();
               .AllowCredentials();
-              //.WithExposedHeaders("Content-Type");
     });
+    
+    // 开发环境允许所有来源（但不允许凭据）
+    if (builder.Environment.IsDevelopment())
+    {
+        options.AddPolicy("AllowAll", policy =>
+        {
+            policy.AllowAnyOrigin()
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        });
+        
+        // 开发环境允许特定来源和凭据（用于 SignalR）
+        options.AddPolicy("AllowAllWithCredentials", policy =>
+        {
+            policy.WithOrigins("http://localhost:3000", "http://localhost:3001", "https://localhost:3000", "https://localhost:3001", 
+                              "http://localhost:5000", "https://localhost:5001")
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        });
+    }
 });
 // Add SignalR
 builder.Services.AddSignalR(options =>
@@ -163,7 +192,16 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection(); // Commented out for HTTP development
-app.UseCors("AllowReactApp");
+
+// 在开发环境使用 AllowAllWithCredentials 策略，生产环境使用 AllowReactApp 策略
+if (app.Environment.IsDevelopment())
+{
+    app.UseCors("AllowAllWithCredentials");
+}
+else
+{
+    app.UseCors("AllowReactApp");
+}
 app.UseRouting();
 
 
@@ -198,6 +236,29 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"❌ Database setup failed: {ex.Message}");
         // Don't throw - let the app continue and fail gracefully on first DB operation
     }
+}
+
+// Initialize data
+try
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var dataInitService = scope.ServiceProvider.GetRequiredService<DataInitializationService>();
+        if (await dataInitService.NeedsInitializationAsync())
+        {
+            await dataInitService.InitializeDataAsync();
+            Console.WriteLine("✅ Data initialization completed");
+        }
+        else
+        {
+            Console.WriteLine("✅ Data already initialized");
+        }
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"❌ Data initialization failed: {ex.Message}");
+    // Don't throw - let the app continue
 }
 
 app.Run();

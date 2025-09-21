@@ -11,7 +11,7 @@ namespace CryptoSpot.Core.Interfaces.Trading
         Task<IEnumerable<Order>> GetUserOrdersAsync(int userId, string? symbol = null);
         Task<IEnumerable<Trade>> GetUserTradesAsync(int userId, string? symbol = null);
         Task<Order?> SubmitOrderAsync(int userId, SubmitOrderRequest request);
-        Task<bool> CancelOrderAsync(int userId, long orderId);
+        Task<bool> CancelOrderAsync(int userId, int orderId);
     }
 
     public class SubmitOrderRequest

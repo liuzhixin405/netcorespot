@@ -2,6 +2,7 @@ using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.MarketData;
+using CryptoSpot.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -14,9 +15,10 @@ namespace CryptoSpot.Application.Services
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<AutoTradingLogicService> _logger;
-        private readonly Timer _tradingTimer;
-        private readonly Timer _cleanupTimer;
         private readonly Random _random = new();
+        private readonly CancellationTokenSource _cancellationTokenSource = new();
+        private Task? _tradingTask;
+        private Task? _cleanupTask;
 
         // 支持的交易对
         private readonly string[] _supportedSymbols = { "BTCUSDT", "ETHUSDT", "SOLUSDT" };
@@ -32,12 +34,6 @@ namespace CryptoSpot.Application.Services
         {
             _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
-            
-            // 每30秒执行一次交易逻辑
-            _tradingTimer = new Timer(ExecuteTradingLogic, null, Timeout.Infinite, Timeout.Infinite);
-            
-            // 每5分钟清理过期订单
-            _cleanupTimer = new Timer(CleanupExpiredOrders, null, Timeout.Infinite, Timeout.Infinite);
         }
 
         public async Task StartAutoTradingAsync()
@@ -47,20 +43,30 @@ namespace CryptoSpot.Application.Services
             // 确保系统账号存在
             await EnsureSystemAccountsExistAsync();
             
-            // 启动定时器
-            _tradingTimer.Change(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30));
-            _cleanupTimer.Change(TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5));
+            // 启动异步任务
+            _tradingTask = Task.Run(async () => await TradingLoopAsync(_cancellationTokenSource.Token));
+            _cleanupTask = Task.Run(async () => await CleanupLoopAsync(_cancellationTokenSource.Token));
         }
 
         public async Task StopAutoTradingAsync()
         {
             _logger.LogInformation("停止自动交易服务");
             
-            _tradingTimer.Change(Timeout.Infinite, Timeout.Infinite);
-            _cleanupTimer.Change(Timeout.Infinite, Timeout.Infinite);
+            // 取消所有任务
+            _cancellationTokenSource.Cancel();
             
             try
             {
+                // 等待任务完成
+                if (_tradingTask != null)
+                {
+                    await _tradingTask;
+                }
+                if (_cleanupTask != null)
+                {
+                    await _cleanupTask;
+                }
+                
                 // 取消所有系统订单
                 await CancelAllSystemOrdersAsync();
             }
@@ -84,7 +90,7 @@ namespace CryptoSpot.Application.Services
             
             try
             {
-                var marketMakers = await systemAccountService.GetSystemAccountsByTypeAsync(SystemAccountType.MarketMaker);
+                var marketMakers = await systemAccountService.GetSystemAccountsByTypeAsync(UserType.MarketMaker);
                 var activeMarketMaker = marketMakers.FirstOrDefault(a => a.IsActive && a.IsAutoTradingEnabled);
                 
                 if (activeMarketMaker == null)
@@ -123,6 +129,17 @@ namespace CryptoSpot.Application.Services
                 // 创建卖单
                 await CreateSellOrdersAsync(activeMarketMaker.Id, symbol, currentPrice.Price, baseAssetBalance.Available, orderService);
                 
+                // 推送订单簿更新
+                try
+                {
+                    var realTimeDataPushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                    await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "推送订单簿数据失败: Symbol={Symbol}", symbol);
+                }
+                
                 _logger.LogInformation("为 {Symbol} 创建做市订单完成", symbol);
             }
             catch (Exception ex)
@@ -144,7 +161,7 @@ namespace CryptoSpot.Application.Services
                 foreach (var account in systemAccounts)
                 {
                     var activeOrders = await orderService.GetActiveOrdersAsync();
-                    var systemOrders = activeOrders.Where(o => o.SystemAccountId == account.Id);
+                    var systemOrders = activeOrders.Where(o => o.UserId == account.Id);
                     
                     foreach (var order in systemOrders)
                     {
@@ -194,7 +211,7 @@ namespace CryptoSpot.Application.Services
             var systemAssetService = scope.ServiceProvider.GetRequiredService<ISystemAssetService>();
             var orderService = scope.ServiceProvider.GetRequiredService<IOrderService>();
             
-            var stats = new AutoTradingStats { SystemAccountId = systemAccountId };
+            var stats = new AutoTradingStats { UserId = systemAccountId };
 
             try
             {
@@ -202,7 +219,7 @@ namespace CryptoSpot.Application.Services
                 stats.AssetBalances = assets.ToDictionary(a => a.Symbol, a => a.Total);
 
                 var activeOrders = await orderService.GetActiveOrdersAsync();
-                stats.ActiveOrdersCount = activeOrders.Count(o => o.SystemAccountId == systemAccountId);
+                stats.ActiveOrdersCount = activeOrders.Count(o => o.UserId == systemAccountId);
             }
             catch (Exception ex)
             {
@@ -214,42 +231,77 @@ namespace CryptoSpot.Application.Services
 
         public void Dispose()
         {
-            _tradingTimer?.Dispose();
-            _cleanupTimer?.Dispose();
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource?.Dispose();
         }
 
         #region Private Methods
 
-        private async void ExecuteTradingLogic(object? state)
+        private async Task TradingLoopAsync(CancellationToken cancellationToken)
         {
             try
             {
-                using var scope = _serviceScopeFactory.CreateScope();
-                var orderMatchingEngine = scope.ServiceProvider.GetRequiredService<IOrderMatchingEngine>();
+                // 初始延迟
+                await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
                 
-                foreach (var symbol in _supportedSymbols)
+                while (!cancellationToken.IsCancellationRequested)
                 {
-                    await CreateMarketMakingOrdersAsync(symbol);
+                    try
+                    {
+                        using var scope = _serviceScopeFactory.CreateScope();
+                        var orderMatchingEngine = scope.ServiceProvider.GetRequiredService<IOrderMatchingEngine>();
+                        
+                        foreach (var symbol in _supportedSymbols)
+                        {
+                            if (cancellationToken.IsCancellationRequested)
+                                break;
+                                
+                            await CreateMarketMakingOrdersAsync(symbol);
+                            
+                            // 执行订单匹配
+                            await orderMatchingEngine.MatchOrdersAsync(symbol);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "执行交易逻辑时出错");
+                    }
                     
-                    // 执行订单匹配
-                    await orderMatchingEngine.MatchOrdersAsync(symbol);
+                    // 等待30秒
+                    await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
                 }
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                _logger.LogError(ex, "执行交易逻辑时出错");
+                _logger.LogInformation("交易循环已取消");
             }
         }
 
-        private async void CleanupExpiredOrders(object? state)
+        private async Task CleanupLoopAsync(CancellationToken cancellationToken)
         {
             try
             {
-                await CancelExpiredSystemOrdersAsync();
+                // 初始延迟
+                await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
+                
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await CancelExpiredSystemOrdersAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "清理过期订单时出错");
+                    }
+                    
+                    // 等待5分钟
+                    await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken);
+                }
             }
-            catch (Exception ex)
+            catch (OperationCanceledException)
             {
-                _logger.LogError(ex, "清理过期订单时出错");
+                _logger.LogInformation("清理循环已取消");
             }
         }
 
@@ -259,12 +311,12 @@ namespace CryptoSpot.Application.Services
             var systemAccountService = scope.ServiceProvider.GetRequiredService<ISystemAccountService>();
             var systemAssetService = scope.ServiceProvider.GetRequiredService<ISystemAssetService>();
             
-            var marketMakers = await systemAccountService.GetSystemAccountsByTypeAsync(SystemAccountType.MarketMaker);
+            var marketMakers = await systemAccountService.GetSystemAccountsByTypeAsync(UserType.MarketMaker);
             
             if (!marketMakers.Any())
             {
                 var marketMaker = await systemAccountService.CreateSystemAccountAsync(
-                    "主要做市商", SystemAccountType.MarketMaker, "提供主要流动性的做市商账号");
+                    "主要做市商", UserType.MarketMaker, "提供主要流动性的做市商账号");
                 
                 // 初始化资产
                 var initialBalances = new Dictionary<string, decimal>
@@ -294,7 +346,7 @@ namespace CryptoSpot.Application.Services
                 foreach (var account in systemAccounts)
                 {
                     var activeOrders = await orderService.GetActiveOrdersAsync();
-                    var systemOrders = activeOrders.Where(o => o.SystemAccountId == account.Id);
+                    var systemOrders = activeOrders.Where(o => o.UserId == account.Id);
                     
                     foreach (var order in systemOrders)
                     {
@@ -317,7 +369,7 @@ namespace CryptoSpot.Application.Services
         private async Task CancelExistingSystemOrdersAsync(int systemAccountId, string symbol, IOrderService orderService)
         {
             var activeOrders = await orderService.GetActiveOrdersAsync(symbol);
-            var systemOrders = activeOrders.Where(o => o.SystemAccountId == systemAccountId);
+            var systemOrders = activeOrders.Where(o => o.UserId == systemAccountId);
             
             foreach (var order in systemOrders)
             {
@@ -337,7 +389,7 @@ namespace CryptoSpot.Application.Services
                 var quantity = orderSize / orderPrice;
 
                 await orderService.CreateOrderAsync(
-                    null, symbol, OrderSide.Buy, OrderType.Limit, quantity, orderPrice, systemAccountId);
+                    systemAccountId, symbol, OrderSide.Buy, OrderType.Limit, quantity, orderPrice);
             }
         }
 
@@ -355,7 +407,7 @@ namespace CryptoSpot.Application.Services
                 var quantity = orderSize;
 
                 await orderService.CreateOrderAsync(
-                    null, symbol, OrderSide.Sell, OrderType.Limit, quantity, orderPrice, systemAccountId);
+                    systemAccountId, symbol, OrderSide.Sell, OrderType.Limit, quantity, orderPrice);
             }
         }
 

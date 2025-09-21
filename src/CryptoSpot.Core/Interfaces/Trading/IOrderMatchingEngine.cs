@@ -25,7 +25,7 @@ namespace CryptoSpot.Core.Interfaces.Trading
         /// <summary>
         /// 取消订单
         /// </summary>
-        Task<bool> CancelOrderAsync(long orderId);
+        Task<bool> CancelOrderAsync(int orderId);
         
         /// <summary>
         /// 检查订单是否可以匹配

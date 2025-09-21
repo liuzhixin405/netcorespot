@@ -57,7 +57,7 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     existingAsset.Available = available;
                     existingAsset.Frozen = frozen;
-                    existingAsset.UpdatedAt = DateTime.UtcNow;
+                    existingAsset.Touch();
                     await _assetRepository.UpdateAsync(existingAsset);
                     return existingAsset;
                 }
@@ -69,8 +69,6 @@ namespace CryptoSpot.Infrastructure.Services
                         Symbol = symbol,
                         Available = available,
                         Frozen = frozen,
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow
                     };
                     
                     return await _assetRepository.AddAsync(newAsset);
@@ -95,7 +93,7 @@ namespace CryptoSpot.Infrastructure.Services
 
                 asset.Available = available;
                 asset.Frozen = frozen;
-                asset.UpdatedAt = DateTime.UtcNow;
+                asset.Touch();
                 await _assetRepository.UpdateAsync(asset);
                 
                 return asset;
@@ -137,7 +135,7 @@ namespace CryptoSpot.Infrastructure.Services
 
                 asset.Available -= amount;
                 asset.Frozen += amount;
-                asset.UpdatedAt = DateTime.UtcNow;
+                asset.Touch();
                 
                 await _assetRepository.UpdateAsync(asset);
                 
@@ -164,7 +162,7 @@ namespace CryptoSpot.Infrastructure.Services
 
                 asset.Frozen -= amount;
                 asset.Available += amount;
-                asset.UpdatedAt = DateTime.UtcNow;
+                asset.Touch();
                 
                 await _assetRepository.UpdateAsync(asset);
                 
@@ -208,7 +206,7 @@ namespace CryptoSpot.Infrastructure.Services
                     asset.Available -= amount;
                 }
 
-                asset.UpdatedAt = DateTime.UtcNow;
+                asset.Touch();
                 await _assetRepository.UpdateAsync(asset);
                 
                 _logger.LogInformation("Deducted {Amount} {Symbol} from user {UserId} ({Source})", 
@@ -235,7 +233,7 @@ namespace CryptoSpot.Infrastructure.Services
                 else
                 {
                     asset.Available += amount;
-                    asset.UpdatedAt = DateTime.UtcNow;
+                    asset.Touch();
                     await _assetRepository.UpdateAsync(asset);
                 }
                 

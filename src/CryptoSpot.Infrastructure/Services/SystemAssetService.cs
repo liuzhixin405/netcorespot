@@ -1,70 +1,66 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     public class SystemAssetService : ISystemAssetService
     {
-        private readonly IRepository<SystemAsset> _systemAssetRepository;
-        private readonly IRepository<SystemAccount> _systemAccountRepository;
+        private readonly IRepository<Asset> _assetRepository;
         private readonly ILogger<SystemAssetService> _logger;
 
         public SystemAssetService(
-            IRepository<SystemAsset> systemAssetRepository,
-            IRepository<SystemAccount> systemAccountRepository,
+            IRepository<Asset> assetRepository,
             ILogger<SystemAssetService> logger)
         {
-            _systemAssetRepository = systemAssetRepository;
-            _systemAccountRepository = systemAccountRepository;
+            _assetRepository = assetRepository;
             _logger = logger;
         }
 
-        public async Task<IEnumerable<SystemAsset>> GetSystemAssetsAsync(int systemAccountId)
+        public async Task<IEnumerable<Asset>> GetSystemAssetsAsync(int systemAccountId)
         {
             try
             {
-                return await _systemAssetRepository.FindAsync(a => a.SystemAccountId == systemAccountId);
+                return await _assetRepository.FindAsync(a => a.UserId == systemAccountId && a.UserId != null);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting system assets for account {SystemAccountId}", systemAccountId);
-                return new List<SystemAsset>();
+                _logger.LogError(ex, "Error getting system assets for account {AccountId}", systemAccountId);
+                return new List<Asset>();
             }
         }
 
-        public async Task<SystemAsset?> GetSystemAssetAsync(int systemAccountId, string symbol)
+        public async Task<Asset?> GetSystemAssetAsync(int systemAccountId, string symbol)
         {
             try
             {
-                return await _systemAssetRepository.FirstOrDefaultAsync(a => 
-                    a.SystemAccountId == systemAccountId && a.Symbol == symbol);
+                var assets = await _assetRepository.FindAsync(a => a.UserId == systemAccountId && a.Symbol == symbol);
+                return assets.FirstOrDefault();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting system asset {Symbol} for account {SystemAccountId}", symbol, systemAccountId);
+                _logger.LogError(ex, "Error getting system asset {Symbol} for account {AccountId}", symbol, systemAccountId);
                 return null;
             }
         }
 
-        public async Task<SystemAsset> CreateSystemAssetAsync(int systemAccountId, string symbol, decimal initialBalance = 0)
+        public async Task<Asset> CreateSystemAssetAsync(int systemAccountId, string symbol, decimal initialBalance = 0)
         {
             try
             {
-                var systemAsset = new SystemAsset
+                var systemAsset = new Asset
                 {
-                    SystemAccountId = systemAccountId,
+                    UserId = systemAccountId,
                     Symbol = symbol,
                     Available = initialBalance,
                     Frozen = 0,
                     MinReserve = 0,
                     TargetBalance = initialBalance,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
                 };
 
-                var createdAsset = await _systemAssetRepository.AddAsync(systemAsset);
+                var createdAsset = await _assetRepository.AddAsync(systemAsset);
                 _logger.LogInformation("Created system asset {Symbol} for account {SystemAccountId} with balance {Balance}", 
                     symbol, systemAccountId, initialBalance);
 
@@ -72,35 +68,34 @@ namespace CryptoSpot.Infrastructure.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error creating system asset {Symbol} for account {SystemAccountId}", symbol, systemAccountId);
+                _logger.LogError(ex, "Error creating system asset {Symbol} for account {AccountId}", symbol, systemAccountId);
                 throw;
             }
         }
 
-        public async Task<SystemAsset> UpdateAssetBalanceAsync(int systemAccountId, string symbol, decimal available, decimal frozen)
+        public async Task<Asset> UpdateAssetBalanceAsync(int systemAccountId, string symbol, decimal available, decimal frozen)
         {
             try
             {
                 var asset = await GetSystemAssetAsync(systemAccountId, symbol);
                 if (asset == null)
                 {
-                    asset = await CreateSystemAssetAsync(systemAccountId, symbol, available);
-                    asset.Frozen = frozen;
-                    await _systemAssetRepository.UpdateAsync(asset);
+                    throw new InvalidOperationException($"System asset {symbol} not found for account {systemAccountId}");
                 }
-                else
-                {
-                    asset.Available = available;
-                    asset.Frozen = frozen;
-                    asset.UpdatedAt = DateTime.UtcNow;
-                    await _systemAssetRepository.UpdateAsync(asset);
-                }
+
+                asset.Available = available;
+                asset.Frozen = frozen;
+                asset.Touch();
+                await _assetRepository.UpdateAsync(asset);
+
+                _logger.LogDebug("Updated system asset {Symbol} balance for account {AccountId}: Available={Available}, Frozen={Frozen}", 
+                    symbol, systemAccountId, available, frozen);
 
                 return asset;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error updating system asset balance {Symbol} for account {SystemAccountId}", symbol, systemAccountId);
+                _logger.LogError(ex, "Error updating system asset {Symbol} balance for account {AccountId}", symbol, systemAccountId);
                 throw;
             }
         }
@@ -112,23 +107,21 @@ namespace CryptoSpot.Infrastructure.Services
                 var asset = await GetSystemAssetAsync(systemAccountId, symbol);
                 if (asset == null || asset.Available < amount)
                 {
-                    _logger.LogWarning("Insufficient system balance to freeze {Amount} {Symbol} for account {SystemAccountId}", 
-                        amount, symbol, systemAccountId);
                     return false;
                 }
 
                 asset.Available -= amount;
                 asset.Frozen += amount;
-                asset.UpdatedAt = DateTime.UtcNow;
+                asset.Touch();
                 
-                await _systemAssetRepository.UpdateAsync(asset);
+                await _assetRepository.UpdateAsync(asset);
                 
-                _logger.LogInformation("Froze {Amount} {Symbol} for system account {SystemAccountId}", amount, symbol, systemAccountId);
+                _logger.LogDebug("Frozen {Amount} {Symbol} for system account {AccountId}", amount, symbol, systemAccountId);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error freezing system asset {Symbol} for account {SystemAccountId}", symbol, systemAccountId);
+                _logger.LogError(ex, "Error freezing asset {Symbol} for system account {AccountId}", symbol, systemAccountId);
                 return false;
             }
         }
@@ -140,23 +133,21 @@ namespace CryptoSpot.Infrastructure.Services
                 var asset = await GetSystemAssetAsync(systemAccountId, symbol);
                 if (asset == null || asset.Frozen < amount)
                 {
-                    _logger.LogWarning("Insufficient frozen system balance to unfreeze {Amount} {Symbol} for account {SystemAccountId}", 
-                        amount, symbol, systemAccountId);
                     return false;
                 }
 
                 asset.Frozen -= amount;
                 asset.Available += amount;
-                asset.UpdatedAt = DateTime.UtcNow;
+                asset.Touch();
                 
-                await _systemAssetRepository.UpdateAsync(asset);
+                await _assetRepository.UpdateAsync(asset);
                 
-                _logger.LogInformation("Unfroze {Amount} {Symbol} for system account {SystemAccountId}", amount, symbol, systemAccountId);
+                _logger.LogDebug("Unfrozen {Amount} {Symbol} for system account {AccountId}", amount, symbol, systemAccountId);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error unfreezing system asset {Symbol} for account {SystemAccountId}", symbol, systemAccountId);
+                _logger.LogError(ex, "Error unfreezing asset {Symbol} for system account {AccountId}", symbol, systemAccountId);
                 return false;
             }
         }
@@ -168,41 +159,32 @@ namespace CryptoSpot.Infrastructure.Services
                 var asset = await GetSystemAssetAsync(systemAccountId, symbol);
                 if (asset == null)
                 {
-                    _logger.LogWarning("System asset {Symbol} not found for account {SystemAccountId}", symbol, systemAccountId);
                     return false;
                 }
 
-                if (fromFrozen)
+                if (fromFrozen && asset.Frozen >= amount)
                 {
-                    if (asset.Frozen < amount)
-                    {
-                        _logger.LogWarning("Insufficient frozen system balance to deduct {Amount} {Symbol} for account {SystemAccountId}", 
-                            amount, symbol, systemAccountId);
-                        return false;
-                    }
                     asset.Frozen -= amount;
+                }
+                else if (!fromFrozen && asset.Available >= amount)
+                {
+                    asset.Available -= amount;
                 }
                 else
                 {
-                    if (asset.Available < amount)
-                    {
-                        _logger.LogWarning("Insufficient available system balance to deduct {Amount} {Symbol} for account {SystemAccountId}", 
-                            amount, symbol, systemAccountId);
-                        return false;
-                    }
-                    asset.Available -= amount;
+                    return false;
                 }
 
-                asset.UpdatedAt = DateTime.UtcNow;
-                await _systemAssetRepository.UpdateAsync(asset);
+                asset.Touch();
+                await _assetRepository.UpdateAsync(asset);
                 
-                _logger.LogInformation("Deducted {Amount} {Symbol} from system account {SystemAccountId} ({Source})", 
-                    amount, symbol, systemAccountId, fromFrozen ? "frozen" : "available");
+                _logger.LogDebug("Deducted {Amount} {Symbol} from system account {AccountId} (fromFrozen={FromFrozen})", 
+                    amount, symbol, systemAccountId, fromFrozen);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deducting system asset {Symbol} for account {SystemAccountId}", symbol, systemAccountId);
+                _logger.LogError(ex, "Error deducting asset {Symbol} for system account {AccountId}", symbol, systemAccountId);
                 return false;
             }
         }
@@ -214,21 +196,21 @@ namespace CryptoSpot.Infrastructure.Services
                 var asset = await GetSystemAssetAsync(systemAccountId, symbol);
                 if (asset == null)
                 {
+                    // 如果资产不存在，创建它
                     await CreateSystemAssetAsync(systemAccountId, symbol, amount);
+                    return true;
                 }
-                else
-                {
-                    asset.Available += amount;
-                    asset.UpdatedAt = DateTime.UtcNow;
-                    await _systemAssetRepository.UpdateAsync(asset);
-                }
+
+                asset.Available += amount;
+                asset.Touch();
+                await _assetRepository.UpdateAsync(asset);
                 
-                _logger.LogInformation("Added {Amount} {Symbol} to system account {SystemAccountId}", amount, symbol, systemAccountId);
+                _logger.LogDebug("Added {Amount} {Symbol} to system account {AccountId}", amount, symbol, systemAccountId);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error adding system asset {Symbol} for account {SystemAccountId}", symbol, systemAccountId);
+                _logger.LogError(ex, "Error adding asset {Symbol} for system account {AccountId}", symbol, systemAccountId);
                 return false;
             }
         }
@@ -238,11 +220,11 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 var asset = await GetSystemAssetAsync(systemAccountId, symbol);
-                return asset != null && asset.Available >= amount;
+                return asset?.Available >= amount;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking system balance for account {SystemAccountId}, symbol {Symbol}", systemAccountId, symbol);
+                _logger.LogError(ex, "Error checking balance for {Symbol} in system account {AccountId}", symbol, systemAccountId);
                 return false;
             }
         }
@@ -251,21 +233,20 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                foreach (var balance in initialBalances)
+                foreach (var kvp in initialBalances)
                 {
-                    var existingAsset = await GetSystemAssetAsync(systemAccountId, balance.Key);
+                    var existingAsset = await GetSystemAssetAsync(systemAccountId, kvp.Key);
                     if (existingAsset == null)
                     {
-                        await CreateSystemAssetAsync(systemAccountId, balance.Key, balance.Value);
+                        await CreateSystemAssetAsync(systemAccountId, kvp.Key, kvp.Value);
                     }
                 }
                 
-                _logger.LogInformation("Initialized system assets for account {SystemAccountId} with {Count} assets", 
-                    systemAccountId, initialBalances.Count);
+                _logger.LogInformation("Initialized {Count} system assets for account {AccountId}", initialBalances.Count, systemAccountId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error initializing system assets for account {SystemAccountId}", systemAccountId);
+                _logger.LogError(ex, "Error initializing system assets for account {AccountId}", systemAccountId);
                 throw;
             }
         }
@@ -275,28 +256,23 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 var asset = await GetSystemAssetAsync(systemAccountId, symbol);
-                if (asset == null)
+                if (asset == null || !asset.AutoRefillEnabled || asset.Available >= asset.TargetBalance)
                 {
                     return false;
                 }
 
-                // 如果当前余额低于目标余额，进行自动充值
-                var totalBalance = asset.Available + asset.Frozen;
-                if (totalBalance < asset.TargetBalance)
-                {
-                    var refillAmount = asset.TargetBalance - totalBalance;
-                    await AddAssetAsync(systemAccountId, symbol, refillAmount);
-                    
-                    _logger.LogInformation("Auto-refilled {Amount} {Symbol} for system account {SystemAccountId}", 
-                        refillAmount, symbol, systemAccountId);
-                    return true;
-                }
-
-                return false;
+                var refillAmount = asset.TargetBalance - asset.Available;
+                asset.Available = asset.TargetBalance;
+                asset.Touch();
+                
+                await _assetRepository.UpdateAsync(asset);
+                
+                _logger.LogInformation("Auto refilled {Amount} {Symbol} for system account {AccountId}", refillAmount, symbol, systemAccountId);
+                return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error auto-refilling system asset {Symbol} for account {SystemAccountId}", symbol, systemAccountId);
+                _logger.LogError(ex, "Error auto refilling asset {Symbol} for system account {AccountId}", symbol, systemAccountId);
                 return false;
             }
         }

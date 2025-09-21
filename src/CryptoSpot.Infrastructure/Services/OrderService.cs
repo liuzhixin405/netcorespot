@@ -1,27 +1,32 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Extensions;
+using CryptoSpot.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
 {
-    public class OrderService : IOrderService
+    public class OrderService : IOrderService, IDisposable
     {
         private readonly IRepository<Order> _orderRepository;
-        private readonly ITradingPairRepository _tradingPairRepository;
+        private readonly ITradingPairService _tradingPairService;
+        private readonly IDatabaseCoordinator _databaseCoordinator;
         private readonly ILogger<OrderService> _logger;
 
         public OrderService(
             IRepository<Order> orderRepository,
-            ITradingPairRepository tradingPairRepository,
+            ITradingPairService tradingPairService,
+            IDatabaseCoordinator databaseCoordinator,
             ILogger<OrderService> logger)
         {
             _orderRepository = orderRepository;
-            _tradingPairRepository = tradingPairRepository;
+            _tradingPairService = tradingPairService;
+            _databaseCoordinator = databaseCoordinator;
             _logger = logger;
         }
 
-        public async Task<Order?> GetOrderByIdAsync(long orderId, int? userId = null)
+        public async Task<Order?> GetOrderByIdAsync(int orderId, int? userId = null)
         {
             try
             {
@@ -64,42 +69,41 @@ namespace CryptoSpot.Infrastructure.Services
 
         public async Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null)
         {
-            try
+            return await _databaseCoordinator.ExecuteAsync(async () =>
             {
-                if (string.IsNullOrEmpty(symbol))
+                try
                 {
+                    if (string.IsNullOrEmpty(symbol))
+                    {
+                        return await _orderRepository.FindAsync(o => 
+                            o.Status == OrderStatus.Pending || o.Status == OrderStatus.PartiallyFilled);
+                    }
+                    
+                    var tradingPairId = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                    if (tradingPairId == 0)
+                    {
+                        return new List<Order>();
+                    }
+                    
                     return await _orderRepository.FindAsync(o => 
-                        o.Status == OrderStatus.Pending || o.Status == OrderStatus.PartiallyFilled);
+                        o.TradingPairId == tradingPairId && 
+                        (o.Status == OrderStatus.Pending || o.Status == OrderStatus.PartiallyFilled));
                 }
-                
-                var tradingPair = await _tradingPairRepository.GetBySymbolAsync(symbol);
-                if (tradingPair == null)
+                catch (Exception ex)
                 {
+                    _logger.LogError(ex, "Error getting active orders for {Symbol}", symbol ?? "all");
                     return new List<Order>();
                 }
-                
-                return await _orderRepository.FindAsync(o => 
-                    o.TradingPairId == tradingPair.Id && 
-                    (o.Status == OrderStatus.Pending || o.Status == OrderStatus.PartiallyFilled));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting active orders for {Symbol}", symbol ?? "all");
-                return new List<Order>();
-            }
+            }, $"GetActiveOrdersAsync_{symbol ?? "all"}");
         }
+
 
         public async Task<Order> CreateOrderAsync(int userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null)
         {
-            return await CreateOrderAsync((int?)userId, symbol, side, type, quantity, price, null);
-        }
-
-        public async Task<Order> CreateOrderAsync(int? userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null, int? systemAccountId = null)
-        {
             try
             {
-                var tradingPair = await _tradingPairRepository.GetBySymbolAsync(symbol);
-                if (tradingPair == null)
+                var tradingPairId = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                if (tradingPairId == 0)
                 {
                     throw new ArgumentException($"Trading pair {symbol} not found");
                 }
@@ -107,16 +111,13 @@ namespace CryptoSpot.Infrastructure.Services
                 var order = new Order
                 {
                     UserId = userId,
-                    SystemAccountId = systemAccountId,
-                    TradingPairId = tradingPair.Id,
+                    TradingPairId = tradingPairId,
                     OrderId = GenerateOrderId(),
                     Side = side,
                     Type = type,
                     Quantity = quantity,
                     Price = price,
-                    Status = OrderStatus.Pending,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
+                    Status = OrderStatus.Pending
                 };
 
                 var createdOrder = await _orderRepository.AddAsync(order);
@@ -131,7 +132,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task UpdateOrderStatusAsync(long orderId, OrderStatus status, decimal filledQuantity = 0, decimal averagePrice = 0)
+        public async Task UpdateOrderStatusAsync(int orderId, OrderStatus status, decimal filledQuantity = 0, decimal averagePrice = 0)
         {
             try
             {
@@ -142,7 +143,7 @@ namespace CryptoSpot.Infrastructure.Services
                 }
 
                 order.Status = status;
-                order.UpdatedAt = DateTime.UtcNow;
+                order.Touch(); // 调用BaseEntity的Touch方法更新UpdatedAt
                 order.FilledQuantity = filledQuantity;
                 order.AveragePrice = averagePrice;
 
@@ -155,7 +156,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<bool> CancelOrderAsync(long orderId, int? userId = null)
+        public async Task<bool> CancelOrderAsync(int orderId, int? userId = null)
         {
             try
             {
@@ -179,7 +180,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var expireTime = DateTime.UtcNow - expireAfter;
+                var expireTime = DateTimeExtensions.GetCurrentUnixTimeMilliseconds() - (long)expireAfter.TotalMilliseconds;
                 return await _orderRepository.FindAsync(o => 
                     (o.Status == OrderStatus.Pending || o.Status == OrderStatus.PartiallyFilled) &&
                     o.CreatedAt < expireTime);
@@ -193,7 +194,12 @@ namespace CryptoSpot.Infrastructure.Services
 
         private string GenerateOrderId()
         {
-            return $"ORD_{DateTime.UtcNow:yyyyMMddHHmmss}_{Random.Shared.Next(1000, 9999)}";
+            return $"ORD_{DateTime.Now:yyyyMMddHHmmss}_{Random.Shared.Next(1000, 9999)}";
+        }
+
+        public void Dispose()
+        {
+            // 没有需要释放的资源
         }
     }
 }

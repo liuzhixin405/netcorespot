@@ -1,28 +1,30 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     public class SystemAccountService : ISystemAccountService
     {
-        private readonly IRepository<SystemAccount> _systemAccountRepository;
+        private readonly IRepository<User> _userRepository;
         private readonly ILogger<SystemAccountService> _logger;
 
         public SystemAccountService(
-            IRepository<SystemAccount> systemAccountRepository,
+            IRepository<User> userRepository,
             ILogger<SystemAccountService> logger)
         {
-            _systemAccountRepository = systemAccountRepository;
+            _userRepository = userRepository;
             _logger = logger;
         }
 
-        public async Task<SystemAccount?> GetSystemAccountAsync(int id)
+        public async Task<User?> GetSystemAccountAsync(int id)
         {
             try
             {
-                return await _systemAccountRepository.GetByIdAsync(id);
+                var user = await _userRepository.GetByIdAsync(id);
+                return user?.Type != UserType.Regular ? user : null;
             }
             catch (Exception ex)
             {
@@ -31,39 +33,39 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<IEnumerable<SystemAccount>> GetSystemAccountsByTypeAsync(SystemAccountType type)
+        public async Task<IEnumerable<User>> GetSystemAccountsByTypeAsync(UserType type)
         {
             try
             {
-                return await _systemAccountRepository.FindAsync(a => a.Type == type);
+                return await _userRepository.FindAsync(u => u.Type == type && u.Type != UserType.Regular);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting system accounts by type {Type}", type);
-                return new List<SystemAccount>();
+                return new List<User>();
             }
         }
 
-        public async Task<IEnumerable<SystemAccount>> GetActiveSystemAccountsAsync()
+        public async Task<IEnumerable<User>> GetActiveSystemAccountsAsync()
         {
             try
             {
-                return await _systemAccountRepository.FindAsync(a => a.IsActive);
+                return await _userRepository.FindAsync(u => u.Type != UserType.Regular && u.IsActive);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting active system accounts");
-                return new List<SystemAccount>();
+                return new List<User>();
             }
         }
 
-        public async Task<SystemAccount> CreateSystemAccountAsync(string name, SystemAccountType type, string description = "")
+        public async Task<User> CreateSystemAccountAsync(string name, UserType type, string description = "")
         {
             try
             {
-                var systemAccount = new SystemAccount
+                var systemAccount = new User
                 {
-                    Name = name,
+                    Username = name,
                     Type = type,
                     Description = description,
                     IsActive = true,
@@ -71,11 +73,9 @@ namespace CryptoSpot.Infrastructure.Services
                     MaxRiskRatio = 0.1m, // 默认最大风险比例10%
                     DailyTradingLimit = 100000m, // 默认每日交易限额
                     DailyTradedAmount = 0m,
-                    CreatedAt = DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
                 };
 
-                var createdAccount = await _systemAccountRepository.AddAsync(systemAccount);
+                var createdAccount = await _userRepository.AddAsync(systemAccount);
                 _logger.LogInformation("Created system account {Name} of type {Type}", name, type);
 
                 return createdAccount;
@@ -87,12 +87,12 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<SystemAccount> UpdateSystemAccountAsync(SystemAccount account)
+        public async Task<User> UpdateSystemAccountAsync(User account)
         {
             try
             {
-                account.UpdatedAt = DateTime.UtcNow;
-                await _systemAccountRepository.UpdateAsync(account);
+                account.Touch();
+                await _userRepository.UpdateAsync(account);
                 
                 _logger.LogInformation("Updated system account {Id}", account.Id);
                 return account;
@@ -111,19 +111,18 @@ namespace CryptoSpot.Infrastructure.Services
                 var account = await GetSystemAccountAsync(accountId);
                 if (account == null)
                 {
-                    _logger.LogWarning("System account {AccountId} not found", accountId);
-                    return;
+                    throw new InvalidOperationException($"System account {accountId} not found");
                 }
 
                 account.IsAutoTradingEnabled = enabled;
                 await UpdateSystemAccountAsync(account);
                 
-                _logger.LogInformation("Set auto trading {Status} for system account {AccountId}", 
-                    enabled ? "enabled" : "disabled", accountId);
+                _logger.LogInformation("Set auto trading status for system account {Id} to {Enabled}", accountId, enabled);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error setting auto trading status for account {AccountId}", accountId);
+                _logger.LogError(ex, "Error setting auto trading status for system account {Id}", accountId);
+                throw;
             }
         }
 
@@ -134,18 +133,18 @@ namespace CryptoSpot.Infrastructure.Services
                 var account = await GetSystemAccountAsync(accountId);
                 if (account == null)
                 {
-                    _logger.LogWarning("System account {AccountId} not found", accountId);
-                    return;
+                    throw new InvalidOperationException($"System account {accountId} not found");
                 }
 
                 account.DailyTradedAmount = 0m;
                 await UpdateSystemAccountAsync(account);
                 
-                _logger.LogInformation("Reset daily stats for system account {AccountId}", accountId);
+                _logger.LogInformation("Reset daily stats for system account {Id}", accountId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error resetting daily stats for account {AccountId}", accountId);
+                _logger.LogError(ex, "Error resetting daily stats for system account {Id}", accountId);
+                throw;
             }
         }
     }

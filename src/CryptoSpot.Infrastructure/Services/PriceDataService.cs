@@ -1,20 +1,21 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Interfaces.Trading;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     public class PriceDataService : IPriceDataService
     {
-        private readonly ITradingPairRepository _tradingPairRepository;
+        private readonly ITradingPairService _tradingPairService;
         private readonly ILogger<PriceDataService> _logger;
 
         public PriceDataService(
-            ITradingPairRepository tradingPairRepository,
+            ITradingPairService tradingPairService,
             ILogger<PriceDataService> logger)
         {
-            _tradingPairRepository = tradingPairRepository;
+            _tradingPairService = tradingPairService;
             _logger = logger;
         }
 
@@ -22,7 +23,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await _tradingPairRepository.GetBySymbolAsync(symbol);
+                return await _tradingPairService.GetTradingPairAsync(symbol);
             }
             catch (Exception ex)
             {
@@ -38,7 +39,7 @@ namespace CryptoSpot.Infrastructure.Services
                 var results = new List<TradingPair>();
                 foreach (var symbol in symbols)
                 {
-                    var tradingPair = await _tradingPairRepository.GetBySymbolAsync(symbol);
+                    var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
                     if (tradingPair != null)
                     {
                         results.Add(tradingPair);
@@ -57,7 +58,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await _tradingPairRepository.GetTopPairsAsync(count);
+                return await _tradingPairService.GetTopTradingPairsAsync(count);
             }
             catch (Exception ex)
             {
@@ -70,7 +71,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                await _tradingPairRepository.UpdatePriceAsync(symbol, price, change24h, volume24h, high24h, low24h);
+                await _tradingPairService.UpdatePriceAsync(symbol, price, change24h, volume24h, high24h, low24h);
                 _logger.LogDebug("Updated price for {Symbol}: {Price}", symbol, price);
             }
             catch (Exception ex)

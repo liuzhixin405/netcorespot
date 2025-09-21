@@ -25,20 +25,12 @@ namespace CryptoSpot.Core.Entities
     }
 
     [Table("Orders")]
-    public class Order
+    public class Order : BaseEntity
     {
-        [Key]
-        public long Id { get; set; }
-
         /// <summary>
-        /// 用户ID（用户订单时使用）
+        /// 用户ID（普通用户或系统账号）
         /// </summary>
         public int? UserId { get; set; }
-
-        /// <summary>
-        /// 系统账号ID（系统订单时使用）
-        /// </summary>
-        public int? SystemAccountId { get; set; }
 
         [Required]
         public int TradingPairId { get; set; }
@@ -66,16 +58,9 @@ namespace CryptoSpot.Core.Entities
 
         public OrderStatus Status { get; set; } = OrderStatus.Pending;
 
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
-
         // Navigation properties
         [ForeignKey("UserId")]
         public virtual User? User { get; set; }
-
-        [ForeignKey("SystemAccountId")]
-        public virtual SystemAccount? SystemAccount { get; set; }
 
         [ForeignKey("TradingPairId")]
         public virtual TradingPair TradingPair { get; set; } = null!;

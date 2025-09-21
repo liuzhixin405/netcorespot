@@ -13,9 +13,14 @@ namespace CryptoSpot.Core.Interfaces.MarketData
         Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string interval, int limit = 100);
         
         /// <summary>
+        /// 获取K线数据（带时间范围）
+        /// </summary>
+        Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string interval, long? startTime, long? endTime, int limit = 100);
+        
+        /// <summary>
         /// 获取历史K线数据
         /// </summary>
-        Task<IEnumerable<KLineData>> GetHistoricalKLineDataAsync(string symbol, string interval, DateTime startTime, DateTime endTime);
+        Task<IEnumerable<KLineData>> GetHistoricalKLineDataAsync(string symbol, string interval, long startTime, long endTime);
         
         /// <summary>
         /// 获取最新K线数据

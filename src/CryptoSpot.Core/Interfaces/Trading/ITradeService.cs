@@ -30,7 +30,7 @@ namespace CryptoSpot.Core.Interfaces.Trading
         /// <summary>
         /// 获取订单的交易记录
         /// </summary>
-        Task<IEnumerable<Trade>> GetTradesByOrderIdAsync(long orderId);
+        Task<IEnumerable<Trade>> GetTradesByOrderIdAsync(int orderId);
         
         /// <summary>
         /// 获取交易统计

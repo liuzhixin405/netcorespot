@@ -2,6 +2,7 @@ using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces;
+using CryptoSpot.Core.Extensions;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -116,7 +117,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                     Volume24h = t.Volume,
                     High24h = t.HighPrice,
                     Low24h = t.LowPrice,
-                    LastUpdated = DateTime.UtcNow,
+                    LastUpdated = DateTimeExtensions.GetCurrentUnixTimeMilliseconds(),
                     IsActive = true
                 }).ToList();
             }
@@ -146,7 +147,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                     Volume24h = tickerData.Volume,
                     High24h = tickerData.HighPrice,
                     Low24h = tickerData.LowPrice,
-                    LastUpdated = DateTime.UtcNow,
+                    LastUpdated = DateTimeExtensions.GetCurrentUnixTimeMilliseconds(),
                     IsActive = true
                 };
             }
@@ -255,7 +256,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                             price = binancePair.Price,
                             change24h = binancePair.Change24h,
                             volume24h = binancePair.Volume24h,
-                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                            timestamp = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
                         };
                         
                         priceUpdates[binancePair.Symbol] = priceData;

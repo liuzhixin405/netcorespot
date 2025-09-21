@@ -25,10 +25,11 @@ namespace CryptoSpot.Infrastructure.ExternalServices
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            using var scope = _serviceScopeFactory.CreateScope();
+            
             try
             {
                 // 获取市场数据提供者服务
-                using var scope = _serviceScopeFactory.CreateScope();
                 _marketDataProvider = scope.ServiceProvider.GetRequiredService<IMarketDataProvider>();
                 
                 if (_marketDataProvider == null)

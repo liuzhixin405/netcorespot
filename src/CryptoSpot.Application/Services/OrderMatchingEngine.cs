@@ -5,6 +5,7 @@ using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CryptoSpot.Application.Services
 {
@@ -17,7 +18,7 @@ namespace CryptoSpot.Application.Services
         private readonly ITradeService _tradeService;
         private readonly IAssetService _assetService;
         private readonly ISystemAssetService _systemAssetService;
-        private readonly IRealTimeDataPushService _realTimeDataPushService;
+        private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<OrderMatchingEngine> _logger;
 
         // 用于防止并发匹配的锁
@@ -28,14 +29,14 @@ namespace CryptoSpot.Application.Services
             ITradeService tradeService,
             IAssetService assetService,
             ISystemAssetService systemAssetService,
-            IRealTimeDataPushService realTimeDataPushService,
+            IServiceProvider serviceProvider,
             ILogger<OrderMatchingEngine> logger)
         {
             _orderService = orderService;
             _tradeService = tradeService;
             _assetService = assetService;
             _systemAssetService = systemAssetService;
-            _realTimeDataPushService = realTimeDataPushService;
+            _serviceProvider = serviceProvider;
             _logger = logger;
         }
 
@@ -83,7 +84,8 @@ namespace CryptoSpot.Application.Services
             // 推送订单簿更新
             try
             {
-                await _realTimeDataPushService.PushOrderBookDataAsync(order.TradingPair.Symbol, 20);
+                var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
+                await realTimeDataPushService.PushOrderBookDataAsync(order.TradingPair.Symbol, 20);
             }
             catch (Exception ex)
             {
@@ -156,7 +158,8 @@ namespace CryptoSpot.Application.Services
                         // 推送订单簿更新
                         try
                         {
-                            await _realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                            var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
+                            await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
                         }
                         catch (Exception ex)
                         {
@@ -226,7 +229,7 @@ namespace CryptoSpot.Application.Services
             return orderBookDepth;
         }
 
-        public async Task<bool> CancelOrderAsync(long orderId)
+        public async Task<bool> CancelOrderAsync(int orderId)
         {
             try
             {
@@ -261,7 +264,7 @@ namespace CryptoSpot.Application.Services
             }
 
             // 系统账号可以自成交（做市需要）
-            if (buyOrder.SystemAccountId.HasValue || sellOrder.SystemAccountId.HasValue)
+            if (buyOrder.User?.IsSystemAccount == true || sellOrder.User?.IsSystemAccount == true)
             {
                 return true;
             }
@@ -437,10 +440,10 @@ namespace CryptoSpot.Application.Services
                 await _assetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
                 await _assetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
             }
-            else if (buyOrder.SystemAccountId.HasValue)
+            else if (buyOrder.UserId.HasValue && buyOrder.User?.IsSystemAccount == true)
             {
-                await _systemAssetService.DeductAssetAsync(buyOrder.SystemAccountId.Value, quoteAsset, totalValue, true);
-                await _systemAssetService.AddAssetAsync(buyOrder.SystemAccountId.Value, baseAsset, quantity);
+                await _systemAssetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
+                await _systemAssetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
             }
 
             // 处理卖方资产变动
@@ -450,10 +453,10 @@ namespace CryptoSpot.Application.Services
                 await _assetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
                 await _assetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
             }
-            else if (sellOrder.SystemAccountId.HasValue)
+            else if (sellOrder.UserId.HasValue && sellOrder.User?.IsSystemAccount == true)
             {
-                await _systemAssetService.DeductAssetAsync(sellOrder.SystemAccountId.Value, baseAsset, quantity, true);
-                await _systemAssetService.AddAssetAsync(sellOrder.SystemAccountId.Value, quoteAsset, totalValue);
+                await _systemAssetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
+                await _systemAssetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
             }
         }
 
@@ -470,9 +473,9 @@ namespace CryptoSpot.Application.Services
                 {
                     await _assetService.UnfreezeAssetAsync(order.UserId.Value, "USDT", unfreezeAmount);
                 }
-                else if (order.SystemAccountId.HasValue)
+                else if (order.UserId.HasValue && order.User?.IsSystemAccount == true)
                 {
-                    await _systemAssetService.UnfreezeAssetAsync(order.SystemAccountId.Value, "USDT", unfreezeAmount);
+                    await _systemAssetService.UnfreezeAssetAsync(order.UserId.Value, "USDT", unfreezeAmount);
                 }
             }
             else
@@ -483,9 +486,9 @@ namespace CryptoSpot.Application.Services
                 {
                     await _assetService.UnfreezeAssetAsync(order.UserId.Value, baseAsset, remainingQuantity);
                 }
-                else if (order.SystemAccountId.HasValue)
+                else if (order.UserId.HasValue && order.User?.IsSystemAccount == true)
                 {
-                    await _systemAssetService.UnfreezeAssetAsync(order.SystemAccountId.Value, baseAsset, remainingQuantity);
+                    await _systemAssetService.UnfreezeAssetAsync(order.UserId.Value, baseAsset, remainingQuantity);
                 }
             }
         }
