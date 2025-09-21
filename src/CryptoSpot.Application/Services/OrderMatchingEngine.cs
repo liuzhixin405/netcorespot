@@ -207,6 +207,9 @@ namespace CryptoSpot.Application.Services
             {
                 var activeOrders = await _orderService.GetActiveOrdersAsync(symbol);
                 
+                var orderCount = activeOrders.Count();
+                _logger.LogInformation($"📊 获取订单簿深度: Symbol={symbol}, 活跃订单数量={orderCount}, 请求深度={depth}");
+                
                 // 买单聚合
                 var buyOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Buy && o.Type == OrderType.Limit)
@@ -236,6 +239,9 @@ namespace CryptoSpot.Application.Services
                     .OrderBy(l => l.Price)
                     .Take(depth)
                     .ToList();
+
+                _logger.LogInformation("📈 订单簿数据: Symbol={Symbol}, 买单数量={BuyCount}, 卖单数量={SellCount}", 
+                    symbol, buyOrders.Count, sellOrders.Count);
 
                 orderBookDepth.Bids = buyOrders;
                 orderBookDepth.Asks = sellOrders;

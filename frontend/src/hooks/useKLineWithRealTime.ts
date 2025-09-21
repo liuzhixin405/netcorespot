@@ -2,6 +2,34 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { KLineData } from '../types';
 import { useKLineData } from './useKLineData';
 import { useSignalRKLineData } from './useSignalRKLineData';
+import { KLineCalculator } from '../services/klineCalculator';
+
+// 合并历史数据和实时数据的辅助函数
+const mergeHistoricalAndRealtimeData = (
+  historicalData: KLineData[], 
+  realtimeData: KLineData[], 
+  limit: number
+): KLineData[] => {
+  // 合并数据并去重
+  const allData = [...historicalData, ...realtimeData];
+  const uniqueData = allData.reduce((acc, current) => {
+    const existingIndex = acc.findIndex(item => item.timestamp === current.timestamp);
+    if (existingIndex >= 0) {
+      // 如果时间戳相同，使用实时数据（更新现有数据）
+      acc[existingIndex] = current;
+    } else {
+      // 添加新数据
+      acc.push(current);
+    }
+    return acc;
+  }, [] as KLineData[]);
+
+  // 按时间排序（从左到右）
+  const sortedData = uniqueData.sort((a, b) => a.timestamp - b.timestamp);
+  
+  // 限制数据量，保留最新的数据
+  return sortedData.slice(-limit);
+};
 
 interface UseKLineWithRealTimeOptions {
   symbol: string;
@@ -45,9 +73,9 @@ export const useKLineWithRealTime = ({
     autoRefresh: false // 不使用自动刷新，通过SignalR更新
   });
 
-  // 使用SignalR获取实时更新
+  // 使用SignalR获取实时更新（只订阅1分钟数据）
   const {
-    data: realtimeData,
+    data: realtimeMinuteData,
     loading: signalRLoading,
     error: signalRError,
     isConnected,
@@ -57,22 +85,74 @@ export const useKLineWithRealTime = ({
 
   const [combinedData, setCombinedData] = useState<KLineData[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [minuteDataBuffer, setMinuteDataBuffer] = useState<KLineData[]>([]);
 
-  // 合并历史数据和实时数据
+  // 初始化：加载历史数据
   useEffect(() => {
     if (!isInitialized && historicalData.length > 0) {
-      // 首次加载历史数据
-      setCombinedData(historicalData);
+      console.log(`📈 初始化历史数据: ${symbol} ${timeframe}`, {
+        count: historicalData.length,
+        firstTime: new Date(historicalData[0]?.timestamp).toLocaleString(),
+        lastTime: new Date(historicalData[historicalData.length - 1]?.timestamp).toLocaleString()
+      });
+      
+      // 首次加载历史数据，确保按时间排序（从左到右）
+      const sortedHistoricalData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp);
+      setCombinedData(sortedHistoricalData);
       setIsInitialized(true);
     }
-  }, [historicalData, isInitialized]);
+  }, [historicalData, isInitialized, symbol, timeframe]);
 
-  // 使用实时数据更新（当SignalR有数据时）
+  // 处理实时分钟数据更新 - 只更新最新的数据，不覆盖历史数据
   useEffect(() => {
-    if (isInitialized && realtimeData.length > 0) {
-      setCombinedData(realtimeData);
+    if (isInitialized && realtimeMinuteData.length > 0) {
+      console.log(`🔄 处理实时分钟数据: ${symbol}`, {
+        count: realtimeMinuteData.length,
+        lastTime: new Date(realtimeMinuteData[realtimeMinuteData.length - 1]?.timestamp).toLocaleString()
+      });
+
+      setCombinedData(prevData => {
+        // 获取最新的实时分钟数据
+        const latestMinuteData = realtimeMinuteData[realtimeMinuteData.length - 1];
+        if (!latestMinuteData) return prevData;
+
+        if (timeframe === '1m') {
+          // 1分钟数据：合并历史数据和实时数据
+          return mergeHistoricalAndRealtimeData(prevData, [latestMinuteData], limit);
+        } else {
+          // 其他时间框架：需要从分钟数据计算
+          // 这里我们需要更多的分钟数据来计算准确的时间框架数据
+          // 暂时使用简化的方法：只更新最新的数据点
+          const calculatedData = KLineCalculator.calculateKLineFromMinutes(
+            realtimeMinuteData, 
+            timeframe
+          );
+          
+          if (calculatedData.length > 0) {
+            const latestCalculatedData = calculatedData[calculatedData.length - 1];
+            return mergeHistoricalAndRealtimeData(prevData, [latestCalculatedData], limit);
+          }
+          
+          return prevData;
+        }
+      });
     }
-  }, [realtimeData, isInitialized]);
+  }, [realtimeMinuteData, isInitialized, symbol, timeframe, limit]);
+
+  // 实时更新单个K线数据（用于增量更新）
+  const handleRealTimeKLineUpdate = useCallback((klineData: KLineData, isNewKLine: boolean) => {
+    console.log(`🔄 实时K线更新: ${symbol} ${timeframe}`, {
+      timestamp: new Date(klineData.timestamp).toLocaleString(),
+      price: klineData.close,
+      isNewKLine,
+      action: isNewKLine ? '新K线' : '更新K线'
+    });
+
+    setCombinedData(prevData => {
+      // 使用统一的合并逻辑
+      return mergeHistoricalAndRealtimeData(prevData, [klineData], limit);
+    });
+  }, [symbol, timeframe, limit]);
 
   // 手动刷新
   const refresh = useCallback(async () => {

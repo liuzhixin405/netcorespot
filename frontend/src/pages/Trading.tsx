@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import { TrendingUp, TrendingDown, Activity, Clock, BarChart3 } from 'lucide-react';
 import TradingHeader from '../components/trading/TradingHeader';
-import SimpleKLineChart from '../components/trading/SimpleKLineChart';
+import { ProfessionalKLineChart } from '../components/trading/ProfessionalKLineChart';
 import OrderBook from '../components/trading/OrderBook';
 import TradeForm from '../components/trading/TradeForm';
 import RecentTrades from '../components/trading/RecentTrades';
@@ -36,7 +36,7 @@ const LeftPanel = styled.div`
 
 const RightPanel = styled.div`
   display: grid;
-  grid-template-rows: 100px 60px 1fr;
+  grid-template-rows: 300px 80px 1fr;
   gap: 1px;
   background: #0d1117;
   min-height: 0;
@@ -99,7 +99,7 @@ const Trading: React.FC = () => {
       <MainContent>
         <LeftPanel>
           <ChartSection>
-            <SimpleKLineChart 
+            <ProfessionalKLineChart 
               symbol={selectedSymbol} 
               timeframe={timeframe} 
               onTimeframeChange={setTimeframe}

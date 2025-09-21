@@ -1,4 +1,5 @@
 using CryptoSpot.Core.Entities;
+using CryptoSpot.Core.Interfaces.Trading;
 
 namespace CryptoSpot.Core.Interfaces
 {
@@ -8,5 +9,6 @@ namespace CryptoSpot.Core.Interfaces
         Task PushPriceDataAsync(string symbol, object priceData);
         Task PushPriceDataToMultipleSymbolsAsync(Dictionary<string, object> priceUpdates);
         Task PushOrderBookDataAsync(string symbol, int depth = 20);
+        Task PushOrderBookDeltaAsync(string symbol, List<OrderBookLevel> bidChanges, List<OrderBookLevel> askChanges);
     }
 }

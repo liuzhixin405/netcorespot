@@ -47,7 +47,7 @@ namespace CryptoSpot.Application.Services
                 // 保持服务运行直到收到取消请求
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+                    await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
                 }
             }
             catch (OperationCanceledException)

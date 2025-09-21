@@ -146,4 +146,64 @@ export class KLineCalculator {
       return [...existingKLines, newKLine].sort((a, b) => a.timestamp - b.timestamp);
     }
   }
+
+  // 增量更新K线数据（用于实时更新）
+  static incrementalUpdateKLine(
+    minuteDataBuffer: KLineData[],
+    newMinuteKLine: KLineData,
+    targetInterval: string
+  ): { updatedBuffer: KLineData[], calculatedKLine?: KLineData } {
+    // 更新分钟数据缓冲区
+    const existingIndex = minuteDataBuffer.findIndex(
+      k => k.timestamp === newMinuteKLine.timestamp
+    );
+    
+    let updatedBuffer: KLineData[];
+    if (existingIndex >= 0) {
+      // 更新现有分钟数据
+      updatedBuffer = [...minuteDataBuffer];
+      updatedBuffer[existingIndex] = newMinuteKLine;
+    } else {
+      // 添加新的分钟数据
+      updatedBuffer = [...minuteDataBuffer, newMinuteKLine];
+      updatedBuffer.sort((a, b) => a.timestamp - b.timestamp);
+      
+      // 保持合理的缓冲区大小（最多保留1000个分钟数据）
+      if (updatedBuffer.length > 1000) {
+        updatedBuffer = updatedBuffer.slice(-1000);
+      }
+    }
+
+    // 如果是1分钟数据，直接返回
+    if (targetInterval === '1m') {
+      return { updatedBuffer, calculatedKLine: newMinuteKLine };
+    }
+
+    // 计算目标时间段的K线
+    const intervalMs = this.getIntervalMs(targetInterval);
+    const periodStart = Math.floor(newMinuteKLine.timestamp / intervalMs) * intervalMs;
+    
+    // 获取该时间段内的所有分钟数据
+    const periodEnd = periodStart + intervalMs;
+    const periodMinuteData = updatedBuffer.filter(
+      k => k.timestamp >= periodStart && k.timestamp < periodEnd
+    );
+    
+    if (periodMinuteData.length === 0) {
+      return { updatedBuffer };
+    }
+
+    // 计算该时间段的OHLCV
+    const sortedMinuteData = periodMinuteData.sort((a, b) => a.timestamp - b.timestamp);
+    const calculatedKLine: KLineData = {
+      timestamp: periodStart,
+      open: sortedMinuteData[0].open,
+      close: sortedMinuteData[sortedMinuteData.length - 1].close,
+      high: Math.max(...sortedMinuteData.map(k => k.high)),
+      low: Math.min(...sortedMinuteData.map(k => k.low)),
+      volume: sortedMinuteData.reduce((sum, k) => sum + k.volume, 0)
+    };
+
+    return { updatedBuffer, calculatedKLine };
+  }
 }

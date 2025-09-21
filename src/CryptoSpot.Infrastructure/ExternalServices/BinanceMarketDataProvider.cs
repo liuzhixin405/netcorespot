@@ -23,6 +23,9 @@ namespace CryptoSpot.Infrastructure.ExternalServices
         private readonly IConfiguration _configuration;
         private readonly Timer _timer;
         private readonly ConcurrentDictionary<string, DateTime> _lastUpdateTimes = new();
+        private readonly ConcurrentDictionary<string, (decimal Price, decimal Change24h, decimal Volume24h, decimal High24h, decimal Low24h)> _priceCache = new();
+        private readonly ConcurrentDictionary<string, KLineData> _klineCache = new();
+        private DateTime _lastMinuteSave = DateTime.MinValue;
 
         private readonly string[] _topSymbols = { "BTCUSDT", "ETHUSDT", "SOLUSDT" };
         private readonly string[] _intervals = { "1m", "5m", "15m", "1h", "4h", "1d" };
@@ -194,12 +197,13 @@ namespace CryptoSpot.Infrastructure.ExternalServices
 
         public async Task StartRealTimeDataSyncAsync()
         {
-            _logger.LogInformation("Starting Binance data sync");
+            _logger.LogInformation("Starting Binance data sync with 5-second intervals");
             
             await SyncTradingPairsAsync();
             await SyncKLineDataAsync();
 
-            _timer.Change(TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+            // 改为5秒更新一次，平衡实时性和数据库负载
+            _timer.Change(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
         }
 
         public async Task StopRealTimeDataSyncAsync()
@@ -236,18 +240,12 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 var binancePairs = await GetTopTradingPairsAsync();
                 
                 var priceUpdates = new Dictionary<string, object>();
+                var now = DateTime.UtcNow;
+                var currentMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
                 
                 foreach (var binancePair in binancePairs)
                 {
-                    await priceDataService.UpdateTradingPairPriceAsync(
-                        binancePair.Symbol,
-                        binancePair.Price,
-                        binancePair.Change24h,
-                        binancePair.Volume24h,
-                        binancePair.High24h,
-                        binancePair.Low24h);
-                    
-                    // 准备实时推送数据
+                    // 1. 实时推送所有价格数据
                     if (realTimeDataPush != null)
                     {
                         var priceData = new
@@ -261,15 +259,31 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                         
                         priceUpdates[binancePair.Symbol] = priceData;
                     }
+                    
+                    // 2. 缓存价格数据（不立即入库）
+                    _priceCache[binancePair.Symbol] = (
+                        binancePair.Price,
+                        binancePair.Change24h,
+                        binancePair.Volume24h,
+                        binancePair.High24h,
+                        binancePair.Low24h
+                    );
                 }
                 
-                // 批量推送价格更新
+                // 3. 批量推送实时价格更新
                 if (realTimeDataPush != null && priceUpdates.Count > 0)
                 {
                     await realTimeDataPush.PushPriceDataToMultipleSymbolsAsync(priceUpdates);
                 }
                 
-                _logger.LogInformation("Successfully synced {Count} trading pairs", binancePairs.Count());
+                // 4. 检查是否需要入库（每分钟结束时入库一次）
+                if (_lastMinuteSave != currentMinute)
+                {
+                    await SaveCachedPricesToDatabaseAsync(priceDataService, currentMinute);
+                    _lastMinuteSave = currentMinute;
+                }
+                
+                _logger.LogInformation("Successfully synced {Count} trading pairs (real-time push)", binancePairs.Count());
             }
             catch (Exception ex)
             {
@@ -277,11 +291,113 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             }
         }
 
+        /// <summary>
+        /// 将缓存的价格数据保存到数据库（每分钟执行一次）
+        /// </summary>
+        private async Task SaveCachedPricesToDatabaseAsync(IPriceDataService priceDataService, DateTime currentMinute)
+        {
+            try
+            {
+                if (_priceCache.IsEmpty)
+                {
+                    _logger.LogDebug("No cached prices to save for minute {Minute}", currentMinute.ToString("HH:mm"));
+                    return;
+                }
+
+                var tasks = new List<Task>();
+                foreach (var kvp in _priceCache)
+                {
+                    var symbol = kvp.Key;
+                    var (price, change24h, volume24h, high24h, low24h) = kvp.Value;
+                    
+                    tasks.Add(priceDataService.UpdateTradingPairPriceAsync(
+                        symbol, price, change24h, volume24h, high24h, low24h));
+                }
+
+                await Task.WhenAll(tasks);
+                
+                _logger.LogInformation("💾 保存缓存价格数据到数据库: {Count} 个交易对, 时间: {Minute}", 
+                    _priceCache.Count, currentMinute.ToString("HH:mm"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "保存缓存价格数据到数据库失败: {Minute}", currentMinute.ToString("HH:mm"));
+            }
+        }
+
+        /// <summary>
+        /// 判断是否为新K线时间
+        /// </summary>
+        private bool IsNewKLineTime(long openTime, string interval)
+        {
+            var currentTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var intervalMs = GetIntervalMilliseconds(interval);
+            
+            // 如果当前时间距离K线开始时间超过间隔时间，认为是新K线
+            return (currentTime - openTime) >= intervalMs;
+        }
+
+        /// <summary>
+        /// 获取时间间隔对应的毫秒数
+        /// </summary>
+        private long GetIntervalMilliseconds(string interval)
+        {
+            return interval switch
+            {
+                "1m" => 60 * 1000,
+                "5m" => 5 * 60 * 1000,
+                "15m" => 15 * 60 * 1000,
+                "1h" => 60 * 60 * 1000,
+                "4h" => 4 * 60 * 60 * 1000,
+                "1d" => 24 * 60 * 60 * 1000,
+                _ => 60 * 1000 // 默认1分钟
+            };
+        }
+
+        /// <summary>
+        /// 将缓存的K线数据保存到数据库（每分钟执行一次）
+        /// </summary>
+        private async Task SaveCachedKLineDataToDatabaseAsync(DateTime currentMinute)
+        {
+            try
+            {
+                if (_klineCache.IsEmpty)
+                {
+                    _logger.LogDebug("No cached K-line data to save for minute {Minute}", currentMinute.ToString("HH:mm"));
+                    return;
+                }
+
+                using var scope = _serviceScopeFactory.CreateScope();
+                var klineDataService = scope.ServiceProvider.GetRequiredService<IKLineDataService>();
+                
+                var tasks = new List<Task>();
+                foreach (var kvp in _klineCache)
+                {
+                    var klineData = kvp.Value;
+                    tasks.Add(klineDataService.AddOrUpdateKLineDataAsync(klineData));
+                }
+
+                await Task.WhenAll(tasks);
+                
+                _logger.LogInformation("💾 保存缓存K线数据到数据库: {Count} 条记录, 时间: {Minute}", 
+                    _klineCache.Count, currentMinute.ToString("HH:mm"));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "保存缓存K线数据到数据库失败: {Minute}", currentMinute.ToString("HH:mm"));
+            }
+        }
+
         private async Task SyncKLineDataAsync()
         {
             try
             {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var realTimeDataPush = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
+                
                 var tasks = new List<Task>();
+                var now = DateTime.UtcNow;
+                var currentMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
                 
                 foreach (var symbol in _topSymbols)
                 {
@@ -291,43 +407,29 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                         {
                             try
                             {
-                                using var taskScope = _serviceScopeFactory.CreateScope();
-                                var klineDataService = taskScope.ServiceProvider.GetRequiredService<IKLineDataService>();
-                                var realTimeDataPush = taskScope.ServiceProvider.GetService<IRealTimeDataPushService>();
-                                
                                 var klineData = await GetKLineDataAsync(symbol, interval, 2);
                                 var latestKline = klineData.LastOrDefault();
                                 
                                 if (latestKline != null)
                                 {
-                                    var existingKLine = await klineDataService.GetLatestKLineDataAsync(symbol, interval);
-                                    bool isNewKLine = existingKLine == null || existingKLine.OpenTime != latestKline.OpenTime;
-                                    
-                                    bool hasChanged = existingKLine == null || 
-                                                    existingKLine.Close != latestKline.Close ||
-                                                    existingKLine.High != latestKline.High ||
-                                                    existingKLine.Low != latestKline.Low ||
-                                                    existingKLine.Volume != latestKline.Volume;
-                                    
-                                    if (hasChanged)
+                                    // 1. 实时推送所有K线数据
+                                    if (realTimeDataPush != null)
                                     {
-                                        await klineDataService.AddOrUpdateKLineDataAsync(latestKline);
-                                        _logger.LogDebug("Updated K-line data for {Symbol}: {OpenTime}, Close: {Close}", 
-                                            symbol, latestKline.OpenTime, latestKline.Close);
-                                        
-                                        // 实时推送 K线数据
-                                        if (realTimeDataPush != null)
-                                        {
-                                            await realTimeDataPush.PushKLineDataAsync(symbol, interval, latestKline, isNewKLine);
-                                        }
+                                        // 判断是否为新K线（基于时间戳）
+                                        bool isNewKLine = IsNewKLineTime(latestKline.OpenTime, interval);
+                                        await realTimeDataPush.PushKLineDataAsync(symbol, interval, latestKline, isNewKLine);
                                     }
+                                    
+                                    // 2. 缓存K线数据（使用symbol+interval作为key）
+                                    var cacheKey = $"{symbol}_{interval}";
+                                    _klineCache[cacheKey] = latestKline;
                                 }
                                 
-                                _logger.LogDebug("Synced K-line data for {Symbol} {Interval}", symbol, interval);
+                                _logger.LogDebug("Synced K-line data for {Symbol} {Interval} (real-time push)", symbol, interval);
                             }
                             catch (Exception ex)
                             {
-                                _logger.LogWarning(ex, "Failed to sync K-line data for {Symbol} {Interval}", symbol, interval);
+                                _logger.LogError(ex, "Error syncing K-line data for {Symbol} {Interval}", symbol, interval);
                             }
                         });
                         
@@ -337,7 +439,13 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 
                 await Task.WhenAll(tasks);
                 
-                _logger.LogInformation("K-line data sync completed for {SymbolCount} symbols and {IntervalCount} intervals", 
+                // 3. 检查是否需要入库K线数据（每分钟结束时入库一次）
+                if (_lastMinuteSave != currentMinute)
+                {
+                    await SaveCachedKLineDataToDatabaseAsync(currentMinute);
+                }
+                
+                _logger.LogInformation("K-line data sync completed for {SymbolCount} symbols and {IntervalCount} intervals (real-time push)", 
                     _topSymbols.Length, _intervals.Length);
             }
             catch (Exception ex)

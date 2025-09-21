@@ -80,7 +80,7 @@ namespace CryptoSpot.API.Services
                 {
                     try
                     {
-                        await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken);
+                        await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
                         
                         // 定期检查连接状态
                         foreach (var provider in _providers)

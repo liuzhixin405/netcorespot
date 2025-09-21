@@ -34,24 +34,117 @@ export const useSignalROrderBook = (
   const [lastUpdate, setLastUpdate] = useState(0);
   
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 5;
+  
+  // 本地订单簿缓存，用于增量更新
+  const localOrderBookRef = useRef<{
+    bids: Map<number, OrderBookLevel>;
+    asks: Map<number, OrderBookLevel>;
+  }>({
+    bids: new Map(),
+    asks: new Map()
+  });
 
   // 处理订单簿数据更新
   const handleOrderBookData = useCallback((data: any) => {
     console.log('OrderBook data received:', data);
     
-    const orderBook: OrderBookData = {
-      symbol: data.symbol,
-      bids: data.bids || [],
-      asks: data.asks || [],
-      timestamp: data.timestamp
-    };
+    // 如果是快照数据（首次加载或重新同步）
+    if (data.type === 'snapshot' || !orderBookData) {
+      const orderBook: OrderBookData = {
+        symbol: data.symbol,
+        bids: data.bids || [],
+        asks: data.asks || [],
+        timestamp: data.timestamp
+      };
+      
+      // 更新本地缓存
+      localOrderBookRef.current.bids.clear();
+      localOrderBookRef.current.asks.clear();
+      
+      data.bids?.forEach((bid: OrderBookLevel) => {
+        localOrderBookRef.current.bids.set(bid.price, bid);
+      });
+      
+      data.asks?.forEach((ask: OrderBookLevel) => {
+        localOrderBookRef.current.asks.set(ask.price, ask);
+      });
+      
+      setOrderBookData(orderBook);
+    } else {
+      // 增量更新
+      updateOrderBookIncremental(data);
+    }
     
-    setOrderBookData(orderBook);
     setLastUpdate(Date.now());
     setError(null);
     setIsConnected(true);
     setLoading(false);
-  }, []);
+  }, [orderBookData]);
+
+  // 增量更新订单簿
+  const updateOrderBookIncremental = useCallback((data: any) => {
+    const { bids, asks } = data;
+    
+    // 更新买单
+    if (bids) {
+      bids.forEach((bid: OrderBookLevel) => {
+        if (bid.amount === 0) {
+          // 数量为0表示删除该价格级别
+          localOrderBookRef.current.bids.delete(bid.price);
+        } else {
+          // 更新或添加价格级别
+          localOrderBookRef.current.bids.set(bid.price, bid);
+        }
+      });
+    }
+    
+    // 更新卖单
+    if (asks) {
+      asks.forEach((ask: OrderBookLevel) => {
+        if (ask.amount === 0) {
+          // 数量为0表示删除该价格级别
+          localOrderBookRef.current.asks.delete(ask.price);
+        } else {
+          // 更新或添加价格级别
+          localOrderBookRef.current.asks.set(ask.price, ask);
+        }
+      });
+    }
+    
+    // 转换为数组并排序
+    const sortedBids = Array.from(localOrderBookRef.current.bids.values())
+      .sort((a, b) => b.price - a.price)
+      .slice(0, depth);
+    
+    const sortedAsks = Array.from(localOrderBookRef.current.asks.values())
+      .sort((a, b) => a.price - b.price)
+      .slice(0, depth);
+    
+    // 计算累计数量
+    let bidTotal = 0;
+    const bidsWithTotal = sortedBids.map(bid => {
+      bidTotal += bid.amount;
+      return { ...bid, total: bidTotal };
+    });
+    
+    let askTotal = 0;
+    const asksWithTotal = sortedAsks.map(ask => {
+      askTotal += ask.amount;
+      return { ...ask, total: askTotal };
+    });
+    
+    const updatedOrderBook: OrderBookData = {
+      symbol: data.symbol,
+      bids: bidsWithTotal,
+      asks: asksWithTotal,
+      timestamp: data.timestamp
+    };
+    
+    setOrderBookData(updatedOrderBook);
+  }, [depth]);
 
   // 处理连接错误
   const handleError = useCallback((err: any) => {
@@ -59,6 +152,41 @@ export const useSignalROrderBook = (
     setError('订单簿连接失败');
     setIsConnected(false);
     setLoading(false);
+    
+    // 自动重连逻辑
+    scheduleReconnect();
+  }, []);
+
+  // 自动重连调度
+  const scheduleReconnect = useCallback(() => {
+    if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+      console.log('Max reconnect attempts reached for OrderBook');
+      return;
+    }
+
+    // 清除之前的重连定时器
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+
+    // 计算重连延迟（指数退避）
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+    reconnectAttemptsRef.current++;
+
+    console.log(`OrderBook will reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      startOrderBookSubscription();
+    }, delay);
+  }, []);
+
+  // 重置重连计数器
+  const resetReconnectAttempts = useCallback(() => {
+    reconnectAttemptsRef.current = 0;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
   }, []);
 
   // 启动SignalR订单簿订阅
@@ -91,13 +219,19 @@ export const useSignalROrderBook = (
       
       unsubscribeRef.current = unsubscribe;
       
+      // 连接成功，重置重连计数器
+      resetReconnectAttempts();
+      
     } catch (err: any) {
       console.error('OrderBook subscription failed:', err);
       setError(`订单簿连接失败: ${err.message}`);
       setIsConnected(false);
       setLoading(false);
+      
+      // 连接失败，尝试重连
+      scheduleReconnect();
     }
-  }, [symbol, handleOrderBookData, handleError]);
+  }, [symbol, handleOrderBookData, handleError, resetReconnectAttempts, scheduleReconnect]);
 
   // 手动重连
   const reconnect = useCallback(() => {
@@ -109,12 +243,22 @@ export const useSignalROrderBook = (
     startOrderBookSubscription();
     
     return () => {
+      // 清理订阅
       if (unsubscribeRef.current) {
         unsubscribeRef.current();
         unsubscribeRef.current = null;
       }
+      
+      // 清理重连定时器
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      
+      // 重置重连计数器
+      reconnectAttemptsRef.current = 0;
     };
-  }, [symbol]);
+  }, [symbol, startOrderBookSubscription]);
 
   return {
     orderBookData,

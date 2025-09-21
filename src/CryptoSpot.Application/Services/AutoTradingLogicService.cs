@@ -93,9 +93,12 @@ namespace CryptoSpot.Application.Services
                 var marketMakers = await systemAccountService.GetSystemAccountsByTypeAsync(UserType.MarketMaker);
                 var activeMarketMaker = marketMakers.FirstOrDefault(a => a.IsActive && a.IsAutoTradingEnabled);
                 
+                _logger.LogInformation("🔍 做市商账号检查: Symbol={Symbol}, 找到做市商数量={Count}, 活跃做市商={ActiveMarketMaker}", 
+                    symbol, marketMakers.Count(), activeMarketMaker?.Username ?? "无");
+                
                 if (activeMarketMaker == null)
                 {
-                    _logger.LogWarning("没有找到活跃的做市商账号");
+                    _logger.LogWarning("❌ 没有找到活跃的做市商账号");
                     return;
                 }
 
@@ -267,8 +270,8 @@ namespace CryptoSpot.Application.Services
                         _logger.LogError(ex, "执行交易逻辑时出错");
                     }
                     
-                    // 等待30秒
-                    await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                    // 等待5秒，平衡订单创建频率和数据库负载
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -295,8 +298,8 @@ namespace CryptoSpot.Application.Services
                         _logger.LogError(ex, "清理过期订单时出错");
                     }
                     
-                    // 等待5分钟
-                    await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken);
+                    // 等待10秒，定期清理过期订单
+                    await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
                 }
             }
             catch (OperationCanceledException)

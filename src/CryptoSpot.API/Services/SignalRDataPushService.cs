@@ -98,6 +98,7 @@ namespace CryptoSpot.API.Services
                 {
                     var orderBookData = new
                     {
+                        type = "snapshot", // 标记为快照数据
                         symbol = symbol,
                         bids = orderBookDepth.Bids.Select(b => new
                         {
@@ -116,12 +117,47 @@ namespace CryptoSpot.API.Services
 
                     await _hubContext.Clients.Group(groupName).SendAsync("OrderBookUpdate", orderBookData);
                     
-                    _logger.LogDebug($"Pushed order book data for {symbol}");
+                    _logger.LogDebug($"Pushed order book snapshot for {symbol}");
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Failed to push order book data for {symbol}");
+            }
+        }
+
+        public async Task PushOrderBookDeltaAsync(string symbol, List<OrderBookLevel> bidChanges, List<OrderBookLevel> askChanges)
+        {
+            try
+            {
+                var groupName = $"orderbook_{symbol}";
+                
+                var deltaData = new
+                {
+                    type = "delta", // 标记为增量更新
+                    symbol = symbol,
+                    bids = bidChanges?.Select(b => new
+                    {
+                        price = b.Price,
+                        amount = b.Quantity,
+                        total = b.Total
+                    }).Cast<object>().ToList() ?? new List<object>(),
+                    asks = askChanges?.Select(a => new
+                    {
+                        price = a.Price,
+                        amount = a.Quantity,
+                        total = a.Total
+                    }).Cast<object>().ToList() ?? new List<object>(),
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+
+                await _hubContext.Clients.Group(groupName).SendAsync("OrderBookUpdate", deltaData);
+                
+                _logger.LogDebug($"Pushed order book delta for {symbol}: {bidChanges?.Count ?? 0} bids, {askChanges?.Count ?? 0} asks");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to push order book delta for {symbol}");
             }
         }
     }

@@ -57,7 +57,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                     {
                         _logger.LogError(ex, "❌ BinanceService 定期检查时出错");
                         // 出错后等待更长时间再重试
-                        await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken);
+                        await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
                     }
                 }
             }

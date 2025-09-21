@@ -78,7 +78,7 @@ namespace CryptoSpot.API.Services
                         _logger.LogError(ex, "推送订单簿数据时出错");
                     }
                     
-                    // 等待5秒
+                    // 等待5秒，平衡实时性和数据库负载
                     await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 }
             }

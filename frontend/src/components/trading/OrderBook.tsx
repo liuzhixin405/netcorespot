@@ -33,6 +33,7 @@ const HeaderRow = styled.div`
 const Content = styled.div`
   flex: 1;
   overflow-y: auto;
+  /* 移除固定高度，使用父容器分配的空间 */
 `;
 
 const PriceRow = styled.div<{ isBuy?: boolean; isCurrent?: boolean }>`
@@ -130,6 +131,18 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
   // 从订单簿数据中提取买卖订单
   const buyOrders = orderBookData?.bids || [];
   const sellOrders = orderBookData?.asks || [];
+  
+  // 调试信息
+  console.log('OrderBook Debug:', {
+    symbol,
+    hasOrderBookData: !!orderBookData,
+    buyOrdersCount: buyOrders.length,
+    sellOrdersCount: sellOrders.length,
+    buyOrders: buyOrders.slice(0, 3), // 显示前3个买单
+    sellOrders: sellOrders.slice(0, 3), // 显示前3个卖单
+    orderBookConnected,
+    priceConnected
+  });
 
   return (
     <Container>
@@ -142,18 +155,9 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
       </Header>
       
       <Content>
-        {/* 显示当前价格（如果有的话） */}
+        {/* 显示当前价格 */}
         <CurrentPrice>
           {currentPrice > 0 ? currentPrice.toFixed(2) : '--'}
-          {priceConnected && currentPrice > 0 && (
-            <span style={{ fontSize: '0.6rem', color: '#00b35f', marginLeft: '8px' }}>●实时</span>
-          )}
-          {orderBookConnected && (
-            <span style={{ fontSize: '0.6rem', color: '#00b35f', marginLeft: '8px' }}>●订单簿</span>
-          )}
-          {(priceError || orderBookError) && (
-            <span style={{ fontSize: '0.6rem', color: '#f85149', marginLeft: '8px' }}>●断开</span>
-          )}
         </CurrentPrice>
         
         {/* 显示订单簿数据 */}
@@ -180,45 +184,11 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
             ))}
           </>
         ) : (
-          /* 无数据状态 */
+          /* 无数据状态 - 静默等待，不显示任何提示 */
           <EmptyState>
-            {orderBookError ? (
-              <div>
-                <div>订单簿连接失败</div>
-                <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
-                  {orderBookError}
-                </div>
-                <button 
-                  onClick={reconnect}
-                  style={{ 
-                    marginTop: '8px', 
-                    padding: '4px 8px', 
-                    fontSize: '0.7rem',
-                    background: '#21262d',
-                    border: '1px solid #30363d',
-                    color: '#f0f6fc',
-                    borderRadius: '4px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  重新连接
-                </button>
-              </div>
-            ) : loading ? (
-              <div>
-                <div>正在连接订单簿...</div>
-                <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
-                  等待SignalR连接
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div>订单簿暂无数据</div>
-                <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
-                  等待后端订单簿数据推送
-                </div>
-              </div>
-            )}
+            <div style={{ opacity: 0 }}>
+              {/* 隐藏的空状态，保持布局 */}
+            </div>
           </EmptyState>
         )}
       </Content>

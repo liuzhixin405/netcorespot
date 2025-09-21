@@ -18,7 +18,6 @@ using Microsoft.IdentityModel.Tokens;
 using System.Net;
 using System.Text;
 using CryptoSpot.API.Services;
-using CryptoSpot.Core.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,13 +28,20 @@ builder.Services.AddSwaggerGen();
 
 
 
-// Database
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
+// Database - 使用连接池以处理高并发
+builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
 {
-    options.UseMySql(builder.Configuration.GetConnectionString("DefaultConnection"), ServerVersion.Parse("8.0"));
+    options.UseMySql(builder.Configuration.GetConnectionString("DefaultConnection"), ServerVersion.Parse("8.0"), mysqlOptions =>
+    {
+        mysqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null);
+        mysqlOptions.CommandTimeout(60);
+    });
     options.EnableThreadSafetyChecks(false); // 禁用线程安全检查
     options.EnableServiceProviderCaching(false); // 禁用服务提供者缓存
-}, ServiceLifetime.Transient); 
+}, poolSize: 100); // 增加连接池大小到100 
 // Repository Layer
 builder.Services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
 builder.Services.AddTransient<IUserRepository, UserRepository>();
@@ -85,6 +91,7 @@ builder.Services.AddHostedService<CacheInitializationService>();
 builder.Services.AddHostedService<AutoTradingService>();
 builder.Services.AddHostedService<OrderBookPushService>();
 builder.Services.AddHostedService<MarketDataSyncService>();
+builder.Services.AddHostedService<DatabaseHealthService>();
 
 
 
