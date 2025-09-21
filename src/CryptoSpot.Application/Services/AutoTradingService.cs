@@ -56,7 +56,7 @@ namespace CryptoSpot.Application.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in auto trading service execution");
+                _logger.LogError(ex, "自动交易服务启动失败: {Message}", ex.Message);
             }
             finally
             {

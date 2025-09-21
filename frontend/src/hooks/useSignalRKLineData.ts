@@ -29,18 +29,6 @@ export const useSignalRKLineData = (
 
   // 处理实时K线更新
   const handleKLineUpdate = useCallback((klineData: KLineData, isNewKLine: boolean) => {
-    console.log(`📊 K线实时更新: ${symbol} ${timeframe}`, {
-      timestamp: new Date(klineData.timestamp).toLocaleString(),
-      price: klineData.close,
-      volume: klineData.volume,
-      isNewKLine,
-      action: isNewKLine ? '新K线' : '更新K线',
-      open: klineData.open,
-      high: klineData.high,
-      low: klineData.low,
-      close: klineData.close
-    });
-    
     setMinuteData(prevData => {
       const existingIndex = prevData.findIndex(
         item => item.timestamp === klineData.timestamp
@@ -51,13 +39,11 @@ export const useSignalRKLineData = (
         // 更新现有K线
         updatedData = [...prevData];
         updatedData[existingIndex] = klineData;
-        console.log(`🔄 更新现有K线: 时间=${new Date(klineData.timestamp).toLocaleString()}, 价格=${klineData.close}`);
       } else {
         // 添加新K线
         updatedData = [...prevData, klineData];
         // 确保按时间排序（从左到右）
         updatedData.sort((a, b) => a.timestamp - b.timestamp);
-        console.log(`➕ 添加新K线: 时间=${new Date(klineData.timestamp).toLocaleString()}, 价格=${klineData.close}`);
         
         // 保持数据量限制
         const maxMinuteData = limit * 60;

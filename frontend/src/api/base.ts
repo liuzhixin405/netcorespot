@@ -63,11 +63,6 @@ apiClient.interceptors.response.use(
       const isAuthRequest = error.config?.url?.includes('/auth/login') || 
                            error.config?.url?.includes('/auth/register');
       
-      console.log('401错误处理:', {
-        url: error.config?.url,
-        isAuthRequest,
-        message: '不再执行页面跳转，让上层处理'
-      });
       
       // 不再执行页面跳转，让上层组件处理401错误
       // 这样可以避免页面刷新，保持调试信息

@@ -192,7 +192,6 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
     // Mock trade submission
     setTimeout(() => {
       setIsLoading(false);
-      console.log('Trade submitted:', { symbol, type: activeTab, price, amount, orderType });
     }, 1000);
   };
 

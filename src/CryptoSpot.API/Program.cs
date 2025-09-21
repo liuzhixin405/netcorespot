@@ -41,7 +41,7 @@ builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
     });
     options.EnableThreadSafetyChecks(false); // 禁用线程安全检查
     options.EnableServiceProviderCaching(false); // 禁用服务提供者缓存
-}, poolSize: 100); // 增加连接池大小到100 
+}, poolSize: 20); // 适中的连接池大小 
 // Repository Layer
 builder.Services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
 builder.Services.AddTransient<IUserRepository, UserRepository>();

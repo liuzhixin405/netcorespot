@@ -104,7 +104,6 @@ export class SignalRClient {
       // 设置实时K线更新处理器
       this.connection.off('KLineUpdate');
       this.connection.on('KLineUpdate', (response: any) => {
-        console.log('Received KLineUpdate:', response);
         
         // 后端发送的格式是直接包含k线数据，不是包装在kline字段中
         if (response && response.timestamp) {
@@ -216,12 +215,10 @@ export class SignalRClient {
       this.connection.off('OrderBookUpdate');
       
       this.connection.on('OrderBookData', (response: any) => {
-        console.log('Received OrderBookData:', response);
         onOrderBookData(response);
       });
       
       this.connection.on('OrderBookUpdate', (response: any) => {
-        console.log('Received OrderBookUpdate:', response);
         onOrderBookData(response);
       });
 

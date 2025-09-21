@@ -154,7 +154,6 @@ export class AuthService {
       const payload = JSON.parse(atob(token.split('.')[1]));
       const exp = payload.exp * 1000; // JWT exp是秒，需要转换为毫秒
       if (Date.now() >= exp) {
-        console.log('Token已过期');
         localStorage.removeItem('token');
         this.currentUser = null;
         return false;
@@ -180,7 +179,6 @@ export class AuthService {
     // 临时直接从token解析用户信息，跳过API调用
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
-      console.log('从token解析用户信息:', payload);
       const user: User = {
         id: parseInt(payload.nameid) || 0,
         username: payload.unique_name || 'Unknown',
@@ -189,7 +187,6 @@ export class AuthService {
       };
       
       this.currentUser = user;
-      console.log('用户初始化成功:', user);
       return user;
     } catch (tokenError) {
       console.error('token解析失败:', tokenError);

@@ -132,17 +132,6 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
   const buyOrders = orderBookData?.bids || [];
   const sellOrders = orderBookData?.asks || [];
   
-  // 调试信息
-  console.log('OrderBook Debug:', {
-    symbol,
-    hasOrderBookData: !!orderBookData,
-    buyOrdersCount: buyOrders.length,
-    sellOrdersCount: sellOrders.length,
-    buyOrders: buyOrders.slice(0, 3), // 显示前3个买单
-    sellOrders: sellOrders.slice(0, 3), // 显示前3个卖单
-    orderBookConnected,
-    priceConnected
-  });
 
   return (
     <Container>

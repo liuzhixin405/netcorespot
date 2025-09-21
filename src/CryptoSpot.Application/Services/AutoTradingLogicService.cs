@@ -38,14 +38,24 @@ namespace CryptoSpot.Application.Services
 
         public async Task StartAutoTradingAsync()
         {
-            _logger.LogInformation("启动自动交易服务");
-            
-            // 确保系统账号存在
-            await EnsureSystemAccountsExistAsync();
-            
-            // 启动异步任务
-            _tradingTask = Task.Run(async () => await TradingLoopAsync(_cancellationTokenSource.Token));
-            _cleanupTask = Task.Run(async () => await CleanupLoopAsync(_cancellationTokenSource.Token));
+            try
+            {
+                _logger.LogInformation("启动自动交易服务");
+                
+                // 确保系统账号存在
+                await EnsureSystemAccountsExistAsync();
+                
+                // 启动异步任务
+                _tradingTask = Task.Run(async () => await TradingLoopAsync(_cancellationTokenSource.Token));
+                _cleanupTask = Task.Run(async () => await CleanupLoopAsync(_cancellationTokenSource.Token));
+                
+                _logger.LogInformation("自动交易服务启动成功");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "自动交易服务启动失败: {Message}", ex.Message);
+                throw;
+            }
         }
 
         public async Task StopAutoTradingAsync()
@@ -93,12 +103,12 @@ namespace CryptoSpot.Application.Services
                 var marketMakers = await systemAccountService.GetSystemAccountsByTypeAsync(UserType.MarketMaker);
                 var activeMarketMaker = marketMakers.FirstOrDefault(a => a.IsActive && a.IsAutoTradingEnabled);
                 
-                _logger.LogInformation("🔍 做市商账号检查: Symbol={Symbol}, 找到做市商数量={Count}, 活跃做市商={ActiveMarketMaker}", 
-                    symbol, marketMakers.Count(), activeMarketMaker?.Username ?? "无");
+                _logger.LogDebug("做市商账号检查: Symbol={Symbol}, 找到做市商数量={Count}", 
+                    symbol, marketMakers.Count());
                 
                 if (activeMarketMaker == null)
                 {
-                    _logger.LogWarning("❌ 没有找到活跃的做市商账号");
+                    _logger.LogWarning("没有找到活跃的做市商账号");
                     return;
                 }
 
@@ -115,6 +125,9 @@ namespace CryptoSpot.Application.Services
                 
                 var baseAssetBalance = await systemAssetService.GetSystemAssetAsync(activeMarketMaker.Id, baseAsset);
                 var quoteAssetBalance = await systemAssetService.GetSystemAssetAsync(activeMarketMaker.Id, quoteAsset);
+                
+                _logger.LogDebug("资产余额检查: AccountId={AccountId}, {BaseAsset}={BaseBalance}, {QuoteAsset}={QuoteBalance}", 
+                    activeMarketMaker.Id, baseAsset, baseAssetBalance?.Available ?? 0, quoteAsset, quoteAssetBalance?.Available ?? 0);
                 
                 if (baseAssetBalance == null || quoteAssetBalance == null)
                 {
@@ -270,8 +283,8 @@ namespace CryptoSpot.Application.Services
                         _logger.LogError(ex, "执行交易逻辑时出错");
                     }
                     
-                    // 等待5秒，平衡订单创建频率和数据库负载
-                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                    // 等待10秒，减少数据库负载和连接冲突
+                    await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -310,11 +323,16 @@ namespace CryptoSpot.Application.Services
 
         private async Task EnsureSystemAccountsExistAsync()
         {
-            using var scope = _serviceScopeFactory.CreateScope();
-            var systemAccountService = scope.ServiceProvider.GetRequiredService<ISystemAccountService>();
-            var systemAssetService = scope.ServiceProvider.GetRequiredService<ISystemAssetService>();
-            
-            var marketMakers = await systemAccountService.GetSystemAccountsByTypeAsync(UserType.MarketMaker);
+            try
+            {
+                _logger.LogDebug("检查系统账号是否存在");
+                
+                using var scope = _serviceScopeFactory.CreateScope();
+                var systemAccountService = scope.ServiceProvider.GetRequiredService<ISystemAccountService>();
+                var systemAssetService = scope.ServiceProvider.GetRequiredService<ISystemAssetService>();
+                
+                var marketMakers = await systemAccountService.GetSystemAccountsByTypeAsync(UserType.MarketMaker);
+                _logger.LogDebug("找到做市商账号数量: {Count}", marketMakers.Count());
             
             if (!marketMakers.Any())
             {
@@ -333,6 +351,16 @@ namespace CryptoSpot.Application.Services
                 await systemAssetService.InitializeSystemAssetsAsync(marketMaker.Id, initialBalances);
                 
                 _logger.LogInformation("创建并初始化做市商账号: {AccountId}", marketMaker.Id);
+            }
+            else
+            {
+                _logger.LogDebug("做市商账号已存在，无需创建");
+            }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "检查/创建系统账号时出错: {Message}", ex.Message);
+                throw;
             }
         }
 
@@ -401,7 +429,14 @@ namespace CryptoSpot.Application.Services
             var baseSymbol = symbol.Replace("USDT", "");
             var orderSize = availableBalance * _orderSizeRatio;
             
-            if (orderSize < 0.001m) return; // 最小数量
+            _logger.LogInformation("🛒 创建卖单: Symbol={Symbol}, 可用余额={AvailableBalance}, 订单大小={OrderSize}, 当前价格={CurrentPrice}", 
+                symbol, availableBalance, orderSize, currentPrice);
+            
+            if (orderSize < 0.001m) 
+            {
+                _logger.LogWarning("❌ 卖单余额不足: Symbol={Symbol}, 订单大小={OrderSize} < 0.001", symbol, orderSize);
+                return; // 最小数量
+            }
 
             for (int i = 1; i <= _maxOrdersPerSide; i++)
             {
@@ -409,8 +444,18 @@ namespace CryptoSpot.Application.Services
                 var orderPrice = currentPrice * (1 + (decimal)priceOffset);
                 var quantity = orderSize;
 
-                await orderService.CreateOrderAsync(
-                    systemAccountId, symbol, OrderSide.Sell, OrderType.Limit, quantity, orderPrice);
+                try
+                {
+                    await orderService.CreateOrderAsync(
+                        systemAccountId, symbol, OrderSide.Sell, OrderType.Limit, quantity, orderPrice);
+                    _logger.LogInformation("✅ 卖单创建成功: Symbol={Symbol}, 价格={OrderPrice}, 数量={Quantity}", 
+                        symbol, orderPrice, quantity);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "❌ 卖单创建失败: Symbol={Symbol}, 价格={OrderPrice}, 数量={Quantity}", 
+                        symbol, orderPrice, quantity);
+                }
             }
         }
 

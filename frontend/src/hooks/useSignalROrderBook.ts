@@ -47,11 +47,14 @@ export const useSignalROrderBook = (
     asks: new Map()
   });
 
+  // 防抖更新机制
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingUpdateRef = useRef<any>(null);
+
   // 处理订单簿数据更新
   const handleOrderBookData = useCallback((data: any) => {
-    console.log('OrderBook data received:', data);
     
-    // 如果是快照数据（首次加载或重新同步）
+    // 如果是快照数据（首次加载或重新同步），立即处理
     if (data.type === 'snapshot' || !orderBookData) {
       const orderBook: OrderBookData = {
         symbol: data.symbol,
@@ -74,8 +77,19 @@ export const useSignalROrderBook = (
       
       setOrderBookData(orderBook);
     } else {
-      // 增量更新
-      updateOrderBookIncremental(data);
+      // 增量更新使用防抖机制
+      pendingUpdateRef.current = data;
+      
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+      
+      updateTimeoutRef.current = setTimeout(() => {
+        if (pendingUpdateRef.current) {
+          updateOrderBookIncremental(pendingUpdateRef.current);
+          pendingUpdateRef.current = null;
+        }
+      }, 100); // 100ms防抖延迟
     }
     
     setLastUpdate(Date.now());
@@ -160,7 +174,6 @@ export const useSignalROrderBook = (
   // 自动重连调度
   const scheduleReconnect = useCallback(() => {
     if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-      console.log('Max reconnect attempts reached for OrderBook');
       return;
     }
 
@@ -173,7 +186,6 @@ export const useSignalROrderBook = (
     const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
     reconnectAttemptsRef.current++;
 
-    console.log(`OrderBook will reconnect in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
 
     reconnectTimeoutRef.current = setTimeout(() => {
       startOrderBookSubscription();
@@ -193,7 +205,6 @@ export const useSignalROrderBook = (
   const startOrderBookSubscription = useCallback(async () => {
     if (!symbol) return;
     
-    console.log('Starting OrderBook subscription for:', symbol);
     
     setLoading(true);
     setError(null);
@@ -253,6 +264,12 @@ export const useSignalROrderBook = (
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
+      }
+      
+      // 清理防抖定时器
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+        updateTimeoutRef.current = null;
       }
       
       // 重置重连计数器

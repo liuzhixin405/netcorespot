@@ -90,11 +90,6 @@ export const useKLineWithRealTime = ({
   // 初始化：加载历史数据
   useEffect(() => {
     if (!isInitialized && historicalData.length > 0) {
-      console.log(`📈 初始化历史数据: ${symbol} ${timeframe}`, {
-        count: historicalData.length,
-        firstTime: new Date(historicalData[0]?.timestamp).toLocaleString(),
-        lastTime: new Date(historicalData[historicalData.length - 1]?.timestamp).toLocaleString()
-      });
       
       // 首次加载历史数据，确保按时间排序（从左到右）
       const sortedHistoricalData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp);
@@ -106,10 +101,6 @@ export const useKLineWithRealTime = ({
   // 处理实时分钟数据更新 - 只更新最新的数据，不覆盖历史数据
   useEffect(() => {
     if (isInitialized && realtimeMinuteData.length > 0) {
-      console.log(`🔄 处理实时分钟数据: ${symbol}`, {
-        count: realtimeMinuteData.length,
-        lastTime: new Date(realtimeMinuteData[realtimeMinuteData.length - 1]?.timestamp).toLocaleString()
-      });
 
       setCombinedData(prevData => {
         // 获取最新的实时分钟数据
@@ -141,12 +132,6 @@ export const useKLineWithRealTime = ({
 
   // 实时更新单个K线数据（用于增量更新）
   const handleRealTimeKLineUpdate = useCallback((klineData: KLineData, isNewKLine: boolean) => {
-    console.log(`🔄 实时K线更新: ${symbol} ${timeframe}`, {
-      timestamp: new Date(klineData.timestamp).toLocaleString(),
-      price: klineData.close,
-      isNewKLine,
-      action: isNewKLine ? '新K线' : '更新K线'
-    });
 
     setCombinedData(prevData => {
       // 使用统一的合并逻辑

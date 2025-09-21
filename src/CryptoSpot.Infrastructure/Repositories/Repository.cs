@@ -44,21 +44,54 @@ namespace CryptoSpot.Infrastructure.Repositories
         public virtual async Task<T> AddAsync(T entity)
         {
             await _dbSet.AddAsync(entity);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex) when (ex.Message.Contains("Connection must be Open") || 
+                                       ex.Message.Contains("Cannot Open when State is Connecting") ||
+                                       ex.Message.Contains("write operation is pending"))
+            {
+                // 连接问题，等待一下再重试
+                await Task.Delay(100);
+                await _context.SaveChangesAsync();
+            }
             return entity;
         }
 
         public virtual async Task<IEnumerable<T>> AddRangeAsync(IEnumerable<T> entities)
         {
             await _dbSet.AddRangeAsync(entities);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex) when (ex.Message.Contains("Connection must be Open") || 
+                                       ex.Message.Contains("Cannot Open when State is Connecting") ||
+                                       ex.Message.Contains("write operation is pending"))
+            {
+                // 连接问题，等待一下再重试
+                await Task.Delay(100);
+                await _context.SaveChangesAsync();
+            }
             return entities;
         }
 
         public virtual async Task UpdateAsync(T entity)
         {
             _dbSet.Update(entity);
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex) when (ex.Message.Contains("Connection must be Open") || 
+                                       ex.Message.Contains("Cannot Open when State is Connecting") ||
+                                       ex.Message.Contains("write operation is pending"))
+            {
+                // 连接问题，等待一下再重试
+                await Task.Delay(100);
+                await _context.SaveChangesAsync();
+            }
         }
 
         public virtual async Task DeleteAsync(T entity)

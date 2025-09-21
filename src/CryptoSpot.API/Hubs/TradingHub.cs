@@ -94,6 +94,7 @@ namespace CryptoSpot.API.Hubs
                 {
                     var orderBookData = new
                     {
+                        type = "snapshot", // 标记为快照数据
                         symbol = symbol,
                         bids = orderBookDepth.Bids.Select(b => new
                         {
@@ -111,6 +112,11 @@ namespace CryptoSpot.API.Hubs
                     };
 
                     await Clients.Caller.SendAsync("OrderBookData", orderBookData);
+                    _logger.LogInformation($"Sent order book data to client {Context.ConnectionId} for {symbol}: {orderBookDepth.Bids.Count} bids, {orderBookDepth.Asks.Count} asks");
+                }
+                else
+                {
+                    _logger.LogWarning($"No order book data found for {symbol}");
                 }
                 
                 // 通知客户端订阅成功

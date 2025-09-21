@@ -115,9 +115,9 @@ namespace CryptoSpot.API.Services
                         timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                     };
 
-                    await _hubContext.Clients.Group(groupName).SendAsync("OrderBookUpdate", orderBookData);
+                    await _hubContext.Clients.Group(groupName).SendAsync("OrderBookData", orderBookData);
                     
-                    _logger.LogDebug($"Pushed order book snapshot for {symbol}");
+                    _logger.LogDebug($"Pushed order book snapshot for {symbol}: Bids={orderBookDepth.Bids.Count}, Asks={orderBookDepth.Asks.Count}");
                 }
             }
             catch (Exception ex)

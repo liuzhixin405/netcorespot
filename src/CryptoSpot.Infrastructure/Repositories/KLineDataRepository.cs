@@ -53,7 +53,18 @@ namespace CryptoSpot.Infrastructure.Repositories
                 await _dbSet.AddAsync(klineData);
             }
 
-            await _context.SaveChangesAsync();
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex) when (ex.Message.Contains("Connection must be Open") || 
+                                       ex.Message.Contains("Cannot Open when State is Connecting") ||
+                                       ex.Message.Contains("write operation is pending"))
+            {
+                // 连接问题，等待一下再重试
+                await Task.Delay(100);
+                await _context.SaveChangesAsync();
+            }
         }
 
         public async Task<IEnumerable<KLineData>> GetRecentDataAsync(string symbol, string timeFrame, long fromTimestamp)
