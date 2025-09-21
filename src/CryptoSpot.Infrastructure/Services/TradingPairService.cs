@@ -32,6 +32,12 @@ namespace CryptoSpot.Infrastructure.Services
             return await _cacheService.GetCachedTradingPairBySymbolAsync(symbol);
         }
 
+        public async Task<TradingPair?> GetTradingPairByIdAsync(int tradingPairId)
+        {
+            var allTradingPairs = await _cacheService.GetCachedTradingPairsAsync();
+            return allTradingPairs.FirstOrDefault(tp => tp.Id == tradingPairId);
+        }
+
         public async Task<int> GetTradingPairIdAsync(string symbol)
         {
             var tradingPair = await _cacheService.GetCachedTradingPairBySymbolAsync(symbol);

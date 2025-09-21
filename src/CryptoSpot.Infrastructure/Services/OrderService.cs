@@ -3,7 +3,9 @@ using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Repositories;
 using CryptoSpot.Core.Extensions;
 using CryptoSpot.Core.Interfaces;
+using CryptoSpot.Core.Interfaces.Users;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace CryptoSpot.Infrastructure.Services
 {
@@ -13,17 +15,20 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly ITradingPairService _tradingPairService;
         private readonly IDatabaseCoordinator _databaseCoordinator;
         private readonly ILogger<OrderService> _logger;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
         public OrderService(
             IRepository<Order> orderRepository,
             ITradingPairService tradingPairService,
             IDatabaseCoordinator databaseCoordinator,
-            ILogger<OrderService> logger)
+            ILogger<OrderService> logger,
+            IServiceScopeFactory serviceScopeFactory)
         {
             _orderRepository = orderRepository;
             _tradingPairService = tradingPairService;
             _databaseCoordinator = databaseCoordinator;
             _logger = logger;
+            _serviceScopeFactory = serviceScopeFactory;
         }
 
         public async Task<Order?> GetOrderByIdAsync(int orderId, int? userId = null)
@@ -108,6 +113,31 @@ namespace CryptoSpot.Infrastructure.Services
                     throw new ArgumentException($"Trading pair {symbol} not found");
                 }
 
+                // 计算需要冻结的资产
+                var baseAsset = symbol.Replace("USDT", "");
+                var quoteAsset = "USDT";
+                
+                decimal requiredAssetAmount;
+                string requiredAssetSymbol;
+                
+                if (side == OrderSide.Buy)
+                {
+                    // 买单需要冻结USDT
+                    requiredAssetAmount = quantity * (price ?? 0);
+                    requiredAssetSymbol = quoteAsset;
+                }
+                else
+                {
+                    // 卖单需要冻结基础资产
+                    requiredAssetAmount = quantity;
+                    requiredAssetSymbol = baseAsset;
+                }
+
+                // 检查并冻结用户资产
+                using var scope = _serviceScopeFactory.CreateScope();
+                var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>();
+                await assetService.FreezeAssetAsync(userId, requiredAssetSymbol, requiredAssetAmount);
+
                 var order = new Order
                 {
                     UserId = userId,
@@ -121,7 +151,8 @@ namespace CryptoSpot.Infrastructure.Services
                 };
 
                 var createdOrder = await _orderRepository.AddAsync(order);
-                _logger.LogInformation("Created order {OrderId} for {Symbol}", createdOrder.OrderId, symbol);
+                _logger.LogInformation("Created order {OrderId} for {Symbol}, froze {Amount} {Asset}", 
+                    createdOrder.OrderId, symbol, requiredAssetAmount, requiredAssetSymbol);
                 
                 return createdOrder;
             }
@@ -166,7 +197,37 @@ namespace CryptoSpot.Infrastructure.Services
                     return false;
                 }
 
+                // 解冻未成交部分的资产
+                var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(order.TradingPairId);
+                if (tradingPair != null)
+                {
+                    var baseAsset = tradingPair.BaseAsset;
+                    var quoteAsset = tradingPair.QuoteAsset;
+                    
+                    decimal unfreezeAmount;
+                    string unfreezeAssetSymbol;
+                    
+                    if (order.Side == OrderSide.Buy)
+                    {
+                        // 买单解冻USDT
+                        unfreezeAmount = order.RemainingQuantity * (order.Price ?? 0);
+                        unfreezeAssetSymbol = quoteAsset;
+                    }
+                    else
+                    {
+                        // 卖单解冻基础资产
+                        unfreezeAmount = order.RemainingQuantity;
+                        unfreezeAssetSymbol = baseAsset;
+                    }
+
+                    // 解冻资产
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>();
+                    await assetService.UnfreezeAssetAsync(order.UserId!.Value, unfreezeAssetSymbol, unfreezeAmount);
+                }
+
                 await UpdateOrderStatusAsync(orderId, OrderStatus.Cancelled);
+                _logger.LogInformation("Cancelled order {OrderId}, unfroze assets", orderId);
                 return true;
             }
             catch (Exception ex)

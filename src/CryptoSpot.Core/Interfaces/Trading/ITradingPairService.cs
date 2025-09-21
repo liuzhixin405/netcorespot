@@ -5,6 +5,7 @@ namespace CryptoSpot.Core.Interfaces.Trading
     public interface ITradingPairService
     {
         Task<TradingPair?> GetTradingPairAsync(string symbol);
+        Task<TradingPair?> GetTradingPairByIdAsync(int tradingPairId);
         Task<int> GetTradingPairIdAsync(string symbol);
         Task<IEnumerable<TradingPair>> GetActiveTradingPairsAsync();
         Task<IEnumerable<TradingPair>> GetTopTradingPairsAsync(int count = 10);

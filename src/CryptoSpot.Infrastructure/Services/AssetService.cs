@@ -1,6 +1,7 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Interfaces.Caching;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
@@ -9,15 +10,18 @@ namespace CryptoSpot.Infrastructure.Services
     {
         private readonly IRepository<Asset> _assetRepository;
         private readonly IUserRepository _userRepository;
+        private readonly ICacheService _cacheService;
         private readonly ILogger<AssetService> _logger;
 
         public AssetService(
             IRepository<Asset> assetRepository,
             IUserRepository userRepository,
+            ICacheService cacheService,
             ILogger<AssetService> logger)
         {
             _assetRepository = assetRepository;
             _userRepository = userRepository;
+            _cacheService = cacheService;
             _logger = logger;
         }
 
@@ -25,7 +29,16 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await _assetRepository.FindAsync(a => a.UserId == userId);
+                // 优先从缓存获取
+                var cachedAssets = await _cacheService.GetCachedUserAssetsAsync(userId);
+                if (cachedAssets.Any())
+                {
+                    return cachedAssets.Values;
+                }
+                
+                // 缓存中没有，从数据库获取
+                var assets = await _assetRepository.FindAsync(a => a.UserId == userId);
+                return assets;
             }
             catch (Exception ex)
             {
@@ -38,6 +51,14 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
+                // 优先从缓存获取
+                var cachedAsset = await _cacheService.GetCachedUserAssetAsync(userId, symbol);
+                if (cachedAsset != null)
+                {
+                    return cachedAsset;
+                }
+                
+                // 缓存中没有，从数据库获取
                 return await _assetRepository.FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
             }
             catch (Exception ex)

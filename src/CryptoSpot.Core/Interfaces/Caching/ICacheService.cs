@@ -46,5 +46,15 @@ namespace CryptoSpot.Core.Interfaces.Caching
         /// 清除所有缓存
         /// </summary>
         Task ClearAllCacheAsync();
+        
+        /// <summary>
+        /// 获取缓存的用户资产
+        /// </summary>
+        Task<Asset?> GetCachedUserAssetAsync(int userId, string symbol);
+        
+        /// <summary>
+        /// 获取用户的所有缓存资产
+        /// </summary>
+        Task<Dictionary<string, Asset>> GetCachedUserAssetsAsync(int userId);
     }
 }

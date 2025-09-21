@@ -461,27 +461,35 @@ namespace CryptoSpot.Application.Services
             // 处理买方资产变动
             if (buyOrder.UserId.HasValue)
             {
-                // 扣除USDT，增加基础资产
-                await _assetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
-                await _assetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
-            }
-            else if (buyOrder.UserId.HasValue && buyOrder.User?.IsSystemAccount == true)
-            {
-                await _systemAssetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
-                await _systemAssetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
+                if (buyOrder.User?.IsSystemAccount == true)
+                {
+                    // 系统账户使用SystemAssetService
+                    await _systemAssetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
+                    await _systemAssetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
+                }
+                else
+                {
+                    // 普通用户使用AssetService
+                    await _assetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
+                    await _assetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
+                }
             }
 
             // 处理卖方资产变动
             if (sellOrder.UserId.HasValue)
             {
-                // 扣除基础资产，增加USDT
-                await _assetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
-                await _assetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
-            }
-            else if (sellOrder.UserId.HasValue && sellOrder.User?.IsSystemAccount == true)
-            {
-                await _systemAssetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
-                await _systemAssetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
+                if (sellOrder.User?.IsSystemAccount == true)
+                {
+                    // 系统账户使用SystemAssetService
+                    await _systemAssetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
+                    await _systemAssetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
+                }
+                else
+                {
+                    // 普通用户使用AssetService
+                    await _assetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
+                    await _assetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
+                }
             }
         }
 

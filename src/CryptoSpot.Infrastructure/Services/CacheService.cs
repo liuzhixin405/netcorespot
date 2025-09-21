@@ -22,6 +22,7 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly ConcurrentDictionary<string, TradingPair> _tradingPairCache = new();
         private readonly ConcurrentDictionary<int, int> _userIndexCache = new(); // userId -> index
         private readonly ConcurrentDictionary<string, string> _tradingPairIndexCache = new(); // symbol -> index
+        private readonly ConcurrentDictionary<int, Dictionary<string, Asset>> _userAssetCache = new(); // userId -> {symbol -> Asset}
 
         private bool _isInitialized = false;
 
@@ -183,7 +184,8 @@ namespace CryptoSpot.Infrastructure.Services
                 // 使用内部方法避免死锁（不获取锁）
                 await Task.WhenAll(
                     RefreshUsersCacheInternalAsync(),
-                    RefreshTradingPairsCacheInternalAsync()
+                    RefreshTradingPairsCacheInternalAsync(),
+                    RefreshUserAssetsCacheInternalAsync()
                 );
                 
                 _isInitialized = true;
@@ -278,6 +280,63 @@ namespace CryptoSpot.Infrastructure.Services
             {
                 _logger.LogError(ex, "处理交易对变更事件失败: Symbol={Symbol}", symbol);
             }
+        }
+
+        private async Task RefreshUserAssetsCacheInternalAsync()
+        {
+            _logger.LogInformation("开始刷新用户资产缓存");
+            
+            using var scope = _serviceScopeFactory.CreateScope();
+            var assetRepository = scope.ServiceProvider.GetRequiredService<IRepository<Asset>>();
+            var assets = await assetRepository.GetAllAsync();
+            
+            // 清除现有资产缓存
+            _userAssetCache.Clear();
+            
+            // 按用户分组资产，过滤掉UserId为null的资产
+            var assetsByUser = assets
+                .Where(a => a.UserId.HasValue)
+                .GroupBy(a => a.UserId!.Value)
+                .ToList();
+            
+            foreach (var userAssets in assetsByUser)
+            {
+                var userId = userAssets.Key;
+                var userAssetDict = new Dictionary<string, Asset>();
+                
+                foreach (var asset in userAssets)
+                {
+                    userAssetDict[asset.Symbol] = asset;
+                }
+                
+                _userAssetCache[userId] = userAssetDict;
+            }
+            
+            _logger.LogInformation("用户资产缓存刷新完成，缓存了 {UserCount} 个用户的资产", _userAssetCache.Count);
+        }
+
+        public async Task<Asset?> GetCachedUserAssetAsync(int userId, string symbol)
+        {
+            await EnsureInitializedAsync();
+            
+            if (_userAssetCache.TryGetValue(userId, out var userAssets))
+            {
+                return userAssets.TryGetValue(symbol, out var asset) ? asset : null;
+            }
+            
+            return null;
+        }
+
+        public async Task<Dictionary<string, Asset>> GetCachedUserAssetsAsync(int userId)
+        {
+            await EnsureInitializedAsync();
+            
+            if (_userAssetCache.TryGetValue(userId, out var userAssets))
+            {
+                return new Dictionary<string, Asset>(userAssets);
+            }
+            
+            return new Dictionary<string, Asset>();
         }
 
         public void Dispose()
