@@ -38,8 +38,10 @@ export class SignalRClient {
     try {
       const token = localStorage.getItem('token');
       
+      const signalRUrl = process.env.REACT_APP_SIGNALR_URL || 'https://localhost:5001/tradingHub';
+      
       this.connection = new signalR.HubConnectionBuilder()
-        .withUrl('https://localhost:50381/tradingHub', {
+        .withUrl(signalRUrl, {
           accessTokenFactory: () => token || '',
           transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.ServerSentEvents,
           skipNegotiation: false,
@@ -103,9 +105,11 @@ export class SignalRClient {
       // 设置历史数据接收处理器
       this.connection.off('HistoricalKLineData');
       this.connection.on('HistoricalKLineData', (response: any) => {
+        console.log('Received HistoricalKLineData:', response);
         
-        if (response.data && Array.isArray(response.data)) {
-          const klineData: KLineData[] = response.data.map((item: any) => ({
+        // 后端直接发送数组，不是包装在data字段中
+        if (Array.isArray(response)) {
+          const klineData: KLineData[] = response.map((item: any) => ({
             timestamp: item.timestamp,
             open: Number(item.open),
             high: Number(item.high),
@@ -121,15 +125,17 @@ export class SignalRClient {
       // 设置实时K线更新处理器
       this.connection.off('KLineUpdate');
       this.connection.on('KLineUpdate', (response: any) => {
+        console.log('Received KLineUpdate:', response);
         
-        if (response.kline) {
+        // 后端发送的格式是直接包含k线数据，不是包装在kline字段中
+        if (response && response.timestamp) {
           const klineData: KLineData = {
-            timestamp: response.kline.timestamp,
-            open: Number(response.kline.open),
-            high: Number(response.kline.high),
-            low: Number(response.kline.low),
-            close: Number(response.kline.close),
-            volume: Number(response.kline.volume)
+            timestamp: response.timestamp,
+            open: Number(response.open),
+            high: Number(response.high),
+            low: Number(response.low),
+            close: Number(response.close),
+            volume: Number(response.volume)
           };
           
           onKLineUpdate(klineData, response.isNewKLine || false);
@@ -195,6 +201,59 @@ export class SignalRClient {
         try {
           if (this.connection && this.connection.state === 'Connected') {
             await this.connection.invoke('UnsubscribePriceData', symbols);
+          }
+        } catch (error) {
+          // 取消订阅失败，忽略错误
+        }
+      };
+
+    } catch (error) {
+      if (onError) onError(error);
+      return () => {};
+    }
+  }
+
+  // 订阅订单簿数据
+  async subscribeOrderBook(
+    symbol: string,
+    onOrderBookData: (orderBookData: any) => void,
+    onError?: (error: any) => void
+  ): Promise<() => void> {
+    try {
+      if (!this.connection || this.connection.state !== 'Connected') {
+        const connected = await this.connect();
+        if (!connected || !this.connection) {
+          throw new Error('SignalR连接失败');
+        }
+      }
+
+      // 确保连接存在且已连接
+      if (!this.connection || this.connection.state !== 'Connected') {
+        throw new Error('SignalR连接状态异常');
+      }
+
+      // 设置订单簿数据接收处理器
+      this.connection.off('OrderBookData');
+      this.connection.off('OrderBookUpdate');
+      
+      this.connection.on('OrderBookData', (response: any) => {
+        console.log('Received OrderBookData:', response);
+        onOrderBookData(response);
+      });
+      
+      this.connection.on('OrderBookUpdate', (response: any) => {
+        console.log('Received OrderBookUpdate:', response);
+        onOrderBookData(response);
+      });
+
+      // 发送订阅请求
+      await this.connection.invoke('SubscribeOrderBook', symbol, 20);
+
+      // 返回取消订阅函数
+      return async () => {
+        try {
+          if (this.connection && this.connection.state === 'Connected') {
+            await this.connection.invoke('UnsubscribeOrderBook', symbol);
           }
         } catch (error) {
           // 取消订阅失败，忽略错误

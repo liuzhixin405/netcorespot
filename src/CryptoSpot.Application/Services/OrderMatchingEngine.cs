@@ -3,6 +3,7 @@ using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.MarketData;
+using CryptoSpot.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Application.Services
@@ -16,6 +17,7 @@ namespace CryptoSpot.Application.Services
         private readonly ITradeService _tradeService;
         private readonly IAssetService _assetService;
         private readonly ISystemAssetService _systemAssetService;
+        private readonly IRealTimeDataPushService _realTimeDataPushService;
         private readonly ILogger<OrderMatchingEngine> _logger;
 
         // 用于防止并发匹配的锁
@@ -26,12 +28,14 @@ namespace CryptoSpot.Application.Services
             ITradeService tradeService,
             IAssetService assetService,
             ISystemAssetService systemAssetService,
+            IRealTimeDataPushService realTimeDataPushService,
             ILogger<OrderMatchingEngine> logger)
         {
             _orderService = orderService;
             _tradeService = tradeService;
             _assetService = assetService;
             _systemAssetService = systemAssetService;
+            _realTimeDataPushService = realTimeDataPushService;
             _logger = logger;
         }
 
@@ -74,6 +78,16 @@ namespace CryptoSpot.Application.Services
                 _logger.LogError(ex, "处理订单时出错: OrderId={OrderId}", order.OrderId);
                 order.Status = OrderStatus.Rejected;
                 await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Rejected);
+            }
+
+            // 推送订单簿更新
+            try
+            {
+                await _realTimeDataPushService.PushOrderBookDataAsync(order.TradingPair.Symbol, 20);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "推送订单簿数据失败: Symbol={Symbol}", order.TradingPair.Symbol);
             }
 
             return result;
@@ -138,6 +152,16 @@ namespace CryptoSpot.Application.Services
                     if (trades.Any())
                     {
                         _logger.LogInformation("为 {Symbol} 匹配了 {TradeCount} 笔交易", symbol, trades.Count);
+                        
+                        // 推送订单簿更新
+                        try
+                        {
+                            await _realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "推送订单簿数据失败: Symbol={Symbol}", symbol);
+                        }
                     }
                 }
                 finally
@@ -169,7 +193,8 @@ namespace CryptoSpot.Application.Services
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
-                        OrderCount = g.Count()
+                        OrderCount = g.Count(),
+                        Total = g.Sum(o => o.RemainingQuantity)
                     })
                     .OrderByDescending(l => l.Price)
                     .Take(depth)
@@ -183,7 +208,8 @@ namespace CryptoSpot.Application.Services
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
-                        OrderCount = g.Count()
+                        OrderCount = g.Count(),
+                        Total = g.Sum(o => o.RemainingQuantity)
                     })
                     .OrderBy(l => l.Price)
                     .Take(depth)

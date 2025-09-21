@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useSignalRPriceData } from '../../hooks/useSignalRPriceData';
+import { useSignalROrderBook, OrderBookLevel } from '../../hooks/useSignalROrderBook';
 
 const Container = styled.div`
   height: 100%;
@@ -119,15 +120,16 @@ interface OrderBookProps {
 
 const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
   // 使用SignalR实时价格数据
-  const { priceData, isConnected, error } = useSignalRPriceData([symbol]);
-  const [buyOrders, setBuyOrders] = useState<any[]>([]);
-  const [sellOrders, setSellOrders] = useState<any[]>([]);
+  const { priceData, isConnected: priceConnected, error: priceError } = useSignalRPriceData([symbol]);
+  // 使用SignalR实时订单簿数据
+  const { orderBookData, loading, error: orderBookError, isConnected: orderBookConnected, reconnect } = useSignalROrderBook(symbol);
   
   const currentPriceData = priceData[symbol];
   const currentPrice = currentPriceData?.price || 0;
-
-  // TODO: 从后端gRPC服务获取真实的订单簿数据
-  // 目前清除了所有模拟数据，等待后端订单簿服务实现
+  
+  // 从订单簿数据中提取买卖订单
+  const buyOrders = orderBookData?.bids || [];
+  const sellOrders = orderBookData?.asks || [];
 
   return (
     <Container>
@@ -143,39 +145,82 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
         {/* 显示当前价格（如果有的话） */}
         <CurrentPrice>
           {currentPrice > 0 ? currentPrice.toFixed(2) : '--'}
-          {isConnected && currentPrice > 0 && (
+          {priceConnected && currentPrice > 0 && (
             <span style={{ fontSize: '0.6rem', color: '#00b35f', marginLeft: '8px' }}>●实时</span>
           )}
-          {error && (
+          {orderBookConnected && (
+            <span style={{ fontSize: '0.6rem', color: '#00b35f', marginLeft: '8px' }}>●订单簿</span>
+          )}
+          {(priceError || orderBookError) && (
             <span style={{ fontSize: '0.6rem', color: '#f85149', marginLeft: '8px' }}>●断开</span>
           )}
         </CurrentPrice>
         
-        {/* 无数据状态 */}
-        <EmptyState>
-          {error ? (
-            <div>
-              <div>订单簿连接失败</div>
-              <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
-                SignalR连接错误
+        {/* 显示订单簿数据 */}
+        {orderBookData ? (
+          <>
+            {/* 卖单（从高到低） */}
+            {sellOrders.slice().reverse().map((order: OrderBookLevel, index: number) => (
+              <PriceRow key={`sell-${index}`} isBuy={false}>
+                <DepthBar isBuy={false} percentage={Math.min((order.total / Math.max(...sellOrders.map(o => o.total))) * 100, 100)} />
+                <PriceCell isBuy={false}>{order.price.toFixed(2)}</PriceCell>
+                <AmountCell>{order.amount.toFixed(4)}</AmountCell>
+                <TotalCell>{order.total.toFixed(4)}</TotalCell>
+              </PriceRow>
+            ))}
+            
+            {/* 买单（从高到低） */}
+            {buyOrders.map((order: OrderBookLevel, index: number) => (
+              <PriceRow key={`buy-${index}`} isBuy={true}>
+                <DepthBar isBuy={true} percentage={Math.min((order.total / Math.max(...buyOrders.map(o => o.total))) * 100, 100)} />
+                <PriceCell isBuy={true}>{order.price.toFixed(2)}</PriceCell>
+                <AmountCell>{order.amount.toFixed(4)}</AmountCell>
+                <TotalCell>{order.total.toFixed(4)}</TotalCell>
+              </PriceRow>
+            ))}
+          </>
+        ) : (
+          /* 无数据状态 */
+          <EmptyState>
+            {orderBookError ? (
+              <div>
+                <div>订单簿连接失败</div>
+                <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
+                  {orderBookError}
+                </div>
+                <button 
+                  onClick={reconnect}
+                  style={{ 
+                    marginTop: '8px', 
+                    padding: '4px 8px', 
+                    fontSize: '0.7rem',
+                    background: '#21262d',
+                    border: '1px solid #30363d',
+                    color: '#f0f6fc',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  重新连接
+                </button>
               </div>
-            </div>
-          ) : !isConnected ? (
-            <div>
-              <div>正在连接订单簿...</div>
-              <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
-                等待SignalR连接
+            ) : loading ? (
+              <div>
+                <div>正在连接订单簿...</div>
+                <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
+                  等待SignalR连接
+                </div>
               </div>
-            </div>
-          ) : (
-            <div>
-              <div>订单簿暂无数据</div>
-              <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
-                等待后端订单簿数据推送
+            ) : (
+              <div>
+                <div>订单簿暂无数据</div>
+                <div style={{ fontSize: '0.7rem', marginTop: '4px', opacity: 0.7 }}>
+                  等待后端订单簿数据推送
+                </div>
               </div>
-            </div>
-          )}
-        </EmptyState>
+            )}
+          </EmptyState>
+        )}
       </Content>
     </Container>
   );

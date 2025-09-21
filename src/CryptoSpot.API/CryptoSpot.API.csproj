@@ -22,6 +22,7 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.0.1" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.0" />
   </ItemGroup>
 
 </Project>

@@ -15,16 +15,16 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Net;
 using System.Text;
+using CryptoSpot.API.Services;
+using CryptoSpot.Core.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Configure Kestrel to use only HTTP to avoid port conflicts
-builder.WebHost.UseUrls("http://localhost:5000");
 
 // Add services to the container.
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
 
 
 // Database
@@ -39,31 +39,36 @@ builder.Services.AddScoped<ITradingPairRepository, TradingPairRepository>();
 builder.Services.AddScoped<IKLineDataRepository, KLineDataRepository>();
 
 // Infrastructure Services (Data Access & External Services)
-builder.Services.AddScoped<IAuthService, CryptoSpot.Infrastructure.Services.AuthService>();
-builder.Services.AddScoped<IPriceDataService, CryptoSpot.Infrastructure.Services.PriceDataService>();
-builder.Services.AddScoped<IKLineDataService, CryptoSpot.Infrastructure.Services.KLineDataService>();
-builder.Services.AddScoped<IOrderService, CryptoSpot.Infrastructure.Services.OrderService>();
-builder.Services.AddScoped<IAssetService, CryptoSpot.Infrastructure.Services.AssetService>();
-builder.Services.AddScoped<ITradeService, CryptoSpot.Infrastructure.Services.TradeService>();
-builder.Services.AddScoped<ISystemAssetService, CryptoSpot.Infrastructure.Services.SystemAssetService>();
-builder.Services.AddScoped<ISystemAccountService, CryptoSpot.Infrastructure.Services.SystemAccountService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IPriceDataService, PriceDataService>();
+builder.Services.AddScoped<IKLineDataService, KLineDataService>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+builder.Services.AddScoped<IAssetService, AssetService>();
+builder.Services.AddScoped<ITradeService, TradeService>();
+builder.Services.AddScoped<ISystemAssetService, SystemAssetService>();
+builder.Services.AddScoped<ISystemAccountService, SystemAccountService>();
 
 // Application Services (Business Logic)
-builder.Services.AddScoped<ITradingService, CryptoSpot.Application.Services.TradingService>();
+builder.Services.AddScoped<ITradingService, TradingService>();
 builder.Services.AddScoped<IOrderMatchingEngine, OrderMatchingEngine>();
-builder.Services.AddScoped<IAutoTradingService, AutoTradingService>();
 
-// Application Use Cases
-builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.LoginUseCase>();
-builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.RegisterUseCase>();
+
+// SignalR Data Push Service
+builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
+
+// Business Services
+builder.Services.AddScoped<IMarketDataProvider, BinanceMarketDataProvider>();
+builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 
 // Background Services
 builder.Services.AddHostedService<AutoTradingService>();
+builder.Services.AddHostedService<BinanceService>();
+builder.Services.AddHostedService<OrderBookPushService>();
 
 
 
 // HttpClient for Binance API with proxy support
-builder.Services.AddHttpClient<BinanceService>((serviceProvider, client) =>
+builder.Services.AddHttpClient<BinanceMarketDataProvider>((serviceProvider, client) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
     var proxyUrl = configuration["Binance:ProxyUrl"];
@@ -105,8 +110,6 @@ builder.Services.AddHttpClient<BinanceService>((serviceProvider, client) =>
     return handler;
 });
 
-// Add Hosted Service for real-time data sync
-builder.Services.AddHostedService<BinanceService>();
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -136,13 +139,18 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
     {
-        policy.WithOrigins("http://localhost:3000", "http://localhost:3001", "https://localhost:3000", "https://localhost:3001")
+        policy.WithOrigins("http://localhost:3000")
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials()
-                     .WithExposedHeaders("Content-Type");
-
+              //.AllowAnyOrigin();
+              .AllowCredentials();
+              //.WithExposedHeaders("Content-Type");
     });
+});
+// Add SignalR
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = true;
 });
 
 var app = builder.Build();
@@ -154,7 +162,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+app.UseHttpsRedirection(); // Commented out for HTTP development
 app.UseCors("AllowReactApp");
 app.UseRouting();
 
@@ -165,6 +173,9 @@ app.UseAuthorization();
 
 // Map controllers
 app.MapControllers();
+
+// Map SignalR Hub
+app.MapHub<CryptoSpot.API.Hubs.TradingHub>("/tradingHub");
 
 
 

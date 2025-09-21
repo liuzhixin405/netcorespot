@@ -45,5 +45,5 @@
       "last 1 safari version"
     ]
   },
-  "proxy": "https://localhost:50381"
+  "proxy": "https://localhost:5001"
 }
