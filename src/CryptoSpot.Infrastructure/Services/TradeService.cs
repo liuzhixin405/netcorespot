@@ -1,6 +1,7 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Core.Extensions;
 using Microsoft.Extensions.Logging;
 
@@ -11,95 +12,106 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IRepository<Trade> _tradeRepository;
         private readonly IRepository<Order> _orderRepository;
         private readonly ITradingPairService _tradingPairService;
+        private readonly IDatabaseCoordinator _databaseCoordinator;
         private readonly ILogger<TradeService> _logger;
 
         public TradeService(
             IRepository<Trade> tradeRepository,
             IRepository<Order> orderRepository,
             ITradingPairService tradingPairService,
+            IDatabaseCoordinator databaseCoordinator,
             ILogger<TradeService> logger)
         {
             _tradeRepository = tradeRepository;
             _orderRepository = orderRepository;
             _tradingPairService = tradingPairService;
+            _databaseCoordinator = databaseCoordinator;
             _logger = logger;
         }
 
         public async Task<Trade> ExecuteTradeAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity)
         {
-            try
+            return await _databaseCoordinator.ExecuteAsync(async () =>
             {
-                var trade = new Trade
+                try
                 {
-                    BuyOrderId = buyOrder.Id,
-                    SellOrderId = sellOrder.Id,
-                    TradingPairId = buyOrder.TradingPairId,
-                    TradeId = GenerateTradeId(),
-                    Price = price,
-                    Quantity = quantity,
-                    Fee = CalculateFee(price, quantity),
-                    FeeAsset = "USDT", // 默认使用USDT作为手续费
-                    ExecutedAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
-                };
+                    var trade = new Trade
+                    {
+                        BuyOrderId = buyOrder.Id,
+                        SellOrderId = sellOrder.Id,
+                        BuyerId = buyOrder.UserId ?? 0,
+                        SellerId = sellOrder.UserId ?? 0,
+                        TradingPairId = buyOrder.TradingPairId,
+                        TradeId = GenerateTradeId(),
+                        Price = price,
+                        Quantity = quantity,
+                        Fee = CalculateFee(price, quantity),
+                        FeeAsset = "USDT", // 默认使用USDT作为手续费
+                        ExecutedAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
+                    };
 
-                var createdTrade = await _tradeRepository.AddAsync(trade);
-                
-                _logger.LogInformation("Executed trade {TradeId}: {Quantity} at {Price} for {Symbol}", 
-                    trade.TradeId, quantity, price, buyOrder.TradingPair?.Symbol ?? "Unknown");
+                    var createdTrade = await _tradeRepository.AddAsync(trade);
+                    
+                    _logger.LogInformation("Executed trade {TradeId}: {Quantity} at {Price} for {Symbol}", 
+                        trade.TradeId, quantity, price, buyOrder.TradingPair?.Symbol ?? "Unknown");
 
-                return createdTrade;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error executing trade between orders {BuyOrderId} and {SellOrderId}", 
-                    buyOrder.Id, sellOrder.Id);
-                throw;
-            }
+                    return createdTrade;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error executing trade between orders {BuyOrderId} and {SellOrderId}", 
+                        buyOrder.Id, sellOrder.Id);
+                    throw;
+                }
+            }, $"ExecuteTradeAsync_{buyOrder.Id}_{sellOrder.Id}");
         }
 
         public async Task<IEnumerable<Trade>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100)
         {
-            try
+            return await _databaseCoordinator.ExecuteAsync(async () =>
             {
-                IEnumerable<Trade> trades;
-                
-                if (string.IsNullOrEmpty(symbol))
+                try
                 {
-                    // 获取用户所有交易（通过买方或卖方ID）
-                    var buyTrades = await _tradeRepository.FindAsync(t => t.BuyerId == userId);
-                    var sellTrades = await _tradeRepository.FindAsync(t => t.SellerId == userId);
+                    IEnumerable<Trade> trades;
                     
-                    trades = buyTrades.Concat(sellTrades)
-                        .Distinct()
-                        .OrderByDescending(t => t.ExecutedAt)
-                        .Take(limit);
-                }
-                else
-                {
-                    var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
-                    if (tradingPair == null)
+                    if (string.IsNullOrEmpty(symbol))
                     {
-                        return new List<Trade>();
+                        // 获取用户所有交易（通过买方或卖方ID）
+                        var buyTrades = await _tradeRepository.FindAsync(t => t.BuyerId == userId);
+                        var sellTrades = await _tradeRepository.FindAsync(t => t.SellerId == userId);
+                        
+                        trades = buyTrades.Concat(sellTrades)
+                            .Distinct()
+                            .OrderByDescending(t => t.ExecutedAt)
+                            .Take(limit);
+                    }
+                    else
+                    {
+                        var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
+                        if (tradingPair == null)
+                        {
+                            return new List<Trade>();
+                        }
+
+                        var buyTrades = await _tradeRepository.FindAsync(t => 
+                            t.TradingPairId == tradingPair.Id && t.BuyerId == userId);
+                        var sellTrades = await _tradeRepository.FindAsync(t => 
+                            t.TradingPairId == tradingPair.Id && t.SellerId == userId);
+                        
+                        trades = buyTrades.Concat(sellTrades)
+                            .Distinct()
+                            .OrderByDescending(t => t.ExecutedAt)
+                            .Take(limit);
                     }
 
-                    var buyTrades = await _tradeRepository.FindAsync(t => 
-                        t.TradingPairId == tradingPair.Id && t.BuyerId == userId);
-                    var sellTrades = await _tradeRepository.FindAsync(t => 
-                        t.TradingPairId == tradingPair.Id && t.SellerId == userId);
-                    
-                    trades = buyTrades.Concat(sellTrades)
-                        .Distinct()
-                        .OrderByDescending(t => t.ExecutedAt)
-                        .Take(limit);
+                    return trades;
                 }
-
-                return trades;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting trades for user {UserId}", userId);
-                return new List<Trade>();
-            }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error getting trades for user {UserId}", userId);
+                    return new List<Trade>();
+                }
+            }, $"GetTradeHistoryAsync_{userId}_{symbol}");
         }
 
         public async Task<IEnumerable<Trade>> GetUserTradesAsync(int userId, string symbol = "", int limit = 100)
