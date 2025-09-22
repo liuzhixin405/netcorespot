@@ -21,5 +21,6 @@ namespace CryptoSpot.Core.Interfaces.Trading
         public OrderType Type { get; set; }
         public decimal Quantity { get; set; }
         public decimal? Price { get; set; }
+        public string? ClientOrderId { get; set; }
     }
 }

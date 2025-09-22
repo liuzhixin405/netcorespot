@@ -103,10 +103,6 @@ namespace CryptoSpot.Core.Entities
         /// </summary>
         public bool IsActive { get; set; } = true;
 
-        // Navigation properties
-        public virtual ICollection<Order> Orders { get; set; } = new List<Order>();
-        public virtual ICollection<Asset> Assets { get; set; } = new List<Asset>();
-        public virtual ICollection<Trade> Trades { get; set; } = new List<Trade>();
 
         // Computed properties
         [NotMapped]

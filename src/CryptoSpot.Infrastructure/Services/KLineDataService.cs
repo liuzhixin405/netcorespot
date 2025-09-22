@@ -120,5 +120,21 @@ namespace CryptoSpot.Infrastructure.Services
                 return new List<KLineData>();
             }
         }
+
+        public async Task SaveKLineDataAsync(KLineData klineData)
+        {
+            try
+            {
+                await _klineDataRepository.AddAsync(klineData);
+                _logger.LogDebug("Saved K-line data for TradingPairId {TradingPairId} {TimeFrame} @ {OpenTime}", 
+                    klineData.TradingPairId, klineData.TimeFrame, klineData.OpenTime);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving K-line data for TradingPairId {TradingPairId} {TimeFrame}", 
+                    klineData.TradingPairId, klineData.TimeFrame);
+                throw;
+            }
+        }
     }
 }

@@ -65,9 +65,9 @@ namespace CryptoSpot.Infrastructure.Services
                 
                 if (string.IsNullOrEmpty(symbol))
                 {
-                    // 获取用户所有交易（通过买单或卖单）
-                    var buyTrades = await _tradeRepository.FindAsync(t => t.BuyOrder.UserId == userId);
-                    var sellTrades = await _tradeRepository.FindAsync(t => t.SellOrder.UserId == userId);
+                    // 获取用户所有交易（通过买方或卖方ID）
+                    var buyTrades = await _tradeRepository.FindAsync(t => t.BuyerId == userId);
+                    var sellTrades = await _tradeRepository.FindAsync(t => t.SellerId == userId);
                     
                     trades = buyTrades.Concat(sellTrades)
                         .Distinct()
@@ -83,9 +83,9 @@ namespace CryptoSpot.Infrastructure.Services
                     }
 
                     var buyTrades = await _tradeRepository.FindAsync(t => 
-                        t.TradingPairId == tradingPair.Id && t.BuyOrder.UserId == userId);
+                        t.TradingPairId == tradingPair.Id && t.BuyerId == userId);
                     var sellTrades = await _tradeRepository.FindAsync(t => 
-                        t.TradingPairId == tradingPair.Id && t.SellOrder.UserId == userId);
+                        t.TradingPairId == tradingPair.Id && t.SellerId == userId);
                     
                     trades = buyTrades.Concat(sellTrades)
                         .Distinct()
@@ -98,6 +98,52 @@ namespace CryptoSpot.Infrastructure.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting trades for user {UserId}", userId);
+                return new List<Trade>();
+            }
+        }
+
+        public async Task<IEnumerable<Trade>> GetUserTradesAsync(int userId, string symbol = "", int limit = 100)
+        {
+            try
+            {
+                IEnumerable<Trade> trades;
+
+                if (string.IsNullOrEmpty(symbol))
+                {
+                    // 获取用户所有交易（通过买方或卖方ID）
+                    var buyTrades = await _tradeRepository.FindAsync(t => t.BuyerId == userId);
+                    var sellTrades = await _tradeRepository.FindAsync(t => t.SellerId == userId);
+
+                    trades = buyTrades.Concat(sellTrades)
+                        .Distinct()
+                        .OrderByDescending(t => t.ExecutedAt)
+                        .Take(limit);
+                }
+                else
+                {
+                    // 获取特定交易对的用户交易
+                    var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
+                    if (tradingPair == null)
+                    {
+                        return new List<Trade>();
+                    }
+
+                    var buyTrades = await _tradeRepository.FindAsync(t =>
+                        t.TradingPairId == tradingPair.Id && t.BuyerId == userId);
+                    var sellTrades = await _tradeRepository.FindAsync(t =>
+                        t.TradingPairId == tradingPair.Id && t.SellerId == userId);
+
+                    trades = buyTrades.Concat(sellTrades)
+                        .Distinct()
+                        .OrderByDescending(t => t.ExecutedAt)
+                        .Take(limit);
+                }
+
+                return trades;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting user trades for user {UserId}", userId);
                 return new List<Trade>();
             }
         }

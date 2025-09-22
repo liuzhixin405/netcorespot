@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using CryptoSpot.Core.ValueObjects;
 
 namespace CryptoSpot.Core.Entities
 {
@@ -25,7 +26,7 @@ namespace CryptoSpot.Core.Entities
     }
 
     [Table("Orders")]
-    public class Order : BaseEntity
+    public partial class Order : BaseEntity
     {
         /// <summary>
         /// 用户ID（普通用户或系统账号）
@@ -56,16 +57,24 @@ namespace CryptoSpot.Core.Entities
         [Column(TypeName = "decimal(18, 8)")]
         public decimal AveragePrice { get; set; } = 0;
 
+        // Value Objects
+        [NotMapped]
+        public Quantity OrderQuantity => new(Quantity);
+
+        [NotMapped]
+        public Price? OrderPrice => Price.HasValue ? new Price(Price.Value) : null;
+
+        [NotMapped]
+        public Quantity FilledOrderQuantity => new(FilledQuantity);
+
+        [NotMapped]
+        public Price AverageOrderPrice => new(AveragePrice);
+
         public OrderStatus Status { get; set; } = OrderStatus.Pending;
 
         // Navigation properties
-        [ForeignKey("UserId")]
-        public virtual User? User { get; set; }
-
         [ForeignKey("TradingPairId")]
         public virtual TradingPair TradingPair { get; set; } = null!;
-
-        public virtual ICollection<Trade> Trades { get; set; } = new List<Trade>();
 
         // Computed properties
         [NotMapped]

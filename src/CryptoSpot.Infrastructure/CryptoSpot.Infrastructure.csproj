@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CryptoSpot.Core\CryptoSpot.Core.csproj" />
+    <ProjectReference Include="..\CryptoSpot.Bus\CryptoSpot.Bus.csproj" />
   </ItemGroup>
 
   <ItemGroup>

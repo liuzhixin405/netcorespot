@@ -56,5 +56,35 @@ namespace CryptoSpot.Core.Interfaces.Caching
         /// 获取用户的所有缓存资产
         /// </summary>
         Task<Dictionary<string, Asset>> GetCachedUserAssetsAsync(int userId);
+        
+        /// <summary>
+        /// 使用户订单缓存失效
+        /// </summary>
+        Task InvalidateUserOrdersCacheAsync(int userId);
+        
+        /// <summary>
+        /// 使用户资产缓存失效
+        /// </summary>
+        Task InvalidateUserAssetsCacheAsync(int userId);
+        
+        /// <summary>
+        /// 使交易对缓存失效
+        /// </summary>
+        Task InvalidateTradingPairCacheAsync(string symbol);
+        
+        /// <summary>
+        /// 使用户交易缓存失效
+        /// </summary>
+        Task InvalidateUserTradesCacheAsync(int userId);
+        
+        /// <summary>
+        /// 更新交易对价格缓存
+        /// </summary>
+        Task UpdateTradingPairPriceAsync(string symbol, decimal price, decimal change24h, decimal volume24h, decimal high24h, decimal low24h);
+        
+        /// <summary>
+        /// 更新K线数据缓存
+        /// </summary>
+        Task UpdateKLineDataCacheAsync(KLineData klineData);
     }
 }

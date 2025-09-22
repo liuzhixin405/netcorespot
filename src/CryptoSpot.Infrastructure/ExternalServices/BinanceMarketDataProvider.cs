@@ -1,6 +1,5 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Core.Extensions;
 

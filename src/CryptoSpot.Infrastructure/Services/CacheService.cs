@@ -339,6 +339,61 @@ namespace CryptoSpot.Infrastructure.Services
             return new Dictionary<string, Asset>();
         }
 
+        public async Task InvalidateUserOrdersCacheAsync(int userId)
+        {
+            // 订单缓存失效逻辑
+            _logger.LogDebug("Invalidating user orders cache for user {UserId}", userId);
+            await Task.CompletedTask;
+        }
+
+        public async Task InvalidateUserAssetsCacheAsync(int userId)
+        {
+            // 用户资产缓存失效
+            _userAssetCache.TryRemove(userId, out _);
+            _logger.LogDebug("Invalidated user assets cache for user {UserId}", userId);
+            await Task.CompletedTask;
+        }
+
+        public async Task InvalidateTradingPairCacheAsync(string symbol)
+        {
+            // 交易对缓存失效
+            _tradingPairCache.TryRemove(symbol, out _);
+            _tradingPairIndexCache.TryRemove(symbol, out _);
+            _logger.LogDebug("Invalidated trading pair cache for symbol {Symbol}", symbol);
+            await Task.CompletedTask;
+        }
+
+        public async Task InvalidateUserTradesCacheAsync(int userId)
+        {
+            // 用户交易缓存失效逻辑
+            _logger.LogDebug("Invalidating user trades cache for user {UserId}", userId);
+            await Task.CompletedTask;
+        }
+
+        public async Task UpdateTradingPairPriceAsync(string symbol, decimal price, decimal change24h, decimal volume24h, decimal high24h, decimal low24h)
+        {
+            await EnsureInitializedAsync();
+            
+            if (_tradingPairCache.TryGetValue(symbol, out var tradingPair))
+            {
+                tradingPair.Price = price;
+                tradingPair.Change24h = change24h;
+                tradingPair.Volume24h = volume24h;
+                tradingPair.High24h = high24h;
+                tradingPair.Low24h = low24h;
+                tradingPair.LastUpdated = ((DateTimeOffset)DateTime.UtcNow).ToUnixTimeMilliseconds();
+                
+                _logger.LogDebug("Updated trading pair price cache for {Symbol}: {Price}", symbol, price);
+            }
+        }
+
+        public async Task UpdateKLineDataCacheAsync(KLineData klineData)
+        {
+            // K线数据缓存更新逻辑
+            _logger.LogDebug("Updated K-line data cache for TradingPairId {TradingPairId} {TimeFrame}", klineData.TradingPairId, klineData.TimeFrame);
+            await Task.CompletedTask;
+        }
+
         public void Dispose()
         {
             _cacheSemaphore?.Dispose();

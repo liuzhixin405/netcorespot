@@ -3,7 +3,6 @@ using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Interfaces.Auth;
-using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.Repositories;
 using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Core.Interfaces.Caching;
@@ -64,8 +63,6 @@ builder.Services.AddScoped<ITradingPairService, TradingPairService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IAssetService, AssetService>();
 builder.Services.AddScoped<ITradeService, TradeService>();
-builder.Services.AddScoped<ISystemAssetService, SystemAssetService>();
-builder.Services.AddScoped<ISystemAccountService, SystemAccountService>();
 
 // Data Initialization Service
 builder.Services.AddScoped<DataInitializationService>();

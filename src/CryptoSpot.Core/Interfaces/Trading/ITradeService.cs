@@ -18,6 +18,11 @@ namespace CryptoSpot.Core.Interfaces.Trading
         Task<IEnumerable<Trade>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100);
         
         /// <summary>
+        /// 获取用户交易记录
+        /// </summary>
+        Task<IEnumerable<Trade>> GetUserTradesAsync(int userId, string symbol = "", int limit = 100);
+        
+        /// <summary>
         /// 获取最近交易记录
         /// </summary>
         Task<IEnumerable<Trade>> GetRecentTradesAsync(string symbol, int limit = 50);

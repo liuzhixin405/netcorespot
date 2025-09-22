@@ -36,5 +36,10 @@ namespace CryptoSpot.Core.Interfaces.MarketData
         /// 批量添加或更新K线数据
         /// </summary>
         Task<IEnumerable<KLineData>> BatchAddOrUpdateKLineDataAsync(IEnumerable<KLineData> klineDataList);
+        
+        /// <summary>
+        /// 保存K线数据
+        /// </summary>
+        Task SaveKLineDataAsync(KLineData klineData);
     }
 }

@@ -64,10 +64,6 @@ namespace CryptoSpot.Core.Entities
         /// </summary>
         public int QuantityPrecision { get; set; }
 
-        // Navigation properties
-        public virtual ICollection<KLineData> KLineData { get; set; } = new List<KLineData>();
-        public virtual ICollection<Order> Orders { get; set; } = new List<Order>();
-        public virtual ICollection<Trade> Trades { get; set; } = new List<Trade>();
 
         // Computed properties
         [NotMapped]

@@ -21,6 +21,12 @@ namespace CryptoSpot.Core.Entities
         public long OpenTime { get; set; }
 
         /// <summary>
+        /// 时间戳 (Unix timestamp in milliseconds) - 用于兼容性
+        /// </summary>
+        [NotMapped]
+        public long Timestamp => OpenTime;
+
+        /// <summary>
         /// 收盘时间戳 (Unix timestamp in milliseconds)
         /// </summary>
         [Column(TypeName = "bigint")]

@@ -1,6 +1,7 @@
 using CryptoSpot.Core.Extensions;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using CryptoSpot.Core.ValueObjects;
 
 namespace CryptoSpot.Core.Entities
 {
@@ -12,6 +13,12 @@ namespace CryptoSpot.Core.Entities
 
         [Required]
         public int SellOrderId { get; set; }
+
+        [Required]
+        public int BuyerId { get; set; }
+
+        [Required]
+        public int SellerId { get; set; }
 
         [Required]
         public int TradingPairId { get; set; }
@@ -28,6 +35,13 @@ namespace CryptoSpot.Core.Entities
         [Column(TypeName = "decimal(18, 8)")]
         public decimal Quantity { get; set; }
 
+        // Value Objects
+        [NotMapped]
+        public Price TradePrice => new(Price);
+
+        [NotMapped]
+        public Quantity TradeQuantity => new(Quantity);
+
         [Column(TypeName = "decimal(18, 8)")]
         public decimal Fee { get; set; }
 
@@ -41,12 +55,6 @@ namespace CryptoSpot.Core.Entities
         public long ExecutedAt { get; set; }
 
         // Navigation properties
-        [ForeignKey("BuyOrderId")]
-        public virtual Order BuyOrder { get; set; } = null!;
-
-        [ForeignKey("SellOrderId")]
-        public virtual Order SellOrder { get; set; } = null!;
-
         [ForeignKey("TradingPairId")]
         public virtual TradingPair TradingPair { get; set; } = null!;
 

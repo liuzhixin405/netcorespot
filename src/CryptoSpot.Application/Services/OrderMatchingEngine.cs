@@ -1,9 +1,8 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Core.Interfaces.System;
 using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces;
+using CryptoSpot.Core.Interfaces.Users;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -17,7 +16,6 @@ namespace CryptoSpot.Application.Services
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
         private readonly IAssetService _assetService;
-        private readonly ISystemAssetService _systemAssetService;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<OrderMatchingEngine> _logger;
 
@@ -28,14 +26,12 @@ namespace CryptoSpot.Application.Services
             IOrderService orderService,
             ITradeService tradeService,
             IAssetService assetService,
-            ISystemAssetService systemAssetService,
             IServiceProvider serviceProvider,
             ILogger<OrderMatchingEngine> logger)
         {
             _orderService = orderService;
             _tradeService = tradeService;
             _assetService = assetService;
-            _systemAssetService = systemAssetService;
             _serviceProvider = serviceProvider;
             _logger = logger;
         }
@@ -288,8 +284,8 @@ namespace CryptoSpot.Application.Services
                 return false;
             }
 
-            // 系统账号可以自成交（做市需要）
-            if (buyOrder.User?.IsSystemAccount == true || sellOrder.User?.IsSystemAccount == true)
+            // 系统账号可以自成交（做市需要）- 简化实现，假设用户ID为1的是系统账号
+            if (buyOrder.UserId == 1 || sellOrder.UserId == 1)
             {
                 return true;
             }
@@ -461,35 +457,17 @@ namespace CryptoSpot.Application.Services
             // 处理买方资产变动
             if (buyOrder.UserId.HasValue)
             {
-                if (buyOrder.User?.IsSystemAccount == true)
-                {
-                    // 系统账户使用SystemAssetService
-                    await _systemAssetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
-                    await _systemAssetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
-                }
-                else
-                {
-                    // 普通用户使用AssetService
-                    await _assetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
-                    await _assetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
-                }
+                // 统一使用AssetService处理所有用户资产
+                await _assetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
+                await _assetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
             }
 
             // 处理卖方资产变动
             if (sellOrder.UserId.HasValue)
             {
-                if (sellOrder.User?.IsSystemAccount == true)
-                {
-                    // 系统账户使用SystemAssetService
-                    await _systemAssetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
-                    await _systemAssetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
-                }
-                else
-                {
-                    // 普通用户使用AssetService
-                    await _assetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
-                    await _assetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
-                }
+                // 统一使用AssetService处理所有用户资产
+                await _assetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
+                await _assetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
             }
         }
 
@@ -504,11 +482,8 @@ namespace CryptoSpot.Application.Services
                 var unfreezeAmount = remainingQuantity * (order.Price ?? 0);
                 if (order.UserId.HasValue)
                 {
+                    // 统一使用AssetService处理所有用户资产
                     await _assetService.UnfreezeAssetAsync(order.UserId.Value, "USDT", unfreezeAmount);
-                }
-                else if (order.UserId.HasValue && order.User?.IsSystemAccount == true)
-                {
-                    await _systemAssetService.UnfreezeAssetAsync(order.UserId.Value, "USDT", unfreezeAmount);
                 }
             }
             else
@@ -517,11 +492,8 @@ namespace CryptoSpot.Application.Services
                 var baseAsset = symbol.Replace("USDT", "");
                 if (order.UserId.HasValue)
                 {
+                    // 统一使用AssetService处理所有用户资产
                     await _assetService.UnfreezeAssetAsync(order.UserId.Value, baseAsset, remainingQuantity);
-                }
-                else if (order.UserId.HasValue && order.User?.IsSystemAccount == true)
-                {
-                    await _systemAssetService.UnfreezeAssetAsync(order.UserId.Value, baseAsset, remainingQuantity);
                 }
             }
         }

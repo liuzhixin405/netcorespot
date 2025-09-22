@@ -109,44 +109,25 @@ namespace CryptoSpot.Infrastructure.Data
             // Configure relationships
             modelBuilder.Entity<KLineData>()
                 .HasOne(k => k.TradingPair)
-                .WithMany(tp => tp.KLineData)
+                .WithMany()
                 .HasForeignKey(k => k.TradingPairId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Asset>()
                 .HasOne(a => a.User)
-                .WithMany(u => u.Assets)
+                .WithMany()
                 .HasForeignKey(a => a.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Order>()
-                .HasOne(o => o.User)
-                .WithMany(u => u.Orders)
-                .HasForeignKey(o => o.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
-
-            modelBuilder.Entity<Order>()
                 .HasOne(o => o.TradingPair)
-                .WithMany(tp => tp.Orders)
-                .HasForeignKey(o => o.TradingPairId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-
-            modelBuilder.Entity<Trade>()
-                .HasOne(t => t.BuyOrder)
-                .WithMany(o => o.Trades)
-                .HasForeignKey(t => t.BuyOrderId)
-                .OnDelete(DeleteBehavior.Restrict);
-
-            modelBuilder.Entity<Trade>()
-                .HasOne(t => t.SellOrder)
                 .WithMany()
-                .HasForeignKey(t => t.SellOrderId)
+                .HasForeignKey(o => o.TradingPairId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<Trade>()
                 .HasOne(t => t.TradingPair)
-                .WithMany(tp => tp.Trades)
+                .WithMany()
                 .HasForeignKey(t => t.TradingPairId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
