@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -21,8 +20,6 @@ namespace CryptoSpot.Bus.Implementations
     {
         private readonly IServiceProvider _provider;
         private readonly ILogger<DataflowCommandBus>? _logger;
-        private readonly ConcurrentDictionary<Type, Func<object>> _handlerCache = new();
-        private readonly ConcurrentDictionary<Type, Func<object[]>> _behaviorsCache = new();
         
         // 数据流网络
         private ActionBlock<DataflowCommandRequest> _commandProcessor = null!;
@@ -35,6 +32,7 @@ namespace CryptoSpot.Bus.Implementations
         private long _processedCommands;
         private long _failedCommands;
         private long _totalProcessingTime;
+        private long _totalQueueWaitTicks;
 
         public DataflowCommandBus(IServiceProvider serviceProvider, ILogger<DataflowCommandBus>? logger = null, 
             int? maxConcurrency = null)
@@ -54,10 +52,12 @@ namespace CryptoSpot.Bus.Implementations
             _commandProcessor = new ActionBlock<DataflowCommandRequest>(
                 async request =>
                 {
+                    var dequeuedAt = DateTime.UtcNow;
                     try
                     {
                         await _concurrencyLimiter.WaitAsync();
                         var startTime = DateTime.UtcNow;
+                        Interlocked.Add(ref _totalQueueWaitTicks, (startTime - dequeuedAt).Ticks);
                         
                         // 执行完整的命令处理管道
                         var result = await ProcessCommandPipeline(request);
@@ -93,7 +93,7 @@ namespace CryptoSpot.Bus.Implementations
             var requestId = Guid.NewGuid();
             var tcs = new TaskCompletionSource<object>();
             
-            var request = new DataflowCommandRequest(requestId, commandType, typeof(TResult), command, tcs);
+            var request = new DataflowCommandRequest(requestId, commandType, typeof(TResult), command, tcs, ct);
             
             // 发送到数据流网络
             if (!_commandProcessor.Post(request))
@@ -129,37 +129,38 @@ namespace CryptoSpot.Bus.Implementations
         private async Task<TResult> ProcessCommandPipelineGeneric<TCommand, TResult>(DataflowCommandRequest request) 
             where TCommand : ICommand<TResult>
         {
-            // 获取处理器和行为的工厂函数
-            var handlerFactory = GetCachedHandler<TCommand, TResult>(request.CommandType);
-            var behaviorsFactory = GetCachedBehaviors<TCommand, TResult>(request.CommandType);
-            
-            // 创建处理器和行为的实例
-            var handler = handlerFactory();
-            var behaviors = behaviorsFactory();
-            
-            // 构建处理管道
-            Func<Task<TResult>> pipeline = () => ExecuteHandler<TCommand, TResult>(handler, (TCommand)request.Command);
-            
-            // 按顺序应用管道行为
+            // 每次处理命令创建一个新的Scope，保证Scoped服务（如DbContext）生命周期正确
+            using var scope = _provider.CreateScope();
+            var serviceProvider = scope.ServiceProvider;
+
+            // 解析处理器 & 管道行为（不缓存具体实例，避免跨Scope持有 DbContext）
+            var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand, TResult>>();
+            var behaviors = serviceProvider.GetServices<ICommandPipelineBehavior<TCommand, TResult>>()?.ToArray() 
+                           ?? Array.Empty<ICommandPipelineBehavior<TCommand, TResult>>();
+
+            // 构建执行管道（从内向外包装）
+            Func<Task<TResult>> pipeline = () => handler.HandleAsync((TCommand)request.Command, request.CancellationToken);
+
             foreach (var behavior in behaviors.Reverse())
             {
+                var next = pipeline;
                 var currentBehavior = behavior;
-                var currentPipeline = pipeline;
-                pipeline = async () => (TResult)await ExecuteBehavior(currentBehavior, (TCommand)request.Command, currentPipeline);
+                pipeline = async () => await currentBehavior.Handle((TCommand)request.Command, _ => next(), request.CancellationToken);
             }
-            
+
             return await pipeline();
         }
 
         private async Task<object> ExecuteBehavior<TCommand, TResult>(
             ICommandPipelineBehavior<TCommand, TResult> behavior, 
             TCommand command, 
-            Func<Task<TResult>> next) 
+            Func<Task<TResult>> next,
+            DataflowCommandRequest request) 
             where TCommand : ICommand<TResult>
         {
             try
             {
-                var result = await behavior.Handle(command, cmd => next(), CancellationToken.None);
+                var result = await behavior.Handle(command, cmd => next(), request.CancellationToken);
                 return result!;
             }
             catch (Exception ex)
@@ -168,43 +169,13 @@ namespace CryptoSpot.Bus.Implementations
             }
         }
 
-        private Func<ICommandHandler<TCommand, TResult>> GetCachedHandler<TCommand, TResult>(Type commandType) 
+        private async Task<TResult> ExecuteHandler<TCommand, TResult>(ICommandHandler<TCommand, TResult> handler, TCommand command, DataflowCommandRequest request) 
             where TCommand : ICommand<TResult>
         {
-            return (Func<ICommandHandler<TCommand, TResult>>)_handlerCache.GetOrAdd(commandType, _ =>
-            {
-                return new Func<ICommandHandler<TCommand, TResult>>(() =>
-                {
-                    using var scope = _provider.CreateScope();
-                    var handler = scope.ServiceProvider.GetService<ICommandHandler<TCommand, TResult>>();
-                    if (handler == null)
-                        throw new InvalidOperationException($"No handler registered for {commandType.Name}");
-                    return handler;
-                });
-            });
+            return await handler.HandleAsync(command, request.CancellationToken);
         }
 
-        private Func<ICommandPipelineBehavior<TCommand, TResult>[]> GetCachedBehaviors<TCommand, TResult>(Type commandType) 
-            where TCommand : ICommand<TResult>
-        {
-            return (Func<ICommandPipelineBehavior<TCommand, TResult>[]>)_behaviorsCache.GetOrAdd(commandType, _ =>
-            {
-                return new Func<ICommandPipelineBehavior<TCommand, TResult>[]>(() =>
-                {
-                    using var scope = _provider.CreateScope();
-                    var behaviors = scope.ServiceProvider.GetServices<ICommandPipelineBehavior<TCommand, TResult>>().ToArray();
-                    return behaviors;
-                });
-            });
-        }
-
-        private async Task<TResult> ExecuteHandler<TCommand, TResult>(ICommandHandler<TCommand, TResult> handler, TCommand command) 
-            where TCommand : ICommand<TResult>
-        {
-            return await handler.HandleAsync(command, CancellationToken.None);
-        }
-
-        private async Task<object> ExecuteHandler(object handler, object command)
+        private async Task<object> ExecuteHandler(object handler, object command, DataflowCommandRequest request)
         {
             var handlerType = handler.GetType();
             var handleMethod = handlerType.GetMethod("HandleAsync");
@@ -212,84 +183,43 @@ namespace CryptoSpot.Bus.Implementations
             if (handleMethod == null)
                 throw new InvalidOperationException($"Handler {handlerType.Name} does not have HandleAsync method");
 
-            var task = (Task)handleMethod.Invoke(handler, new object[] { command, CancellationToken.None })!;
+            var task = (Task)handleMethod.Invoke(handler, new object[] { command, request.CancellationToken })!;
             await task;
             
             var resultProperty = task.GetType().GetProperty("Result");
             return resultProperty?.GetValue(task) ?? throw new InvalidOperationException("Failed to get result from task");
         }
 
-        private Func<object> GetCachedHandler(Type commandType)
-        {
-            return _handlerCache.GetOrAdd(commandType, _ =>
-            {
-                // 获取命令类型实现的ICommand<TResult>接口
-                var commandInterface = commandType.GetInterfaces()
-                    .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>));
-                
-                if (commandInterface == null)
-                    throw new InvalidOperationException($"Command type {commandType.Name} does not implement ICommand<TResult>");
-                
-                var resultType = commandInterface.GetGenericArguments()[0];
-                var handlerType = typeof(ICommandHandler<,>).MakeGenericType(commandType, resultType);
-                
-                // 返回一个工厂函数，而不是直接返回处理器实例
-                return new Func<object>(() =>
-                {
-                    using var scope = _provider.CreateScope();
-                    var handler = scope.ServiceProvider.GetService(handlerType);
-                    if (handler == null)
-                        throw new InvalidOperationException($"No handler registered for {commandType.Name}");
-                    return handler;
-                });
-            });
-        }
-
-        private Func<object[]> GetCachedBehaviors(Type commandType)
-        {
-            return _behaviorsCache.GetOrAdd(commandType, _ =>
-            {
-                // 获取命令类型实现的ICommand<TResult>接口
-                var commandInterface = commandType.GetInterfaces()
-                    .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommand<>));
-                
-                if (commandInterface == null)
-                    throw new InvalidOperationException($"Command type {commandType.Name} does not implement ICommand<TResult>");
-                
-                var resultType = commandInterface.GetGenericArguments()[0];
-                var behaviorType = typeof(ICommandPipelineBehavior<,>).MakeGenericType(commandType, resultType);
-                
-                // 返回一个工厂函数，而不是直接返回行为实例
-                return new Func<object[]>(() =>
-                {
-                    using var scope = _provider.CreateScope();
-                    var behaviors = scope.ServiceProvider.GetServices(behaviorType).Where(b => b != null).ToArray();
-                    return behaviors!;
-                });
-            });
-        }
-
         // 监控和统计方法
         public DataflowMetrics GetMetrics()
         {
+            var processed = Interlocked.Read(ref _processedCommands);
+            var failed = Interlocked.Read(ref _failedCommands);
+            var totalProcTicks = Interlocked.Read(ref _totalProcessingTime);
+            var totalQueueTicks = Interlocked.Read(ref _totalQueueWaitTicks);
+            var avgProc = processed > 0 ? TimeSpan.FromTicks(totalProcTicks / processed) : TimeSpan.Zero;
+            var avgQueue = processed > 0 ? TimeSpan.FromTicks(totalQueueTicks / processed) : TimeSpan.Zero;
+            var failureRate = processed + failed > 0 ? (double)failed / (processed + failed) * 100 : 0;
+            double throughput = 0;
+            if (totalProcTicks > 0)
+            {
+                var totalSeconds = TimeSpan.FromTicks(totalProcTicks).TotalSeconds;
+                if (totalSeconds > 0) throughput = processed / totalSeconds;
+            }
             return new DataflowMetrics
             {
-                ProcessedCommands = Interlocked.Read(ref _processedCommands),
-                FailedCommands = Interlocked.Read(ref _failedCommands),
-                TotalProcessingTime = TimeSpan.FromTicks(Interlocked.Read(ref _totalProcessingTime)),
-                AverageProcessingTime = _processedCommands > 0 
-                    ? TimeSpan.FromTicks(Interlocked.Read(ref _totalProcessingTime) / _processedCommands)
-                    : TimeSpan.Zero,
+                ProcessedCommands = processed,
+                FailedCommands = failed,
+                TotalProcessingTime = TimeSpan.FromTicks(totalProcTicks),
+                AverageProcessingTime = avgProc,
                 AvailableConcurrency = _concurrencyLimiter.CurrentCount,
                 MaxConcurrency = _maxConcurrency,
-                InputQueueSize = _commandProcessor.InputCount
+                InputQueueSize = _commandProcessor.InputCount,
+                AverageQueueWaitTime = avgQueue,
+                TotalQueueWaitTime = TimeSpan.FromTicks(totalQueueTicks),
+                ThroughputPerSecond = throughput,
+                FailureRate = failureRate
             };
-        }
-
-        public void ClearCache()
-        {
-            _handlerCache.Clear();
-            _behaviorsCache.Clear();
         }
 
         public void Dispose()
@@ -307,14 +237,16 @@ namespace CryptoSpot.Bus.Implementations
         public Type ResultType { get; }
         public object Command { get; }
         public TaskCompletionSource<object> TaskCompletionSource { get; }
+        public CancellationToken CancellationToken { get; }
 
-        public DataflowCommandRequest(Guid id, Type commandType, Type resultType, object command, TaskCompletionSource<object> tcs)
+        public DataflowCommandRequest(Guid id, Type commandType, Type resultType, object command, TaskCompletionSource<object> tcs, CancellationToken ct)
         {
             Id = id;
             CommandType = commandType;
             ResultType = resultType;
             Command = command;
             TaskCompletionSource = tcs;
+            CancellationToken = ct;
         }
     }
 

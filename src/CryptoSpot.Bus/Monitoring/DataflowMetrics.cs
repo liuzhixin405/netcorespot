@@ -14,6 +14,11 @@ namespace CryptoSpot.Bus.Monitoring
         public int AvailableConcurrency { get; set; }
         public int MaxConcurrency { get; set; }
         public int InputQueueSize { get; set; }
+        // 新增指标
+        public TimeSpan AverageQueueWaitTime { get; set; }
+        public TimeSpan TotalQueueWaitTime { get; set; }
+        public double ThroughputPerSecond { get; set; }
+        public double FailureRate { get; set; }
         public double SuccessRate => ProcessedCommands + FailedCommands > 0 
             ? (double)ProcessedCommands / (ProcessedCommands + FailedCommands) * 100 
             : 0;

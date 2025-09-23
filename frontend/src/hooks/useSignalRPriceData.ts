@@ -6,6 +6,8 @@ export interface PriceData {
   price: number;
   change24h: number;
   volume24h: number;
+  high24h: number;
+  low24h: number;
   timestamp: number;
 }
 
@@ -41,6 +43,8 @@ export const useSignalRPriceData = (
       price: Number(priceUpdate.price),
       change24h: Number(priceUpdate.change24h),
       volume24h: Number(priceUpdate.volume24h),
+      high24h: Number(priceUpdate.high24h || 0),
+      low24h: Number(priceUpdate.low24h || 0),
       timestamp: priceUpdate.timestamp
     };
 
@@ -94,7 +98,12 @@ export const useSignalRPriceData = (
       );
       
       unsubscribeRef.current = unsubscribe;
-      setLoading(false);
+
+      // 如果订阅后短时间内没有任何push, 也标记为已连接以便UI显示
+      setTimeout(() => {
+        setLoading(false);
+        setIsConnected(signalRClient.isConnected());
+      }, 500);
       
     } catch (err: any) {
       // SignalR价格订阅失败

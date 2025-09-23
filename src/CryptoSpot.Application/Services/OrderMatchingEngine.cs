@@ -3,8 +3,11 @@ using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Core.Interfaces.Users;
+using CryptoSpot.Core.Interfaces.Repositories; // 引入IUnitOfWork等接口
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using RepoOrderBookDepth = CryptoSpot.Core.Interfaces.Repositories.OrderBookDepth; // alias if needed
+using RepoOrderBookLevel = CryptoSpot.Core.Interfaces.Repositories.OrderBookLevel; // alias if needed
 
 namespace CryptoSpot.Application.Services
 {
@@ -16,6 +19,7 @@ namespace CryptoSpot.Application.Services
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
         private readonly IAssetService _assetService;
+        private readonly ITradingPairService _tradingPairService;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<OrderMatchingEngine> _logger;
 
@@ -26,12 +30,14 @@ namespace CryptoSpot.Application.Services
             IOrderService orderService,
             ITradeService tradeService,
             IAssetService assetService,
+            ITradingPairService tradingPairService,
             IServiceProvider serviceProvider,
             ILogger<OrderMatchingEngine> logger)
         {
             _orderService = orderService;
             _tradeService = tradeService;
             _assetService = assetService;
+            _tradingPairService = tradingPairService;
             _serviceProvider = serviceProvider;
             _logger = logger;
         }
@@ -39,11 +45,20 @@ namespace CryptoSpot.Application.Services
         public async Task<OrderMatchResult> ProcessOrderAsync(Order order)
         {
             var result = new OrderMatchResult { Order = order };
+            string symbol = string.Empty;
 
             try
             {
                 // 获取交易对符号
-                var symbol = order.TradingPair.Symbol;
+                var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(order.TradingPairId);
+                if (tradingPair == null)
+                {
+                    _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", order.TradingPairId);
+                    order.Status = OrderStatus.Rejected;
+                    await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Rejected);
+                    return result;
+                }
+                symbol = tradingPair.Symbol;
                 
                 // 获取或创建该交易对的锁
                 var symbolLock = GetSymbolLock(symbol);
@@ -73,19 +88,29 @@ namespace CryptoSpot.Application.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "处理订单时出错: OrderId={OrderId}", order.OrderId);
-                order.Status = OrderStatus.Rejected;
-                await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Rejected);
+                try
+                {
+                    order.Status = OrderStatus.Rejected;
+                    await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Rejected);
+                }
+                catch (Exception updateEx)
+                {
+                    _logger.LogError(updateEx, "更新订单状态失败: OrderId={OrderId}", order.OrderId);
+                }
             }
 
             // 推送订单簿更新
-            try
+            if (!string.IsNullOrEmpty(symbol))
             {
-                var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
-                await realTimeDataPushService.PushOrderBookDataAsync(order.TradingPair.Symbol, 20);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "推送订单簿数据失败: Symbol={Symbol}", order.TradingPair.Symbol);
+                try
+                {
+                    var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
+                    await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "推送订单簿数据失败: Symbol={Symbol}", symbol);
+                }
             }
 
             return result;
@@ -195,9 +220,9 @@ namespace CryptoSpot.Application.Services
             return trades;
         }
 
-        public async Task<OrderBookDepth> GetOrderBookDepthAsync(string symbol, int depth = 20)
+        public async Task<CryptoSpot.Core.Interfaces.Trading.OrderBookDepth> GetOrderBookDepthAsync(string symbol, int depth = 20)
         {
-            var orderBookDepth = new OrderBookDepth { Symbol = symbol };
+            var orderBookDepth = new CryptoSpot.Core.Interfaces.Trading.OrderBookDepth { Symbol = symbol };
 
             try
             {
@@ -210,7 +235,7 @@ namespace CryptoSpot.Application.Services
                 var buyOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Buy && o.Type == OrderType.Limit)
                     .GroupBy(o => o.Price)
-                    .Select(g => new OrderBookLevel
+                    .Select(g => new CryptoSpot.Core.Interfaces.Trading.OrderBookLevel
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
@@ -225,7 +250,7 @@ namespace CryptoSpot.Application.Services
                 var sellOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Sell && o.Type == OrderType.Limit)
                     .GroupBy(o => o.Price)
-                    .Select(g => new OrderBookLevel
+                    .Select(g => new CryptoSpot.Core.Interfaces.Trading.OrderBookLevel
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
@@ -278,19 +303,12 @@ namespace CryptoSpot.Application.Services
 
         public async Task<bool> CanMatchOrderAsync(Order buyOrder, Order sellOrder)
         {
-            // 不能自成交（同一用户的订单），除非涉及系统账号
-            if (buyOrder.UserId.HasValue && sellOrder.UserId.HasValue && buyOrder.UserId == sellOrder.UserId)
+            // 不能自成交（同一用户且非系统账号）
+            if (buyOrder.UserId.HasValue && sellOrder.UserId.HasValue && buyOrder.UserId == sellOrder.UserId && buyOrder.UserId != 1)
             {
-                return false;
+                return await Task.FromResult(false);
             }
-
-            // 系统账号可以自成交（做市需要）- 简化实现，假设用户ID为1的是系统账号
-            if (buyOrder.UserId == 1 || sellOrder.UserId == 1)
-            {
-                return true;
-            }
-
-            return true;
+            return await Task.FromResult(true);
         }
 
         #region Private Methods
@@ -308,8 +326,16 @@ namespace CryptoSpot.Application.Services
         {
             var trades = new List<Trade>();
             
+            // 获取交易对符号
+            var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(marketOrder.TradingPairId);
+            if (tradingPair == null)
+            {
+                _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", marketOrder.TradingPairId);
+                return trades;
+            }
+            
             // 获取对手方订单
-            var activeOrders = await _orderService.GetActiveOrdersAsync(marketOrder.TradingPair.Symbol);
+            var activeOrders = await _orderService.GetActiveOrdersAsync(tradingPair.Symbol);
             var oppositeOrders = activeOrders
                 .Where(o => o.Side != marketOrder.Side && o.Type == OrderType.Limit)
                 .OrderBy(o => marketOrder.Side == OrderSide.Buy ? o.Price : -o.Price) // 买单匹配最低卖价，卖单匹配最高买价
@@ -342,14 +368,26 @@ namespace CryptoSpot.Application.Services
         {
             var trades = new List<Trade>();
             
+            // 获取交易对符号
+            var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(limitOrder.TradingPairId);
+            if (tradingPair == null)
+            {
+                _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", limitOrder.TradingPairId);
+                return trades;
+            }
+            
             // 获取可匹配的对手方订单
-            var activeOrders = await _orderService.GetActiveOrdersAsync(limitOrder.TradingPair.Symbol);
+            var activeOrders = await _orderService.GetActiveOrdersAsync(tradingPair.Symbol);
+            _logger.LogDebug("找到 {Count} 个活跃订单", activeOrders.Count());
+            
             var matchableOrders = activeOrders
                 .Where(o => o.Side != limitOrder.Side && o.Type == OrderType.Limit)
                 .Where(o => limitOrder.Side == OrderSide.Buy ? o.Price <= limitOrder.Price : o.Price >= limitOrder.Price)
                 .OrderBy(o => limitOrder.Side == OrderSide.Buy ? o.Price : -o.Price)
                 .ThenBy(o => o.CreatedAt)
                 .ToList();
+                
+            _logger.LogDebug("找到 {Count} 个可匹配订单", matchableOrders.Count());
 
             var remainingQuantity = limitOrder.Quantity;
 
@@ -394,52 +432,54 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                // 创建交易记录
+                // 交给交易服务执行(内部处理订单状态、资产结算、事务提交)
                 var trade = await _tradeService.ExecuteTradeAsync(buyOrder, sellOrder, price, quantity);
-
-                // 更新订单状态
-                buyOrder.FilledQuantity += quantity;
-                sellOrder.FilledQuantity += quantity;
-                
-                await UpdateOrderStatusAfterFill(buyOrder);
-                await UpdateOrderStatusAfterFill(sellOrder);
-
-                // 处理资产变动
-                await ProcessAssetChanges(buyOrder, sellOrder, price, quantity);
-
                 return trade;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "创建交易记录时出错");
-                return null;
+                _logger.LogError(ex, "创建交易记录时出错(委托交易服务)");
+                throw; // 向上抛出，避免静默失败
             }
         }
 
         private async Task UpdateOrderStatusAfterMatch(Order order, List<Trade> trades)
         {
-            var totalFilled = trades.Sum(t => t.Quantity);
-            order.FilledQuantity += totalFilled;
-            
-            await UpdateOrderStatusAfterFill(order);
+            // 交易服务已处理订单成交量与状态，这里只刷新最新状态(从仓储再取或根据现有FilledQuantity判断)
+            try
+            {
+                if (order.FilledQuantity >= order.Quantity)
+                {
+                    if (order.Status != OrderStatus.Filled)
+                        await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Filled, order.FilledQuantity);
+                }
+                else if (order.FilledQuantity > 0)
+                {
+                    if (order.Status != OrderStatus.PartiallyFilled)
+                        await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.PartiallyFilled, order.FilledQuantity);
+                }
+                else
+                {
+                    if (order.Status != OrderStatus.Pending)
+                        await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Pending, order.FilledQuantity);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "更新订单状态(撮合后)时发生异常: OrderId={OrderId}", order.OrderId);
+            }
         }
 
         private async Task UpdateOrderStatusAfterFill(Order order)
         {
-            OrderStatus newStatus;
-            
+            // 不再在撮合引擎里调整 FilledQuantity，仅根据当前值同步状态
+            OrderStatus newStatus = order.Status;
             if (order.FilledQuantity >= order.Quantity)
-            {
                 newStatus = OrderStatus.Filled;
-            }
-            else if (order.FilledQuantity > 0)
-            {
+            else if (order.FilledQuantity > 0 && order.FilledQuantity < order.Quantity)
                 newStatus = OrderStatus.PartiallyFilled;
-            }
-            else
-            {
+            else if (order.FilledQuantity == 0)
                 newStatus = OrderStatus.Pending;
-            }
 
             if (order.Status != newStatus)
             {
@@ -449,31 +489,19 @@ namespace CryptoSpot.Application.Services
 
         private async Task ProcessAssetChanges(Order buyOrder, Order sellOrder, decimal price, decimal quantity)
         {
-            var symbol = buyOrder.TradingPair.Symbol;
-            var baseAsset = symbol.Replace("USDT", "");
-            var quoteAsset = "USDT";
-            var totalValue = price * quantity;
-
-            // 处理买方资产变动
-            if (buyOrder.UserId.HasValue)
-            {
-                // 统一使用AssetService处理所有用户资产
-                await _assetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, totalValue, true);
-                await _assetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
-            }
-
-            // 处理卖方资产变动
-            if (sellOrder.UserId.HasValue)
-            {
-                // 统一使用AssetService处理所有用户资产
-                await _assetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, true);
-                await _assetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, totalValue);
-            }
+            // 已由交易服务统一处理，这里留空以避免重复结算
+            await Task.CompletedTask;
         }
 
         private async Task UnfreezeOrderAssets(Order order)
         {
-            var symbol = order.TradingPair.Symbol;
+            var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(order.TradingPairId);
+            if (tradingPair == null)
+            {
+                _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", order.TradingPairId);
+                return;
+            }
+            var symbol = tradingPair.Symbol;
             var remainingQuantity = order.RemainingQuantity;
             
             if (order.Side == OrderSide.Buy)

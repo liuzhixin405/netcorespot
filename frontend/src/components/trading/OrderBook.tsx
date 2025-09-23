@@ -128,9 +128,9 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
   const currentPriceData = priceData[symbol];
   const currentPrice = currentPriceData?.price || 0;
   
-  // 从订单簿数据中提取买卖订单
-  const buyOrders = orderBookData?.bids || [];
-  const sellOrders = orderBookData?.asks || [];
+  // 从订单簿数据中提取买卖订单，限制为5条
+  const buyOrders = (orderBookData?.bids || []).slice(0, 5);
+  const sellOrders = (orderBookData?.asks || []).slice(0, 5);
   
 
   return (
@@ -144,11 +144,6 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
       </Header>
       
       <Content>
-        {/* 显示当前价格 */}
-        <CurrentPrice>
-          {currentPrice > 0 ? currentPrice.toFixed(2) : '--'}
-        </CurrentPrice>
-        
         {/* 显示订单簿数据 */}
         {orderBookData ? (
           <>
@@ -161,6 +156,11 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
                 <TotalCell>{order.total.toFixed(4)}</TotalCell>
               </PriceRow>
             ))}
+            
+            {/* 显示当前价格 - 在买卖订单之间 */}
+            <CurrentPrice>
+              {currentPrice > 0 ? currentPrice.toFixed(2) : '--'}
+            </CurrentPrice>
             
             {/* 买单（从高到低） */}
             {buyOrders.map((order: OrderBookLevel, index: number) => (

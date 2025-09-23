@@ -25,7 +25,7 @@ interface UseSignalROrderBookReturn {
 
 export const useSignalROrderBook = (
   symbol: string,
-  depth: number = 20
+  depth: number = 5
 ): UseSignalROrderBookReturn => {
   const [orderBookData, setOrderBookData] = useState<OrderBookData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,9 +53,8 @@ export const useSignalROrderBook = (
 
   // 处理订单簿数据更新
   const handleOrderBookData = useCallback((data: any) => {
-    
     // 如果是快照数据（首次加载或重新同步），立即处理
-    if (data.type === 'snapshot' || !orderBookData) {
+    if (data.type === 'snapshot') {
       const orderBook: OrderBookData = {
         symbol: data.symbol,
         bids: data.bids || [],
@@ -89,14 +88,14 @@ export const useSignalROrderBook = (
           updateOrderBookIncremental(pendingUpdateRef.current);
           pendingUpdateRef.current = null;
         }
-      }, 100); // 100ms防抖延迟
+      }, 50); // 减少防抖延迟到50ms
     }
     
     setLastUpdate(Date.now());
     setError(null);
     setIsConnected(true);
     setLoading(false);
-  }, [orderBookData]);
+  }, []); // 移除 orderBookData 依赖
 
   // 增量更新订单簿
   const updateOrderBookIncremental = useCallback((data: any) => {
@@ -205,7 +204,6 @@ export const useSignalROrderBook = (
   const startOrderBookSubscription = useCallback(async () => {
     if (!symbol) return;
     
-    
     setLoading(true);
     setError(null);
     setIsConnected(false);
@@ -218,8 +216,25 @@ export const useSignalROrderBook = (
         unsubscribeRef.current = null;
       }
       
-      // 短暂延迟确保清理完成
-      await new Promise(resolve => setTimeout(resolve, 200));
+      // 确保SignalR连接已建立，最多等待5秒
+      let attempts = 0;
+      const maxAttempts = 10;
+      let isConnected = false;
+      
+      while (attempts < maxAttempts && !isConnected) {
+        isConnected = await signalRClient.connect();
+        if (!isConnected) {
+          attempts++;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      
+      if (!isConnected) {
+        throw new Error('SignalR连接超时');
+      }
+      
+      // 短暂延迟确保连接稳定
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // 订阅订单簿数据
       const unsubscribe = await signalRClient.subscribeOrderBook(
@@ -229,6 +244,14 @@ export const useSignalROrderBook = (
       );
       
       unsubscribeRef.current = unsubscribe;
+
+      // 订阅后500ms若未收到数据仍结束loading, 以避免UI长时间加载
+      setTimeout(() => {
+        if (loading) {
+          setLoading(false);
+          setIsConnected(signalRClient.isConnected());
+        }
+      }, 500);
       
       // 连接成功，重置重连计数器
       resetReconnectAttempts();
@@ -242,7 +265,7 @@ export const useSignalROrderBook = (
       // 连接失败，尝试重连
       scheduleReconnect();
     }
-  }, [symbol, handleOrderBookData, handleError, resetReconnectAttempts, scheduleReconnect]);
+  }, [symbol, handleOrderBookData, handleError, resetReconnectAttempts, scheduleReconnect, depth]);
 
   // 手动重连
   const reconnect = useCallback(() => {

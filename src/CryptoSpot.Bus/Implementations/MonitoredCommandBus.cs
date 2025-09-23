@@ -147,7 +147,13 @@ namespace CryptoSpot.Bus.Implementations
                 AverageProcessingTime = batchMetrics.AverageProcessingTime,
                 ProcessedBatches = batchMetrics.ProcessedBatches,
                 AverageBatchSize = batchMetrics.AverageBatchSize,
-                Throughput = batchMetrics.Throughput
+                ThroughputPerSecond = batchMetrics.ThroughputPerSecond,
+                AverageQueueWaitTime = batchMetrics.AverageQueueWaitTime,
+                TotalQueueWaitTime = batchMetrics.TotalQueueWaitTime,
+                FailureRate = batchMetrics.FailureRate,
+                MaxConcurrency = batchMetrics.MaxConcurrency,
+                AvailableConcurrency = batchMetrics.AvailableConcurrency,
+                InputQueueSize = batchMetrics.InputQueueSize
             };
         }
 
@@ -176,6 +182,10 @@ namespace CryptoSpot.Bus.Implementations
         public int AvailableConcurrency { get; set; } = 0;
         public int MaxConcurrency { get; set; } = 0;
         public int InputQueueSize { get; set; } = 0;
+        public TimeSpan AverageQueueWaitTime { get; set; }
+        public TimeSpan TotalQueueWaitTime { get; set; }
+        public double ThroughputPerSecond { get; set; }
+        public double FailureRate { get; set; }
     }
 
     internal class BatchMetrics : IDataflowMetrics
@@ -186,12 +196,15 @@ namespace CryptoSpot.Bus.Implementations
         public TimeSpan AverageProcessingTime { get; set; }
         public long ProcessedBatches { get; set; }
         public double AverageBatchSize { get; set; }
-        public double Throughput { get; set; }
         public double SuccessRate => ProcessedCommands + FailedCommands > 0 
             ? (double)ProcessedCommands / (ProcessedCommands + FailedCommands) * 100 
             : 0;
         public int AvailableConcurrency { get; set; } = 0;
         public int MaxConcurrency { get; set; } = 0;
         public int InputQueueSize { get; set; } = 0;
+        public TimeSpan AverageQueueWaitTime { get; set; }
+        public TimeSpan TotalQueueWaitTime { get; set; }
+        public double ThroughputPerSecond { get; set; }
+        public double FailureRate { get; set; }
     }
 }

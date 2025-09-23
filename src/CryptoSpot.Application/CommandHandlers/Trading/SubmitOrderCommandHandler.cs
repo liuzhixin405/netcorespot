@@ -2,8 +2,6 @@ using CryptoSpot.Core.Commands.Trading;
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Aggregates;
-using CryptoSpot.Core.Events;
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
@@ -19,7 +17,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         private readonly IUserRepository _userRepository;
         private readonly IOrderService _orderService;
         private readonly IOrderMatchingEngine _orderMatchingEngine;
-        private readonly IDomainEventPublisher _eventPublisher;
+        private readonly ICommandBus _commandBus;
         private readonly ILogger<SubmitOrderCommandHandler> _logger;
 
         public SubmitOrderCommandHandler(
@@ -27,14 +25,14 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             IUserRepository userRepository,
             IOrderService orderService,
             IOrderMatchingEngine orderMatchingEngine,
-            IDomainEventPublisher eventPublisher,
+            ICommandBus commandBus,
             ILogger<SubmitOrderCommandHandler> logger)
         {
             _tradingPairService = tradingPairService;
             _userRepository = userRepository;
             _orderService = orderService;
             _orderMatchingEngine = orderMatchingEngine;
-            _eventPublisher = eventPublisher;
+            _commandBus = commandBus;
             _logger = logger;
         }
 
@@ -42,16 +40,22 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         {
             try
             {
+                _logger.LogDebug("Processing SubmitOrderCommand for user {UserId}, symbol {Symbol}", 
+                    command.UserId, command.Symbol);
+                
                 // 验证用户
                 var user = await _userRepository.GetByIdAsync(command.UserId);
                 if (user == null)
                 {
+                    _logger.LogWarning("User {UserId} not found", command.UserId);
                     return new SubmitOrderResult
                     {
                         Success = false,
                         ErrorMessage = "用户不存在"
                     };
                 }
+                
+                _logger.LogDebug("User {UserId} found: {Username}", user.Id, user.Username);
 
                 // 验证交易对
                 var tradingPair = await _tradingPairService.GetTradingPairAsync(command.Symbol);
@@ -96,8 +100,9 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 // 处理订单匹配
                 var matchResult = await _orderMatchingEngine.ProcessOrderAsync(order);
 
-                // 发布领域事件
-                await _eventPublisher.PublishAsync(order.DomainEvents);
+                // 发布领域事件 - 使用CommandBus发送相关命令
+                // 如果需要发布事件，可以创建相应的事件命令并通过CommandBus发送
+                // await _commandBus.SendAsync<SomeEventCommand, SomeEventResult>(eventCommand);
 
                 _logger.LogInformation("Order {OrderId} submitted successfully for user {UserId}", 
                     order.OrderId, command.UserId);

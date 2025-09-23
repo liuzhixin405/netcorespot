@@ -1,6 +1,5 @@
 using CryptoSpot.Core.Commands.Trading;
 using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Events;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
 

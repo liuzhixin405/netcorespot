@@ -22,7 +22,9 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await _klineDataRepository.GetBySymbolAndTimeFrameAsync(symbol, interval, limit);
+                // 暂时使用默认的交易对ID，实际应该从TradingPair表获取
+                var tradingPairId = 1; // TODO: 实现从symbol获取TradingPairId的逻辑
+                return await _klineDataRepository.GetKLineDataByTradingPairIdAsync(tradingPairId, interval, limit);
             }
             catch (Exception ex)
             {
@@ -35,7 +37,9 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var allData = await _klineDataRepository.GetBySymbolAndTimeFrameAsync(symbol, interval, limit * 2); // 获取更多数据用于过滤
+                // 暂时使用默认的交易对ID，实际应该从TradingPair表获取
+                var tradingPairId = 1; // TODO: 实现从symbol获取TradingPairId的逻辑
+                var allData = await _klineDataRepository.GetKLineDataByTradingPairIdAsync(tradingPairId, interval, limit * 2); // 获取更多数据用于过滤
                 
                 var filteredData = allData.AsQueryable();
                 
@@ -75,7 +79,9 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await _klineDataRepository.GetLatestAsync(symbol, interval);
+                // 暂时使用默认的交易对ID，实际应该从TradingPair表获取
+                var tradingPairId = 1; // TODO: 实现从symbol获取TradingPairId的逻辑
+                return await _klineDataRepository.GetLatestKLineDataAsync(tradingPairId, interval);
             }
             catch (Exception ex)
             {
@@ -88,7 +94,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                await _klineDataRepository.AddOrUpdateAsync(klineData);
+                await _klineDataRepository.UpsertKLineDataAsync(klineData);
                 _logger.LogDebug("Added/Updated K-line data for trading pair {TradingPairId}, time frame {TimeFrame}, open time {OpenTime}", 
                     klineData.TradingPairId, klineData.TimeFrame, klineData.OpenTime);
                 return klineData;

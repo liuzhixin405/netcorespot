@@ -86,7 +86,7 @@ namespace CryptoSpot.API.Services
             }
         }
 
-        public async Task PushOrderBookDataAsync(string symbol, int depth = 20)
+        public async Task PushOrderBookDataAsync(string symbol, int depth = 5)
         {
             try
             {

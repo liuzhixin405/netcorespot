@@ -81,7 +81,7 @@ namespace CryptoSpot.API.Hubs
         }
 
         // 订阅订单簿数据
-        public async Task SubscribeOrderBook(string symbol, int depth = 20)
+        public async Task SubscribeOrderBook(string symbol, int depth = 5)
         {
             try
             {

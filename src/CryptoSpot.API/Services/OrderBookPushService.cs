@@ -63,7 +63,7 @@ namespace CryptoSpot.API.Services
                         {
                             try
                             {
-                                await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                                await realTimeDataPushService.PushOrderBookDataAsync(symbol, 5);
                             }
                             catch (Exception ex)
                             {

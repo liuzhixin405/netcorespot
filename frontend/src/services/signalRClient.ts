@@ -12,6 +12,10 @@ export class SignalRClient {
   private maxReconnectAttempts = 5;
   private isConnecting = false;
 
+  private subscribedPriceSymbols: string[] = [];
+  private subscribedKLines: { symbol: string; interval: string }[] = [];
+  private subscribedOrderBooks: { symbol: string; depth: number }[] = [];
+
   private constructor() {
     // SignalR客户端初始化
   }
@@ -25,7 +29,7 @@ export class SignalRClient {
 
   // 建立SignalR连接
   async connect(): Promise<boolean> {
-    if (this.connection?.state === 'Connected') {
+    if (this.connection?.state === signalR.HubConnectionState.Connected) {
       return true;
     }
 
@@ -57,11 +61,25 @@ export class SignalRClient {
       });
 
       this.connection.onreconnecting((error?: Error) => {
-        // 重连中
+        // 正在重连
       });
 
-      this.connection.onreconnected((connectionId?: string) => {
+      this.connection.onreconnected(async (connectionId?: string) => {
         this.reconnectAttempts = 0;
+        try {
+          // 重连后需要重新加入所有组（SignalR会丢失之前的Group membership）
+          if (this.subscribedPriceSymbols.length) {
+            await this.connection!.invoke('SubscribePriceData', this.subscribedPriceSymbols);
+          }
+          for (const k of this.subscribedKLines) {
+            await this.connection!.invoke('SubscribeKLineData', k.symbol, k.interval);
+          }
+          for (const ob of this.subscribedOrderBooks) {
+            await this.connection!.invoke('SubscribeOrderBook', ob.symbol, ob.depth ?? 20);
+          }
+        } catch (e) {
+          // 忽略重订阅异常
+        }
       });
 
       await this.connection.start();
@@ -89,7 +107,7 @@ export class SignalRClient {
     onError?: (error: any) => void
   ): Promise<() => void> {
     try {
-      if (!this.connection || this.connection.state !== 'Connected') {
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
         const connected = await this.connect();
         if (!connected || !this.connection) {
           throw new Error('SignalR连接失败');
@@ -97,15 +115,14 @@ export class SignalRClient {
       }
 
       // 确保连接存在且已连接
-      if (!this.connection || this.connection.state !== 'Connected') {
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
         throw new Error('SignalR连接状态异常');
       }
 
-      // 设置实时K线更新处理器
+      // 设置实时K线更新处理器（修复第二参数 isNewKLine 未读取问题）
       this.connection.off('KLineUpdate');
-      this.connection.on('KLineUpdate', (response: any) => {
-        
-        // 后端发送的格式是直接包含k线数据，不是包装在kline字段中
+      this.connection.on('KLineUpdate', (payload: any, isNew?: boolean) => {
+        const response = payload; // 兼容旧变量名
         if (response && response.timestamp) {
           const klineData: KLineData = {
             timestamp: response.timestamp,
@@ -115,23 +132,28 @@ export class SignalRClient {
             close: Number(response.close),
             volume: Number(response.volume)
           };
-          
-          onKLineUpdate(klineData, response.isNewKLine || false);
+          onKLineUpdate(klineData, typeof isNew === 'boolean' ? isNew : !!response.isNewKLine);
         }
       });
 
       // 发送订阅请求（只订阅实时更新）
       await this.connection.invoke('SubscribeKLineData', symbol, interval);
 
+      // 记录订阅
+      if (!this.subscribedKLines.some(k => k.symbol === symbol && k.interval === interval)) {
+        this.subscribedKLines.push({ symbol, interval });
+      }
+
       // 返回取消订阅函数
       return async () => {
         try {
-          if (this.connection && this.connection.state === 'Connected') {
+          if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
             await this.connection.invoke('UnsubscribeKLineData', symbol, interval);
           }
-        } catch (error) {
+        } catch {
           // 取消订阅失败，忽略错误
         }
+        this.subscribedKLines = this.subscribedKLines.filter(k => !(k.symbol === symbol && k.interval === interval));
       };
 
     } catch (error) {
@@ -147,7 +169,7 @@ export class SignalRClient {
     onError?: (error: any) => void
   ): Promise<() => void> {
     try {
-      if (!this.connection || this.connection.state !== 'Connected') {
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
         const connected = await this.connect();
         if (!connected || !this.connection) {
           throw new Error('SignalR连接失败');
@@ -155,7 +177,7 @@ export class SignalRClient {
       }
 
       // 确保连接存在且已连接
-      if (!this.connection || this.connection.state !== 'Connected') {
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
         throw new Error('SignalR连接状态异常');
       }
 
@@ -174,15 +196,19 @@ export class SignalRClient {
       // 发送订阅请求
       await this.connection.invoke('SubscribePriceData', symbols);
 
+      // 合并记录
+      symbols.forEach(s => { if (!this.subscribedPriceSymbols.includes(s)) this.subscribedPriceSymbols.push(s); });
+
       // 返回取消订阅函数
       return async () => {
         try {
-          if (this.connection && this.connection.state === 'Connected') {
+          if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
             await this.connection.invoke('UnsubscribePriceData', symbols);
           }
-        } catch (error) {
+        } catch {
           // 取消订阅失败，忽略错误
         }
+        this.subscribedPriceSymbols = this.subscribedPriceSymbols.filter(s => !symbols.includes(s));
       };
 
     } catch (error) {
@@ -198,7 +224,7 @@ export class SignalRClient {
     onError?: (error: any) => void
   ): Promise<() => void> {
     try {
-      if (!this.connection || this.connection.state !== 'Connected') {
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
         const connected = await this.connect();
         if (!connected || !this.connection) {
           throw new Error('SignalR连接失败');
@@ -206,7 +232,7 @@ export class SignalRClient {
       }
 
       // 确保连接存在且已连接
-      if (!this.connection || this.connection.state !== 'Connected') {
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
         throw new Error('SignalR连接状态异常');
       }
 
@@ -225,15 +251,21 @@ export class SignalRClient {
       // 发送订阅请求
       await this.connection.invoke('SubscribeOrderBook', symbol, 20);
 
+      // 记录订阅
+      if (!this.subscribedOrderBooks.some(o => o.symbol === symbol)) {
+        this.subscribedOrderBooks.push({ symbol, depth: 20 });
+      }
+
       // 返回取消订阅函数
       return async () => {
         try {
-          if (this.connection && this.connection.state === 'Connected') {
+          if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
             await this.connection.invoke('UnsubscribeOrderBook', symbol);
           }
-        } catch (error) {
+        } catch {
           // 取消订阅失败，忽略错误
         }
+        this.subscribedOrderBooks = this.subscribedOrderBooks.filter(o => o.symbol !== symbol);
       };
 
     } catch (error) {
@@ -244,7 +276,7 @@ export class SignalRClient {
 
   // 获取连接状态
   isConnected(): boolean {
-    return this.connection?.state === 'Connected';
+    return this.connection?.state === signalR.HubConnectionState.Connected;
   }
 
   // 断开连接
@@ -252,9 +284,13 @@ export class SignalRClient {
     if (this.connection) {
       try {
         await this.connection.stop();
-      } catch (error) {
+      } catch {
         // 断开连接失败，忽略错误
       }
+      // 清空本地订阅记录
+      this.subscribedPriceSymbols = [];
+      this.subscribedKLines = [];
+      this.subscribedOrderBooks = [];
     }
   }
 }

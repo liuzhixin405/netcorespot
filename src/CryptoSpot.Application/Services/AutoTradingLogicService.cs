@@ -90,15 +90,15 @@ namespace CryptoSpot.Application.Services
 
         public async Task CreateMarketMakingOrdersAsync(string symbol)
         {
-            using var scope = _serviceScopeFactory.CreateScope();
-            var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
-            var orderService = scope.ServiceProvider.GetRequiredService<IOrderService>();
-            
             try
             {
                 const int systemUserId = 1; // 系统用户ID
                 
                 _logger.LogDebug("开始为交易对 {Symbol} 创建做市订单", symbol);
+
+                using var scope = _serviceScopeFactory.CreateScope();
+                var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
+                var tradingService = scope.ServiceProvider.GetRequiredService<ITradingService>();
 
                 // 获取当前价格
                 var currentPrice = await priceDataService.GetCurrentPriceAsync(symbol);
@@ -108,28 +108,45 @@ namespace CryptoSpot.Application.Services
                     return;
                 }
 
-                // 创建买卖订单
-                var buyPrice = currentPrice.Price * 0.999m; // 低于市价0.1%
-                var sellPrice = currentPrice.Price * 1.001m; // 高于市价0.1%
+                // 创建买卖订单 - 让价格更接近以便匹配
+                var buyPrice = currentPrice.Price * 0.9995m; // 低于市价0.05%
+                var sellPrice = currentPrice.Price * 1.0005m; // 高于市价0.05%
                 var quantity = (decimal)(_random.NextDouble() * 0.1 + 0.01); // 随机数量
 
-                // 创建买单
-                await orderService.CreateOrderAsync(
-                    systemUserId,
-                    symbol,
-                    OrderSide.Buy,
-                    OrderType.Limit,
-                    quantity,
-                    buyPrice);
+                // 使用交易服务创建订单（会触发撮合引擎）
+                var buyRequest = new SubmitOrderRequest
+                {
+                    Symbol = symbol,
+                    Side = OrderSide.Buy,
+                    Type = OrderType.Limit,
+                    Quantity = quantity,
+                    Price = buyPrice,
+                    ClientOrderId = $"MM_BUY_{DateTime.UtcNow.Ticks}"
+                };
 
-                // 创建卖单
-                await orderService.CreateOrderAsync(
-                    systemUserId,
-                    symbol,
-                    OrderSide.Sell,
-                    OrderType.Limit,
-                    quantity,
-                    sellPrice);
+                var sellRequest = new SubmitOrderRequest
+                {
+                    Symbol = symbol,
+                    Side = OrderSide.Sell,
+                    Type = OrderType.Limit,
+                    Quantity = quantity,
+                    Price = sellPrice,
+                    ClientOrderId = $"MM_SELL_{DateTime.UtcNow.Ticks}"
+                };
+
+                // 先创建买单，等待撮合完成
+                var buyOrder = await tradingService.SubmitOrderAsync(systemUserId, buyRequest);
+                if (buyOrder != null)
+                {
+                    _logger.LogDebug("买单创建成功: {OrderId}", buyOrder.OrderId);
+                }
+
+                // 再创建卖单，应该能匹配到买单
+                var sellOrder = await tradingService.SubmitOrderAsync(systemUserId, sellRequest);
+                if (sellOrder != null)
+                {
+                    _logger.LogDebug("卖单创建成功: {OrderId}", sellOrder.OrderId);
+                }
 
                 _logger.LogDebug("为 {Symbol} 创建做市订单完成", symbol);
             }

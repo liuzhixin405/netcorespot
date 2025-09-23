@@ -19,10 +19,11 @@ namespace CryptoSpot.Core.Entities
     public enum OrderStatus
     {
         Pending = 1,
-        PartiallyFilled = 2,
-        Filled = 3,
-        Cancelled = 4,
-        Rejected = 5
+        Active = 2,
+        PartiallyFilled = 3,
+        Filled = 4,
+        Cancelled = 5,
+        Rejected = 6
     }
 
     [Table("Orders")]
@@ -39,6 +40,9 @@ namespace CryptoSpot.Core.Entities
         [Required]
         [StringLength(50)]
         public string OrderId { get; set; } = string.Empty;
+
+        [StringLength(50)]
+        public string? ClientOrderId { get; set; }
 
         public OrderSide Side { get; set; }
 

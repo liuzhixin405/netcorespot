@@ -115,7 +115,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                     BaseAsset = t.Symbol.Replace("USDT", ""),
                     QuoteAsset = "USDT",
                     Price = t.LastPrice,
-                    Change24h = t.PriceChange,
+                    Change24h = t.PriceChangePercent / 100, // 转换为小数形式
                     Volume24h = t.Volume,
                     High24h = t.HighPrice,
                     Low24h = t.LowPrice,
@@ -145,7 +145,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                     BaseAsset = tickerData.Symbol.Replace("USDT", ""),
                     QuoteAsset = "USDT",
                     Price = tickerData.LastPrice,
-                    Change24h = tickerData.PriceChange,
+                    Change24h = tickerData.PriceChangePercent / 100, // 转换为小数形式
                     Volume24h = tickerData.Volume,
                     High24h = tickerData.HighPrice,
                     Low24h = tickerData.LowPrice,
@@ -253,6 +253,8 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                             price = binancePair.Price,
                             change24h = binancePair.Change24h,
                             volume24h = binancePair.Volume24h,
+                            high24h = binancePair.High24h,
+                            low24h = binancePair.Low24h,
                             timestamp = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
                         };
                         
@@ -465,6 +467,9 @@ namespace CryptoSpot.Infrastructure.ExternalServices
 
         [JsonProperty("priceChange")]
         public decimal PriceChange { get; set; }
+
+        [JsonProperty("priceChangePercent")]
+        public decimal PriceChangePercent { get; set; }
 
         [JsonProperty("volume")]
         public decimal Volume { get; set; }

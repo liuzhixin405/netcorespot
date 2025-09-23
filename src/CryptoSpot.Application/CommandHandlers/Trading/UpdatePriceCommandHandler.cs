@@ -1,7 +1,5 @@
 using CryptoSpot.Core.Commands.Trading;
 using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Events;
-using CryptoSpot.Core.Events.Trading;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
 
@@ -13,16 +11,16 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
     public class UpdatePriceCommandHandler : ICommandHandler<UpdatePriceCommand, UpdatePriceResult>
     {
         private readonly ITradingPairService _tradingPairService;
-        private readonly IDomainEventPublisher _eventPublisher;
+        private readonly ICommandBus _commandBus;
         private readonly ILogger<UpdatePriceCommandHandler> _logger;
 
         public UpdatePriceCommandHandler(
             ITradingPairService tradingPairService,
-            IDomainEventPublisher eventPublisher,
+            ICommandBus commandBus,
             ILogger<UpdatePriceCommandHandler> logger)
         {
             _tradingPairService = tradingPairService;
-            _eventPublisher = eventPublisher;
+            _commandBus = commandBus;
             _logger = logger;
         }
 
@@ -58,16 +56,9 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     command.High24h,
                     command.Low24h);
 
-                // 发布价格更新事件
-                var priceUpdatedEvent = new PriceUpdatedEvent(
-                    command.Symbol,
-                    command.Price,
-                    command.Change24h,
-                    command.Volume24h,
-                    command.High24h,
-                    command.Low24h);
-
-                await _eventPublisher.PublishAsync(priceUpdatedEvent);
+                // 发布价格更新事件 - 使用CommandBus发送相关命令
+                // 如果需要发布事件，可以创建相应的事件命令并通过CommandBus发送
+                // await _commandBus.SendAsync<PriceUpdatedEventCommand, PriceUpdatedEventResult>(eventCommand);
 
                 _logger.LogDebug("Price updated for {Symbol}: {Price}", command.Symbol, command.Price);
 

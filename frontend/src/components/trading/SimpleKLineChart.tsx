@@ -811,13 +811,13 @@ const SimpleKLineChart: React.FC<SimpleKLineChartProps> = ({ symbol, timeframe, 
     <Container>
       <ChartHeader>
         <div>
-          {symbol} - {timeframe} (数据:{klineData?.length || 0}条, 缩放:{zoomLevel.toFixed(1)}x)
-          {isConnected && <span style={{ marginLeft: '8px', color: '#00b35f' }}>●SignalR实时推送</span>}
+          {timeframe} (数据:{klineData?.length || 0}条, 缩放:{zoomLevel.toFixed(1)}x)
+          {isConnected && <span style={{ marginLeft: '8px', color: '#00b35f' }}>●实时</span>}
           {!isConnected && !klineLoading && <span style={{ marginLeft: '8px', color: '#f85149' }}>●离线</span>}
           {klineLoading && <span style={{ marginLeft: '8px', color: '#7d8590' }}>加载中...</span>}
           {klineError && (
-            <span style={{ marginLeft: '8px', color: '#f85149', cursor: 'pointer' }} onClick={reconnect}>
-              连接失败(点击重连)
+            <span style={{ marginLeft: '8px', color: '#f85149' }}>
+              离线
             </span>
           )}
           {lastUpdate > 0 && (
@@ -868,33 +868,10 @@ const SimpleKLineChart: React.FC<SimpleKLineChartProps> = ({ symbol, timeframe, 
               fontSize: '0.9rem',
               zIndex: 10
             }}>
-              {klineError ? (
-                <div>
-                  <div style={{ marginBottom: '8px' }}>K线数据连接失败</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.7, marginBottom: '8px' }}>
-                    需要启动后端gRPC服务
-                  </div>
-                  <div 
-                    style={{ fontSize: '0.7rem', color: '#58a6ff', cursor: 'pointer' }}
-                    onClick={reconnect}
-                  >
-                    点击重连
-                  </div>
-                </div>
-              ) : klineLoading ? (
-                <div>
-                  <div style={{ marginBottom: '8px' }}>正在连接K线服务...</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>
-                    等待后端服务响应
-                  </div>
-                </div>
+              {klineLoading ? (
+                <div>正在加载K线数据...</div>
               ) : (
-                <div>
-                  <div style={{ marginBottom: '8px' }}>K线数据暂无</div>
-                  <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>
-                    等待后端数据推送
-                  </div>
-                </div>
+                <div>暂无K线数据</div>
               )}
             </div>
           )}

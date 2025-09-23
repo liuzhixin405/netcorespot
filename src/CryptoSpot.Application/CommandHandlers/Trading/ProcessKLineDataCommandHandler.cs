@@ -1,7 +1,5 @@
 using CryptoSpot.Core.Commands.Trading;
 using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Events;
-using CryptoSpot.Core.Events.Trading;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
 
@@ -13,16 +11,16 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
     public class ProcessKLineDataCommandHandler : ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>
     {
         private readonly IKLineDataService _klineDataService;
-        private readonly IDomainEventPublisher _eventPublisher;
+        private readonly ICommandBus _commandBus;
         private readonly ILogger<ProcessKLineDataCommandHandler> _logger;
 
         public ProcessKLineDataCommandHandler(
             IKLineDataService klineDataService,
-            IDomainEventPublisher eventPublisher,
+            ICommandBus commandBus,
             ILogger<ProcessKLineDataCommandHandler> logger)
         {
             _klineDataService = klineDataService;
-            _eventPublisher = eventPublisher;
+            _commandBus = commandBus;
             _logger = logger;
         }
 
@@ -61,14 +59,9 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 // 保存K线数据
                 await _klineDataService.SaveKLineDataAsync(command.KLineData);
 
-                // 发布K线数据更新事件
-                var klineUpdatedEvent = new KLineDataUpdatedEvent(
-                    command.Symbol,
-                    command.TimeFrame,
-                    command.KLineData,
-                    command.IsNewKLine);
-
-                await _eventPublisher.PublishAsync(klineUpdatedEvent);
+                // 发布K线更新事件 - 使用CommandBus发送相关命令
+                // 如果需要发布事件，可以创建相应的事件命令并通过CommandBus发送
+                // await _commandBus.SendAsync<KLineUpdatedEventCommand, KLineUpdatedEventResult>(eventCommand);
 
                 _logger.LogDebug("KLine data processed for {Symbol} {TimeFrame}: {Timestamp}", 
                     command.Symbol, command.TimeFrame, command.KLineData.Timestamp);

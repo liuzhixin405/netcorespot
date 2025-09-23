@@ -83,15 +83,13 @@ interface Trade {
 const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // TODO: 从后端gRPC服务获取真实的成交数据
+  // TODO: 从后端SignalR服务获取真实的成交数据
   // 目前清除了所有模拟数据，等待后端成交数据服务实现
 
   useEffect(() => {
     // 模拟加载状态
     setLoading(false);
-    setError('后端成交数据服务未实现');
   }, [symbol]);
 
   return (
@@ -111,27 +109,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
           ))
         ) : (
           <EmptyState>
-            {error ? (
-              <>
-                <div>成交数据连接失败</div>
-                <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>
-                  需要启动后端gRPC服务
-                </div>
-              </>
-            ) : loading ? (
-              <>
-                <div>正在加载成交数据...</div>
-                <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>
-                  等待后端服务响应
-                </div>
-              </>
+            {loading ? (
+              <div>正在加载成交数据...</div>
             ) : (
-              <>
-                <div>成交数据暂无</div>
-                <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>
-                  等待后端成交数据服务实现
-                </div>
-              </>
+              <div>暂无成交数据</div>
             )}
           </EmptyState>
         )}

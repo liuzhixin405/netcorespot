@@ -124,7 +124,9 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
   const currentData = priceData[symbol] || {
     price: 0,
     change24h: 0,
-    volume24h: 0
+    volume24h: 0,
+    high24h: 0,
+    low24h: 0
   };
   
   const isPositive = currentData.change24h >= 0;
@@ -165,11 +167,11 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
           <StatLabel>24h</StatLabel>
         </StatItem>
         <StatItem>
-          <StatValue>{currentData.price > 0 ? (currentData.price * 1.02).toFixed(0) : '--'}</StatValue>
+          <StatValue>{currentData.high24h > 0 ? currentData.high24h.toFixed(0) : '--'}</StatValue>
           <StatLabel>24h高</StatLabel>
         </StatItem>
         <StatItem>
-          <StatValue>{currentData.price > 0 ? (currentData.price * 0.98).toFixed(0) : '--'}</StatValue>
+          <StatValue>{currentData.low24h > 0 ? currentData.low24h.toFixed(0) : '--'}</StatValue>
           <StatLabel>24h低</StatLabel>
         </StatItem>
         <StatItem>

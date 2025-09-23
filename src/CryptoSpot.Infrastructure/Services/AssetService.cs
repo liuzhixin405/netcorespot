@@ -8,21 +8,24 @@ namespace CryptoSpot.Infrastructure.Services
 {
     public class AssetService : IAssetService
     {
-        private readonly IRepository<Asset> _assetRepository;
+        private readonly IAssetRepository _assetRepository;
         private readonly IUserRepository _userRepository;
         private readonly ICacheService _cacheService;
         private readonly ILogger<AssetService> _logger;
+        private readonly IUnitOfWork _unitOfWork; // 新增
 
         public AssetService(
-            IRepository<Asset> assetRepository,
+            IAssetRepository assetRepository,
             IUserRepository userRepository,
             ICacheService cacheService,
-            ILogger<AssetService> logger)
+            ILogger<AssetService> logger,
+            IUnitOfWork unitOfWork) // 注入
         {
             _assetRepository = assetRepository;
             _userRepository = userRepository;
             _cacheService = cacheService;
             _logger = logger;
+            _unitOfWork = unitOfWork;
         }
 
         public async Task<IEnumerable<Asset>> GetUserAssetsAsync(int userId)
@@ -59,7 +62,8 @@ namespace CryptoSpot.Infrastructure.Services
                 }
                 
                 // 缓存中没有，从数据库获取
-                return await _assetRepository.FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
+                var assets = await _assetRepository.FindAsync(a => a.UserId == userId && a.Symbol == symbol);
+                return assets.FirstOrDefault();
             }
             catch (Exception ex)
             {
@@ -80,6 +84,7 @@ namespace CryptoSpot.Infrastructure.Services
                     existingAsset.Frozen = frozen;
                     existingAsset.Touch();
                     await _assetRepository.UpdateAsync(existingAsset);
+                    await _unitOfWork.SaveChangesAsync();
                     return existingAsset;
                 }
                 else
@@ -91,8 +96,9 @@ namespace CryptoSpot.Infrastructure.Services
                         Available = available,
                         Frozen = frozen,
                     };
-                    
-                    return await _assetRepository.AddAsync(newAsset);
+                    var added = await _assetRepository.AddAsync(newAsset);
+                    await _unitOfWork.SaveChangesAsync();
+                    return added;
                 }
             }
             catch (Exception ex)
@@ -116,6 +122,7 @@ namespace CryptoSpot.Infrastructure.Services
                 asset.Frozen = frozen;
                 asset.Touch();
                 await _assetRepository.UpdateAsync(asset);
+                await _unitOfWork.SaveChangesAsync();
                 
                 return asset;
             }
@@ -159,6 +166,7 @@ namespace CryptoSpot.Infrastructure.Services
                 asset.Touch();
                 
                 await _assetRepository.UpdateAsync(asset);
+                await _unitOfWork.SaveChangesAsync();
                 
                 _logger.LogInformation("Froze {Amount} {Symbol} for user {UserId}", amount, symbol, userId);
                 return true;
@@ -186,6 +194,7 @@ namespace CryptoSpot.Infrastructure.Services
                 asset.Touch();
                 
                 await _assetRepository.UpdateAsync(asset);
+                await _unitOfWork.SaveChangesAsync();
                 
                 _logger.LogInformation("Unfroze {Amount} {Symbol} for user {UserId}", amount, symbol, userId);
                 return true;
@@ -229,6 +238,7 @@ namespace CryptoSpot.Infrastructure.Services
 
                 asset.Touch();
                 await _assetRepository.UpdateAsync(asset);
+                await _unitOfWork.SaveChangesAsync();
                 
                 _logger.LogInformation("Deducted {Amount} {Symbol} from user {UserId} ({Source})", 
                     amount, symbol, userId, fromFrozen ? "frozen" : "available");
@@ -249,13 +259,15 @@ namespace CryptoSpot.Infrastructure.Services
                 if (asset == null)
                 {
                     // 创建新资产
-                    await CreateUserAssetAsync(userId, symbol, amount, 0);
+                    var created = await CreateUserAssetAsync(userId, symbol, amount, 0);
+                    await _unitOfWork.SaveChangesAsync();
                 }
                 else
                 {
                     asset.Available += amount;
                     asset.Touch();
                     await _assetRepository.UpdateAsync(asset);
+                    await _unitOfWork.SaveChangesAsync();
                 }
                 
                 _logger.LogInformation("Added {Amount} {Symbol} to user {UserId}", amount, symbol, userId);

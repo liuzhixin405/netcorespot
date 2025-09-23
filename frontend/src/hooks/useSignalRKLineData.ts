@@ -98,6 +98,11 @@ export const useSignalRKLineData = (
         handleError
       );
       
+      setTimeout(() => {
+        setLoading(false);
+        setIsConnected(signalRClient.isConnected());
+      }, 500);
+
       unsubscribeRef.current = unsubscribe;
       
     } catch (err: any) {
@@ -105,7 +110,7 @@ export const useSignalRKLineData = (
       setIsConnected(false);
       setLoading(false);
     }
-  }, [symbol, handleKLineUpdate, handleError]);
+  }, [symbol, handleKLineUpdate, handleError, timeframe]);
 
   // 从1分钟数据计算目标时间段
   useEffect(() => {

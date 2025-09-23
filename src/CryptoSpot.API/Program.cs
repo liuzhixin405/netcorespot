@@ -17,15 +17,19 @@ using Microsoft.IdentityModel.Tokens;
 using System.Net;
 using System.Text;
 using CryptoSpot.API.Services;
+using CryptoSpot.Application.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 配置日志记录，避免EventLog问题
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
 
 // Add services to the container.
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-
-
 
 // Database - 使用连接池以处理高并发
 builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
@@ -39,13 +43,13 @@ builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
         mysqlOptions.CommandTimeout(60);
     });
     options.EnableThreadSafetyChecks(false); // 禁用线程安全检查
-    options.EnableServiceProviderCaching(false); // 禁用服务提供者缓存
+    // options.EnableServiceProviderCaching(false); // 注释掉，使用默认缓存
 }, poolSize: 20); // 适中的连接池大小 
-// Repository Layer
-builder.Services.AddTransient(typeof(IRepository<>), typeof(Repository<>));
-builder.Services.AddTransient<IUserRepository, UserRepository>();
-builder.Services.AddTransient<ITradingPairRepository, TradingPairRepository>();
-builder.Services.AddTransient<IKLineDataRepository, KLineDataRepository>();
+
+// Add Clean Architecture services (必须在数据库配置之后)
+builder.Services.AddCleanArchitecture();
+
+// Repository Layer - 已在Application层注册，这里只注册Infrastructure特有的服务
 
 // Database Coordinator (Singleton for thread safety)
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
@@ -60,15 +64,16 @@ builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<IPriceDataService, PriceDataService>();
 builder.Services.AddScoped<IKLineDataService, KLineDataService>();
 builder.Services.AddScoped<ITradingPairService, TradingPairService>();
-builder.Services.AddScoped<IOrderService, OrderService>();
+// builder.Services.AddScoped<IOrderService, OrderService>(); // 已由 AddCleanArchitecture 注册 RefactoredOrderService
 builder.Services.AddScoped<IAssetService, AssetService>();
-builder.Services.AddScoped<ITradeService, TradeService>();
+// 移除对 ITradeService 的覆盖注册, 以使用 CleanArchitecture 中的 RefactoredTradeService
+// builder.Services.AddScoped<ITradeService, TradeService>();
 
 // Data Initialization Service
 builder.Services.AddScoped<DataInitializationService>();
 
 // Application Services (Business Logic)
-builder.Services.AddScoped<ITradingService, TradingService>();
+// ITradingService is registered in ServiceCollectionExtensions.cs
 builder.Services.AddScoped<IOrderMatchingEngine, OrderMatchingEngine>();
 
 // Use Cases
@@ -89,8 +94,7 @@ builder.Services.AddHostedService<AutoTradingService>();
 builder.Services.AddHostedService<OrderBookPushService>();
 builder.Services.AddHostedService<MarketDataSyncService>();
 
-
-
+builder.Services.AddMemoryCache();
 
 // HttpClient for Binance API with proxy support
 builder.Services.AddHttpClient<BinanceMarketDataProvider>((serviceProvider, client) =>

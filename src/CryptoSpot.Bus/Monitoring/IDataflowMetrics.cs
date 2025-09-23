@@ -47,6 +47,26 @@ namespace CryptoSpot.Bus.Monitoring
         /// 输入队列大小
         /// </summary>
         int InputQueueSize { get; }
+        
+        /// <summary>
+        /// 平均队列等待时间
+        /// </summary>
+        TimeSpan AverageQueueWaitTime { get; }
+        
+        /// <summary>
+        /// 总队列等待时间
+        /// </summary>
+        TimeSpan TotalQueueWaitTime { get; }
+        
+        /// <summary>
+        /// 当前吞吐量(每秒处理命令数估算)
+        /// </summary>
+        double ThroughputPerSecond { get; }
+        
+        /// <summary>
+        /// 失败率%
+        /// </summary>
+        double FailureRate { get; }
     }
 
     /// <summary>

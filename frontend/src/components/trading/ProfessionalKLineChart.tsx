@@ -606,7 +606,6 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
     <Container>
       <ChartHeader>
         <SymbolInfo>
-          <SymbolName>{symbol}</SymbolName>
           {stats && (
             <>
               <PriceDisplay isPositive={stats.changePercent >= 0}>
@@ -714,22 +713,7 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
         {klineError && (
           <LoadingOverlay>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ marginBottom: '8px' }}>K线数据连接失败</div>
-              <div style={{ fontSize: '12px', marginBottom: '8px' }}>需要启动后端服务</div>
-              <button 
-                onClick={reconnect}
-                style={{ 
-                  padding: '4px 8px', 
-                  background: '#f0b90b', 
-                  color: '#0b0e11', 
-                  border: 'none', 
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '12px'
-                }}
-              >
-                点击重连
-              </button>
+              <div>暂无K线数据</div>
             </div>
           </LoadingOverlay>
         )}

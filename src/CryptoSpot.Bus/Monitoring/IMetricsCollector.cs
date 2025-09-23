@@ -78,49 +78,58 @@ namespace CryptoSpot.Bus.Monitoring
 
         public DataflowMetrics GetCurrentMetrics()
         {
-            return _commandBus switch
+            if (_commandBus is TypedDataflowCommandBus typed)
+                return typed.GetMetrics();
+            if (_commandBus is DataflowCommandBus df)
+                return df.GetMetrics();
+            if (_commandBus is BatchDataflowCommandBus batch)
             {
-                TypedDataflowCommandBus typedBus => typedBus.GetMetrics(),
-                DataflowCommandBus dataflowBus => dataflowBus.GetMetrics(),
-                BatchDataflowCommandBus batchBus => new DataflowMetrics
+                var m = batch.GetMetrics();
+                return new DataflowMetrics
                 {
-                    ProcessedCommands = batchBus.GetMetrics().ProcessedCommands,
-                    FailedCommands = batchBus.GetMetrics().FailedCommands,
-                    TotalProcessingTime = batchBus.GetMetrics().TotalProcessingTime,
-                    AverageProcessingTime = batchBus.GetMetrics().AverageProcessingTime,
-                    AvailableConcurrency = batchBus.GetMetrics().AvailableConcurrency,
-                    MaxConcurrency = batchBus.GetMetrics().MaxConcurrency,
-                    InputQueueSize = batchBus.GetMetrics().InputQueueSize
-                },
-                IMonitoredCommandBus monitoredBus => new DataflowMetrics
+                    ProcessedCommands = m.ProcessedCommands,
+                    FailedCommands = m.FailedCommands,
+                    TotalProcessingTime = m.TotalProcessingTime,
+                    AverageProcessingTime = m.AverageProcessingTime,
+                    AvailableConcurrency = m.AvailableConcurrency,
+                    MaxConcurrency = m.MaxConcurrency,
+                    InputQueueSize = m.InputQueueSize,
+                    AverageQueueWaitTime = m.AverageQueueWaitTime,
+                    TotalQueueWaitTime = m.TotalQueueWaitTime,
+                    ThroughputPerSecond = m.ThroughputPerSecond,
+                    FailureRate = m.FailureRate
+                };
+            }
+            if (_commandBus is IMonitoredCommandBus monitored)
+            {
+                var m = monitored.GetMetrics();
+                return new DataflowMetrics
                 {
-                    ProcessedCommands = monitoredBus.GetMetrics().ProcessedCommands,
-                    FailedCommands = monitoredBus.GetMetrics().FailedCommands,
-                    TotalProcessingTime = monitoredBus.GetMetrics().TotalProcessingTime,
-                    AverageProcessingTime = monitoredBus.GetMetrics().AverageProcessingTime,
-                    AvailableConcurrency = monitoredBus.GetMetrics().AvailableConcurrency,
-                    MaxConcurrency = monitoredBus.GetMetrics().MaxConcurrency,
-                    InputQueueSize = monitoredBus.GetMetrics().InputQueueSize
-                },
-                _ => new DataflowMetrics()
-            };
+                    ProcessedCommands = m.ProcessedCommands,
+                    FailedCommands = m.FailedCommands,
+                    TotalProcessingTime = m.TotalProcessingTime,
+                    AverageProcessingTime = m.AverageProcessingTime,
+                    AvailableConcurrency = m.AvailableConcurrency,
+                    MaxConcurrency = m.MaxConcurrency,
+                    InputQueueSize = m.InputQueueSize,
+                    AverageQueueWaitTime = m.AverageQueueWaitTime,
+                    TotalQueueWaitTime = m.TotalQueueWaitTime,
+                    ThroughputPerSecond = m.ThroughputPerSecond,
+                    FailureRate = m.FailureRate
+                };
+            }
+            return new DataflowMetrics();
         }
 
         public void ResetMetrics()
         {
             switch (_commandBus)
             {
-                case TypedDataflowCommandBus typedBus:
-                    typedBus.ClearCache();
+                case IMonitoredCommandBus monitored:
+                    monitored.ResetMetrics();
                     break;
-                case DataflowCommandBus dataflowBus:
-                    dataflowBus.ClearCache();
-                    break;
-                case BatchDataflowCommandBus batchBus:
-                    batchBus.ClearCache();
-                    break;
-                case IMonitoredCommandBus monitoredBus:
-                    monitoredBus.ResetMetrics();
+                default:
+                    // 非监控总线当前仅支持获取累积指标，未实现重置逻辑
                     break;
             }
             
@@ -152,8 +161,7 @@ namespace CryptoSpot.Bus.Monitoring
             try
             {
                 var metrics = GetCurrentMetrics();
-                var eventArgs = new MetricsUpdatedEventArgs(metrics);
-                MetricsUpdated?.Invoke(this, eventArgs);
+                MetricsUpdated?.Invoke(this, new MetricsUpdatedEventArgs(metrics));
             }
             catch (Exception ex)
             {
