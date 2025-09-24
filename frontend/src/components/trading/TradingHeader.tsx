@@ -103,6 +103,21 @@ const StatLabel = styled.div`
   letter-spacing: 0.5px;
 `;
 
+const TimeframeBar = styled.div`
+  display: flex;
+  gap: 4px;
+`;
+
+const TimeframeBtn = styled.button<{active:boolean}>`
+  padding:4px 8px;
+  background:${p=>p.active?'#238636':'transparent'};
+  border:1px solid ${p=>p.active?'#2ea043':'#30363d'};
+  color:${p=>p.active?'#ffffff':'#7d8590'};
+  font-size:12px;
+  border-radius:4px;
+  cursor:pointer;
+  &:hover{border-color:#2ea043;color:#fff;}
+`;
 
 interface TradingHeaderProps {
   symbol: string;
@@ -117,9 +132,9 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
   timeframe, 
   onTimeframeChange 
 }) => {
-  // 使用SignalR实时价格数据
+  // 使用SignalR实时价格数据 (只订阅当前选中符号, 不再订阅全部以减少无关推送)
   const availableSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
-  const { priceData, isConnected } = useSignalRPriceData(availableSymbols);
+  const { priceData, isConnected } = useSignalRPriceData([symbol]);
   
   const currentData = priceData[symbol] || {
     symbol,
@@ -130,9 +145,13 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
     low24h: 0,
     timestamp: 0
   } as any;
+  if ((window as any).__SR_DEBUG) console.log('[Header] symbol=', symbol, 'priceDataEntry=', currentData);
   
   const isPositive = (currentData.change24h || 0) >= 0;
   const changePercent24h = (currentData.change24h || 0) * 100; // 小数 -> 百分比
+  const timeframes = ['1m','5m','15m','1h','4h','1d'];
+  // 防止 NaN
+  const pct = isFinite(changePercent24h) ? changePercent24h : 0;
 
   return (
     <Header>
@@ -164,7 +183,7 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
       <StatsGrid>
         <StatItem>
           <StatValue color={isPositive ? '#3fb950' : '#f85149'}>
-            {isPositive ? '+' : ''}{changePercent24h.toFixed(2)}%
+            {currentData.price>0?`${isPositive?'+':''}${pct.toFixed(2)}%`:'--'}
           </StatValue>
           <StatLabel>24h</StatLabel>
         </StatItem>
@@ -180,6 +199,9 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
           <StatValue>{currentData.volume24h > 0 ? currentData.volume24h.toFixed(0) : '--'}</StatValue>
           <StatLabel>24h量</StatLabel>
         </StatItem>
+        <TimeframeBar>
+          {timeframes.map(tf=> <TimeframeBtn key={tf} active={tf===timeframe} onClick={()=>onTimeframeChange(tf)}>{tf}</TimeframeBtn>)}
+        </TimeframeBar>
       </StatsGrid>
     </Header>
   );

@@ -9,6 +9,8 @@
   <ItemGroup>
     <ProjectReference Include="..\CryptoSpot.Core\CryptoSpot.Core.csproj" />
     <ProjectReference Include="..\CryptoSpot.Bus\CryptoSpot.Bus.csproj" />
+    <!-- 新增 Redis 公共库引用 -->
+    <ProjectReference Include="..\Common.Redis\Common.Redis.csproj" />
   </ItemGroup>
 
   <ItemGroup>

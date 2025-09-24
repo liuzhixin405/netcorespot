@@ -26,6 +26,14 @@ namespace CryptoSpot.API.Services
         private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _orderBookState = new();
         private const int OrderBookMinPushIntervalMs = 250; // 最小推送间隔
 
+        // Ticker 去重/节流缓存
+        private readonly ConcurrentDictionary<string, (decimal Price, decimal Change, decimal Vol, decimal High, decimal Low, long LastPushMs, string Hash)> _lastTickerState = new();
+        private const int TickerMinPushIntervalMs = 1000; // 1s 最小推送间隔
+
+        // K线（当前未收线bar）去重缓存 key = symbol|interval|openTime
+        private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _lastKLineState = new();
+        private const int KLineMinPushIntervalMs = 1500; // 未收线K线最小推送间隔
+
         public MarketDataStreamRelayService(
             ILogger<MarketDataStreamRelayService> logger,
             IServiceScopeFactory scopeFactory,
@@ -43,6 +51,9 @@ namespace CryptoSpot.API.Services
                 _logger.LogWarning("没有注册任何 IMarketDataStreamProvider，跳过启动");
                 return;
             }
+
+            // 启动前预热 (Redis -> 内存) 订单簿快照，减少首次 books 推送前前端的空白期
+            await PreloadOrderBookSnapshotsAsync(stoppingToken);
 
             foreach (var provider in _streamProviders)
             {
@@ -75,6 +86,39 @@ namespace CryptoSpot.API.Services
             }
         }
 
+        private async Task PreloadOrderBookSnapshotsAsync(CancellationToken ct)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var cache = scope.ServiceProvider.GetService<IOrderBookSnapshotCache>();
+                if (cache == null) return;
+                foreach (var symbol in _symbols)
+                {
+                    if (await cache.TryLoadAsync(symbol, ct))
+                    {
+                        var snap = cache.Get(symbol);
+                        if (snap != null)
+                        {
+                            _logger.LogInformation("订单簿快照预热成功 {Symbol} ts={Ts}", symbol, snap.Value.timestamp);
+                        }
+                        else
+                        {
+                            _logger.LogInformation("订单簿快照预热成功但未取回 {Symbol}", symbol);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Redis 中无可预热订单簿快照 {Symbol}", symbol);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "预热订单簿快照失败");
+            }
+        }
+
         private void HookProvider(IMarketDataStreamProvider provider, CancellationToken ct)
         {
             provider.OnTicker += ticker => _ = Task.Run(() => RelayTickerAsync(ticker, ct), ct);
@@ -87,35 +131,45 @@ namespace CryptoSpot.API.Services
         {
             try
             {
+                var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                var hash = string.Concat(t.Last,'|',t.ChangePercent,'|',t.Volume24h,'|',t.High24h,'|',t.Low24h);
+                var state = _lastTickerState.GetOrAdd(t.Symbol, _ => (0m,0m,0m,0m,0m,0L,string.Empty));
+                // 若内容完全相同且在最小间隔内 -> 忽略
+                if (state.Hash == hash && (nowMs - state.LastPushMs) < TickerMinPushIntervalMs)
+                {
+                    return;
+                }
+
                 using var scope = _scopeFactory.CreateScope();
                 var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
                 var priceService = scope.ServiceProvider.GetService<IPriceDataService>();
-                Task? updateTask = null;
-                if (priceService != null)
-                {
-                    // 需要等待执行完成以防止作用域提前释放导致 DbContext 被处置
-                    updateTask = priceService.UpdateTradingPairPriceAsync(t.Symbol, t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h);
-                }
+
                 var priceData = new
                 {
                     symbol = t.Symbol,
                     price = t.Last,
-                    change24h = t.ChangePercent, // 小数形式: 0.0123 = +1.23%
+                    change24h = t.ChangePercent,
                     volume24h = t.Volume24h,
                     high24h = t.High24h,
                     low24h = t.Low24h,
                     timestamp = t.Ts
                 };
-                _logger.LogDebug("Ticker Relay {Symbol} price={Price} change%={Change} vol={Vol}", t.Symbol, t.Last, t.ChangePercent, t.Volume24h);
-                if (updateTask != null)
+
+                if (priceService != null)
                 {
-                    // 与推送并行执行，减少等待时间
-                    await Task.WhenAll(updateTask, push.PushPriceDataAsync(t.Symbol, priceData));
+                    _ = priceService.UpdateTradingPairPriceAsync(t.Symbol, t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h)
+                        .ContinueWith(task =>
+                        {
+                            if (task.IsFaulted)
+                            {
+                                _logger.LogWarning(task.Exception, "价格持久化失败但已继续推送 {Symbol}", t.Symbol);
+                            }
+                        }, TaskScheduler.Default);
                 }
-                else
-                {
-                    await push.PushPriceDataAsync(t.Symbol, priceData);
-                }
+
+                await push.PushPriceDataAsync(t.Symbol, priceData);
+                _lastTickerState[t.Symbol] = (t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h, nowMs, hash);
+                _logger.LogDebug("Ticker Relay 推送完成 {Symbol} price={Price} change={Change}", t.Symbol, t.Last, t.ChangePercent);
             }
             catch (Exception ex)
             {
@@ -174,13 +228,24 @@ namespace CryptoSpot.API.Services
         {
             try
             {
+                var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                var interval = k.Interval;
+                var key = string.Concat(k.Symbol,'|',interval,'|',k.OpenTime);
+                var hash = string.Concat(k.Open,'|',k.High,'|',k.Low,'|',k.Close,'|',k.Volume,'|',k.IsClosed);
+                var state = _lastKLineState.GetOrAdd(key, _ => (string.Empty, 0L));
+
+                // 未收线K线：内容未变且未达到节流窗口 -> 跳过
+                if (!k.IsClosed && state.Hash == hash && (nowMs - state.LastPushMs) < KLineMinPushIntervalMs)
+                {
+                    return;
+                }
+
                 using var scope = _scopeFactory.CreateScope();
                 var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
                 var pairService = scope.ServiceProvider.GetService<IPriceDataService>();
                 var klineService = scope.ServiceProvider.GetService<IKLineDataService>();
                 int tradingPairId = await ResolveTradingPairIdAsync(k.Symbol, pairService, ct);
-                if (tradingPairId == 0) return;
-                var interval = k.Interval;
+
                 var klineEntity = new KLineData
                 {
                     TradingPairId = tradingPairId,
@@ -193,12 +258,21 @@ namespace CryptoSpot.API.Services
                     Close = k.Close,
                     Volume = k.Volume
                 };
-                if (klineService != null && k.IsClosed)
+
+                if (tradingPairId > 0 && k.IsClosed && klineService != null)
                 {
-                    // 必须等待完成，防止作用域释放后访问已处置的 DbContext
-                    await klineService.AddOrUpdateKLineDataAsync(klineEntity);
+                    _ = klineService.AddOrUpdateKLineDataAsync(klineEntity).ContinueWith(task =>
+                    {
+                        if (task.IsFaulted)
+                        {
+                            _logger.LogWarning(task.Exception, "K线持久化失败但已继续推送 {Symbol} {Interval} @ {Open}", k.Symbol, interval, k.OpenTime);
+                        }
+                    }, TaskScheduler.Default);
                 }
+
                 await push.PushKLineDataAsync(k.Symbol, interval, klineEntity, k.IsClosed);
+                _lastKLineState[key] = (hash, nowMs);
+                _logger.LogDebug("KLine Relay 推送完成 {Symbol} {Interval} close={Close} closed={Closed}", k.Symbol, interval, k.Close, k.IsClosed);
             }
             catch (Exception ex)
             {

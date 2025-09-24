@@ -86,6 +86,12 @@ const Trading: React.FC = () => {
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT');
   const [timeframe, setTimeframe] = useState('1m');
 
+  React.useEffect(()=>{
+    // 临时开启调试
+    (window as any).__SR_DEBUG = true;
+    console.log('[Trading] SignalR debug enabled (临时)');
+    return ()=>{ delete (window as any).__SR_DEBUG; };
+  },[]);
 
   return (
     <TradingContainer>

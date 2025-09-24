@@ -18,6 +18,7 @@ using System.Net;
 using System.Text;
 using CryptoSpot.API.Services;
 using CryptoSpot.Application.DependencyInjection;
+using Common.Redis.Extensions; // added for Redis
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,6 +46,9 @@ builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
     options.EnableThreadSafetyChecks(false); // 禁用线程安全检查
     // options.EnableServiceProviderCaching(false); // 注释掉，使用默认缓存
 }, poolSize: 20); // 适中的连接池大小 
+
+// 添加 Redis (开发环境本地) - 放在数据库之后
+builder.Services.AddRedis(builder.Configuration.GetSection("Redis"));
 
 // Add Clean Architecture services (必须在数据库配置之后)
 builder.Services.AddCleanArchitecture();

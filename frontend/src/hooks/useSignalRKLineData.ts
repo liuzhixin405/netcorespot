@@ -29,6 +29,7 @@ export const useSignalRKLineData = (
 
   // 处理实时K线更新
   const handleKLineUpdate = useCallback((klineData: KLineData, isNewKLine: boolean) => {
+    if ((window as any).__SR_DEBUG) console.log('[Hook][KLine] update', klineData, 'isNew', isNewKLine);
     setMinuteData(prevData => {
       const existingIndex = prevData.findIndex(
         item => item.timestamp === klineData.timestamp
@@ -70,6 +71,7 @@ export const useSignalRKLineData = (
 
   // 启动SignalR订阅
   const startSignalRSubscription = useCallback(async () => {
+    if ((window as any).__SR_DEBUG) console.log('[Hook][KLine] start subscription symbol=', symbol, 'tf=', timeframe);
     if (!symbol) return;
     
     // 启动SignalR K线订阅
@@ -97,6 +99,7 @@ export const useSignalRKLineData = (
         handleKLineUpdate,
         handleError
       );
+      if ((window as any).__SR_DEBUG) console.log('[Hook][KLine] subscribed (1m base)');
       
       setTimeout(() => {
         setLoading(false);
@@ -112,15 +115,26 @@ export const useSignalRKLineData = (
     }
   }, [symbol, handleKLineUpdate, handleError, timeframe]);
 
-  // 从1分钟数据计算目标时间段
+  // 当 symbol 或 timeframe 变化时清空当前展示数据（minuteData 保留由 symbol 驱动重置）
   useEffect(() => {
-    if (minuteData.length > 0) {
-      const calculatedData = KLineCalculator.calculateKLineFromMinutes(minuteData, timeframe);
-      const limitedData = calculatedData.slice(-limit);
-      setData(limitedData);
-      
-      // K线数据计算完成
+    setData([]);
+  }, [timeframe]);
+
+  // 从1分钟数据计算目标时间段（加入 timeframe 变化触发 & 1m 直接返回 minuteData）
+  useEffect(() => {
+    if (minuteData.length === 0) {
+      setData([]);
+      return;
     }
+    if (timeframe === '1m') {
+      // 直接裁剪 minuteData
+      const limited = minuteData.slice(-limit);
+      setData(limited);
+      return;
+    }
+    const calculatedData = KLineCalculator.calculateKLineFromMinutes(minuteData, timeframe);
+    const limitedData = calculatedData.slice(-limit);
+    setData(limitedData);
   }, [minuteData, timeframe, limit]);
 
   // 手动重连

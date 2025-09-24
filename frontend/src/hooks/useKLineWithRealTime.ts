@@ -85,18 +85,25 @@ export const useKLineWithRealTime = ({
 
   const [combinedData, setCombinedData] = useState<KLineData[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [minuteDataBuffer, setMinuteDataBuffer] = useState<KLineData[]>([]);
 
-  // 初始化：加载历史数据
+  // 当 symbol 或 timeframe 发生变化时，强制重置初始化状态并重新加载历史数据
+  useEffect(() => {
+    if (!symbol || !timeframe) return;
+    // 重置状态以便下一个历史数据返回时重新填充
+    setIsInitialized(false);
+    setCombinedData([]);
+    // 立即触发历史刷新
+    apiRefresh();
+  }, [symbol, timeframe, apiRefresh]);
+
+  // 初始化：加载历史数据（仅在 isInitialized=false 且收到新的 historicalData 时执行）
   useEffect(() => {
     if (!isInitialized && historicalData.length > 0) {
-      
-      // 首次加载历史数据，确保按时间排序（从左到右）
       const sortedHistoricalData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp);
-      setCombinedData(sortedHistoricalData);
+      setCombinedData(sortedHistoricalData.slice(-limit));
       setIsInitialized(true);
     }
-  }, [historicalData, isInitialized, symbol, timeframe]);
+  }, [historicalData, isInitialized, limit]);
 
   // 处理实时分钟数据更新 - 只更新最新的数据，不覆盖历史数据
   useEffect(() => {

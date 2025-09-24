@@ -1,4 +1,7 @@
 // filepath: g:\github\netcorespot\src\CryptoSpot.Core\Interfaces\Trading\IOrderBookSnapshotCache.cs
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace CryptoSpot.Core.Interfaces.Trading
 {
     /// <summary>
@@ -8,5 +11,7 @@ namespace CryptoSpot.Core.Interfaces.Trading
     {
         void Update(string symbol, IReadOnlyList<OrderBookLevel> bids, IReadOnlyList<OrderBookLevel> asks, long timestamp);
         (IReadOnlyList<OrderBookLevel> bids, IReadOnlyList<OrderBookLevel> asks, long timestamp)? Get(string symbol);
+        // 新增: 从远程(如 Redis) 预热/加载
+        Task<bool> TryLoadAsync(string symbol, CancellationToken ct = default);
     }
 }

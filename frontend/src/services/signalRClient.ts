@@ -55,6 +55,26 @@ export class SignalRClient {
         .configureLogging(signalR.LogLevel.Information)
         .build();
 
+      // 调试: 统一事件调试输出
+      const attachDebugHandler = (event: string) => {
+        this.connection!.on(event, (...args: any[]) => {
+          if ((window as any).__SR_DEBUG) {
+            console.log('[SignalR][EVENT]', event, ...args);
+          }
+        });
+      };
+      ['PriceSubscribed','KLineSubscribed','OrderBookSubscribed','Error'].forEach(attachDebugHandler);
+
+      // 将简单调试 API 暴露到 window
+      (window as any).__SR_DEBUG_API = {
+        enable: () => { (window as any).__SR_DEBUG = true; console.log('[SignalR] Debug enabled'); },
+        disable: () => { delete (window as any).__SR_DEBUG; console.log('[SignalR] Debug disabled'); },
+        conn: () => this.connection,
+        resubPrice: async () => { if (this.subscribedPriceSymbols.length) await this.connection!.invoke('SubscribePriceData', this.subscribedPriceSymbols); },
+        resubK: async () => { for (const k of this.subscribedKLines) await this.connection!.invoke('SubscribeKLineData', k.symbol, k.interval); },
+        resubOB: async () => { for (const o of this.subscribedOrderBooks) await this.connection!.invoke('SubscribeOrderBook', o.symbol, o.depth); }
+      };
+
       // 设置连接事件
       this.connection.onclose((error?: Error) => {
         console.warn('[SignalR] WebSocket closed', error);
@@ -125,6 +145,7 @@ export class SignalRClient {
       // 设置实时K线更新处理器（修复第二参数 isNewKLine 未读取问题）
       this.connection.off('KLineUpdate');
       this.connection.on('KLineUpdate', (payload: any, isNew?: boolean) => {
+        if ((window as any).__SR_DEBUG) console.log('[SignalR] KLineUpdate raw=', payload, 'isNewArg=', isNew);
         const response = payload; // 兼容旧变量名
         if (response && response.timestamp) {
           const klineData: KLineData = {
@@ -184,6 +205,11 @@ export class SignalRClient {
         throw new Error('SignalR连接状态异常');
       }
 
+      // 调试: 订阅前输出
+      if ((window as any).__SR_DEBUG) {
+        console.log('[SignalR] Subscribing price symbols=', symbols);
+      }
+
       // 设置价格更新处理器
       this.connection.off('PriceData');
       this.connection.off('PriceUpdate');
@@ -193,6 +219,7 @@ export class SignalRClient {
       });
       
       this.connection.on('PriceUpdate', (response: any) => {
+        if ((window as any).__SR_DEBUG) console.log('[SignalR] PriceUpdate', response);
         onPriceUpdate(response);
       });
 
@@ -244,10 +271,12 @@ export class SignalRClient {
       this.connection.off('OrderBookUpdate');
       
       this.connection.on('OrderBookData', (response: any) => {
+        if ((window as any).__SR_DEBUG) console.log('[SignalR] OrderBookData', response);
         onOrderBookData(response);
       });
       
       this.connection.on('OrderBookUpdate', (response: any) => {
+        if ((window as any).__SR_DEBUG) console.log('[SignalR] OrderBookUpdate', response);
         onOrderBookData(response);
       });
 
