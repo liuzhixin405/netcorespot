@@ -8,12 +8,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CryptoSpot.Core\CryptoSpot.Core.csproj" />
-    <ProjectReference Include="..\CryptoSpot.Bus\CryptoSpot.Bus.csproj" />
     <!-- 新增 Redis 公共库引用 -->
     <ProjectReference Include="..\Common.Redis\Common.Redis.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MessagePackAnalyzer" Version="2.2.60" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
