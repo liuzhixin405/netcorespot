@@ -100,64 +100,75 @@ export const useSignalROrderBook = (
   // 增量更新订单簿
   const updateOrderBookIncremental = useCallback((data: any) => {
     const { bids, asks } = data;
-    
-    // 更新买单
+
+    // 如果当前还没有本地数据, 强制按 snapshot 处理
+    if (!orderBookData) {
+      // 回退到 snapshot 逻辑
+      const snapshotLike = {
+        symbol: data.symbol,
+        bids: (bids || []).filter((b: OrderBookLevel) => b.amount > 0),
+        asks: (asks || []).filter((a: OrderBookLevel) => a.amount > 0),
+        timestamp: data.timestamp
+      };
+      localOrderBookRef.current.bids.clear();
+      localOrderBookRef.current.asks.clear();
+      snapshotLike.bids.forEach((b: OrderBookLevel) => localOrderBookRef.current.bids.set(b.price, b));
+      snapshotLike.asks.forEach((a: OrderBookLevel) => localOrderBookRef.current.asks.set(a.price, a));
+      setOrderBookData(snapshotLike);
+      return;
+    }
+
+    // 仅更新发生变化的档位 (差异合并)
     if (bids) {
       bids.forEach((bid: OrderBookLevel) => {
         if (bid.amount === 0) {
-          // 数量为0表示删除该价格级别
           localOrderBookRef.current.bids.delete(bid.price);
         } else {
-          // 更新或添加价格级别
-          localOrderBookRef.current.bids.set(bid.price, bid);
+          const existing = localOrderBookRef.current.bids.get(bid.price);
+          if (!existing || existing.amount !== bid.amount) {
+            localOrderBookRef.current.bids.set(bid.price, bid);
+          }
         }
       });
     }
-    
-    // 更新卖单
     if (asks) {
       asks.forEach((ask: OrderBookLevel) => {
         if (ask.amount === 0) {
-          // 数量为0表示删除该价格级别
           localOrderBookRef.current.asks.delete(ask.price);
         } else {
-          // 更新或添加价格级别
-          localOrderBookRef.current.asks.set(ask.price, ask);
+          const existing = localOrderBookRef.current.asks.get(ask.price);
+          if (!existing || existing.amount !== ask.amount) {
+            localOrderBookRef.current.asks.set(ask.price, ask);
+          }
         }
       });
     }
-    
-    // 转换为数组并排序
-    const sortedBids = Array.from(localOrderBookRef.current.bids.values())
-      .sort((a, b) => b.price - a.price)
-      .slice(0, depth);
-    
-    const sortedAsks = Array.from(localOrderBookRef.current.asks.values())
-      .sort((a, b) => a.price - b.price)
-      .slice(0, depth);
-    
-    // 计算累计数量
+
+    // 转换 & 排序 (保持最少重建)
+    const sortedBidEntries = Array.from(localOrderBookRef.current.bids.entries()).sort((a,b) => b[0]-a[0]).slice(0, depth);
+    const sortedAskEntries = Array.from(localOrderBookRef.current.asks.entries()).sort((a,b) => a[0]-b[0]).slice(0, depth);
+
     let bidTotal = 0;
-    const bidsWithTotal = sortedBids.map(bid => {
-      bidTotal += bid.amount;
-      return { ...bid, total: bidTotal };
+    const bidsWithTotal = sortedBidEntries.map(([price, lvl]) => {
+      bidTotal += lvl.amount;
+      return { ...lvl, total: bidTotal };
     });
-    
     let askTotal = 0;
-    const asksWithTotal = sortedAsks.map(ask => {
-      askTotal += ask.amount;
-      return { ...ask, total: askTotal };
+    const asksWithTotal = sortedAskEntries.map(([price, lvl]) => {
+      askTotal += lvl.amount;
+      return { ...lvl, total: askTotal };
     });
-    
-    const updatedOrderBook: OrderBookData = {
-      symbol: data.symbol,
-      bids: bidsWithTotal,
-      asks: asksWithTotal,
-      timestamp: data.timestamp
-    };
-    
-    setOrderBookData(updatedOrderBook);
-  }, [depth]);
+
+    // 仅在数组内容真正变化时 setState，减少 React 重渲染
+    setOrderBookData(prev => {
+      if (!prev) return { symbol: data.symbol, bids: bidsWithTotal, asks: asksWithTotal, timestamp: data.timestamp };
+      const same = prev.bids.length === bidsWithTotal.length && prev.asks.length === asksWithTotal.length &&
+        prev.bids.every((b,i) => b.price===bidsWithTotal[i].price && b.amount===bidsWithTotal[i].amount) &&
+        prev.asks.every((a,i) => a.price===asksWithTotal[i].price && a.amount===asksWithTotal[i].amount);
+      if (same) return prev;
+      return { symbol: data.symbol, bids: bidsWithTotal, asks: asksWithTotal, timestamp: data.timestamp };
+    });
+  }, [depth, orderBookData]);
 
   // 处理连接错误
   const handleError = useCallback((err: any) => {

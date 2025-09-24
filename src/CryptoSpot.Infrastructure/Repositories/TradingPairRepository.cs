@@ -36,8 +36,9 @@ namespace CryptoSpot.Infrastructure.Repositories
                 tradingPair.High24h = high24h;
                 tradingPair.Low24h = low24h;
                 tradingPair.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                
                 _dbSet.Update(tradingPair);
+                // 立即保存 (后续可改为批量/UnitOfWork)
+                await _context.SaveChangesAsync();
                 return true;
             }
             return false;

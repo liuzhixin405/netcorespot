@@ -149,7 +149,7 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
           <>
             {/* 卖单（从高到低） */}
             {sellOrders.slice().reverse().map((order: OrderBookLevel, index: number) => (
-              <PriceRow key={`sell-${index}`} isBuy={false}>
+              <PriceRow key={`sell-${order.price}`} isBuy={false}>
                 <DepthBar isBuy={false} percentage={Math.min((order.total / Math.max(...sellOrders.map(o => o.total))) * 100, 100)} />
                 <PriceCell isBuy={false}>{order.price.toFixed(2)}</PriceCell>
                 <AmountCell>{order.amount.toFixed(4)}</AmountCell>
@@ -164,7 +164,7 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
             
             {/* 买单（从高到低） */}
             {buyOrders.map((order: OrderBookLevel, index: number) => (
-              <PriceRow key={`buy-${index}`} isBuy={true}>
+              <PriceRow key={`buy-${order.price}`} isBuy={true}>
                 <DepthBar isBuy={true} percentage={Math.min((order.total / Math.max(...buyOrders.map(o => o.total))) * 100, 100)} />
                 <PriceCell isBuy={true}>{order.price.toFixed(2)}</PriceCell>
                 <AmountCell>{order.amount.toFixed(4)}</AmountCell>

@@ -37,16 +37,20 @@ export const useSignalRPriceData = (
 
   // 处理价格更新
   const handlePriceUpdate = useCallback((priceUpdate: any) => {
-    
+    if(!priceUpdate || !priceUpdate.symbol) return;
+    // change24h 后端为小数 (0.0123 = +1.23%)
+    const rawChange = Number(priceUpdate.change24h);
     const newPriceData: PriceData = {
       symbol: priceUpdate.symbol,
       price: Number(priceUpdate.price),
-      change24h: Number(priceUpdate.change24h),
-      volume24h: Number(priceUpdate.volume24h),
+      change24h: isNaN(rawChange) ? 0 : rawChange,
+      volume24h: Number(priceUpdate.volume24h || 0),
       high24h: Number(priceUpdate.high24h || 0),
       low24h: Number(priceUpdate.low24h || 0),
-      timestamp: priceUpdate.timestamp
+      timestamp: priceUpdate.timestamp || Date.now()
     };
+    // Debug
+    // console.debug('PriceUpdate', newPriceData);
 
     setPriceData(prevData => ({
       ...prevData,

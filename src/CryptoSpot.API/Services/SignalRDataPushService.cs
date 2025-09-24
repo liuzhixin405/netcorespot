@@ -160,5 +160,28 @@ namespace CryptoSpot.API.Services
                 _logger.LogError(ex, $"Failed to push order book delta for {symbol}");
             }
         }
+
+        // 新增: 推送外部流式订单簿快照(仅用于首次或重同步, 与内部撮合快照区分)
+        public async Task PushExternalOrderBookSnapshotAsync(string symbol, IReadOnlyList<OrderBookLevel> bids, IReadOnlyList<OrderBookLevel> asks, long timestamp)
+        {
+            try
+            {
+                var groupName = $"orderbook_{symbol}";
+                var data = new
+                {
+                    type = "snapshot",
+                    symbol,
+                    bids = bids.Select(b => new { price = b.Price, amount = b.Quantity, total = b.Total }).ToList(),
+                    asks = asks.Select(a => new { price = a.Price, amount = a.Quantity, total = a.Total }).ToList(),
+                    timestamp
+                };
+                await _hubContext.Clients.Group(groupName).SendAsync("OrderBookData", data);
+                _logger.LogDebug("Pushed external order book snapshot for {Symbol}", symbol);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to push external order book snapshot for {Symbol}", symbol);
+            }
+        }
     }
 }

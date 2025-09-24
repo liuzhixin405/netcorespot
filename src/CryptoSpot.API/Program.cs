@@ -83,16 +83,21 @@ builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.RegisterUseCase>
 
 // SignalR Data Push Service
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
+// 订单簿快照缓存 (内存) 后续可替换为 Redis
+builder.Services.AddSingleton<IOrderBookSnapshotCache, OrderBookSnapshotCache>();
 
 // Business Services
-builder.Services.AddScoped<IMarketDataProvider, BinanceMarketDataProvider>();
+//builder.Services.AddScoped<IMarketDataProvider, BinanceMarketDataProvider>();
+// 新增 OKX WebSocket 行情流
+builder.Services.AddSingleton<IMarketDataStreamProvider, OkxMarketDataStreamProvider>();
 builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 
 // Background Services
 builder.Services.AddHostedService<CacheInitializationService>();
 builder.Services.AddHostedService<AutoTradingService>();
-builder.Services.AddHostedService<OrderBookPushService>();
-builder.Services.AddHostedService<MarketDataSyncService>();
+//builder.Services.AddHostedService<OrderBookPushService>(); // 已由外部流式+增量推送接管, 关闭周期性全量快照避免前端闪烁
+//builder.Services.AddHostedService<MarketDataSyncService>();
+builder.Services.AddHostedService<MarketDataStreamRelayService>();
 
 builder.Services.AddMemoryCache();
 

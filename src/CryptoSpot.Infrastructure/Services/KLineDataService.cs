@@ -1,6 +1,7 @@
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Interfaces.Trading;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
@@ -9,27 +10,30 @@ namespace CryptoSpot.Infrastructure.Services
     {
         private readonly IKLineDataRepository _klineDataRepository;
         private readonly ILogger<KLineDataService> _logger;
+        private readonly ITradingPairService _tradingPairService;
 
         public KLineDataService(
             IKLineDataRepository klineDataRepository,
-            ILogger<KLineDataService> logger)
+            ILogger<KLineDataService> logger,
+            ITradingPairService tradingPairService)
         {
             _klineDataRepository = klineDataRepository;
             _logger = logger;
+            _tradingPairService = tradingPairService;
         }
 
         public async Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string interval, int limit = 100)
         {
             try
             {
-                // 暂时使用默认的交易对ID，实际应该从TradingPair表获取
-                var tradingPairId = 1; // TODO: 实现从symbol获取TradingPairId的逻辑
-                return await _klineDataRepository.GetKLineDataByTradingPairIdAsync(tradingPairId, interval, limit);
+                var pair = await _tradingPairService.GetTradingPairAsync(symbol);
+                if (pair == null) return Enumerable.Empty<KLineData>();
+                return await _klineDataRepository.GetKLineDataByTradingPairIdAsync(pair.Id, interval, limit);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting K-line data for {Symbol} {Interval}", symbol, interval);
-                return new List<KLineData>();
+                return Enumerable.Empty<KLineData>();
             }
         }
 
@@ -37,9 +41,9 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                // 暂时使用默认的交易对ID，实际应该从TradingPair表获取
-                var tradingPairId = 1; // TODO: 实现从symbol获取TradingPairId的逻辑
-                var allData = await _klineDataRepository.GetKLineDataByTradingPairIdAsync(tradingPairId, interval, limit * 2); // 获取更多数据用于过滤
+                var pair = await _tradingPairService.GetTradingPairAsync(symbol);
+                if (pair == null) return Enumerable.Empty<KLineData>();
+                var allData = await _klineDataRepository.GetKLineDataByTradingPairIdAsync(pair.Id, interval, limit * 2);
                 
                 var filteredData = allData.AsQueryable();
                 
@@ -58,7 +62,7 @@ namespace CryptoSpot.Infrastructure.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting K-line data with time range for {Symbol} {Interval}", symbol, interval);
-                return new List<KLineData>();
+                return Enumerable.Empty<KLineData>();
             }
         }
 
@@ -79,9 +83,9 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                // 暂时使用默认的交易对ID，实际应该从TradingPair表获取
-                var tradingPairId = 1; // TODO: 实现从symbol获取TradingPairId的逻辑
-                return await _klineDataRepository.GetLatestKLineDataAsync(tradingPairId, interval);
+                var pair = await _tradingPairService.GetTradingPairAsync(symbol);
+                if (pair == null) return null;
+                return await _klineDataRepository.GetLatestKLineDataAsync(pair.Id, interval);
             }
             catch (Exception ex)
             {

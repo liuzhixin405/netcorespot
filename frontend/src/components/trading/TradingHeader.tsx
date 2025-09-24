@@ -122,15 +122,17 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
   const { priceData, isConnected } = useSignalRPriceData(availableSymbols);
   
   const currentData = priceData[symbol] || {
+    symbol,
     price: 0,
     change24h: 0,
     volume24h: 0,
     high24h: 0,
-    low24h: 0
-  };
+    low24h: 0,
+    timestamp: 0
+  } as any;
   
-  const isPositive = currentData.change24h >= 0;
-  const changePercent24h = currentData.change24h * 100; // 转换为百分比
+  const isPositive = (currentData.change24h || 0) >= 0;
+  const changePercent24h = (currentData.change24h || 0) * 100; // 小数 -> 百分比
 
   return (
     <Header>

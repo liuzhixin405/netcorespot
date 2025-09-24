@@ -1,0 +1,37 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageProjectUrl>https://github.com/kuaiben/CommonLibary/</PackageProjectUrl>
+    <Description>新增sortedset SortedSetLengthAsync</Description>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DocumentationFile>bin\Release\netstandard2.0\Common.Redis.Extensions.xml</DocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="ICacheClient.cs" />
+    <Compile Remove="StackExchangeRedisCacheClient.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CodeProject.ObjectPool" Version="4.0.1" />
+    <PackageReference Include="CSRedisCore" Version="3.3.0" />
+    <PackageReference Include="MessagePack" Version="2.2.60" />
+    <PackageReference Include="MessagePackAnalyzer" Version="2.2.60" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="2.1.1" />
+    <PackageReference Include="Newtonsoft.Json.Bson" Version="1.0.2" />
+    <PackageReference Include="NuGet.CommandLine" Version="5.11.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="protobuf-net" Version="2.4.4" />
+    <PackageReference Include="Serilog" Version="2.9.0" />
+    <PackageReference Include="StackExchange.Redis" Version="2.2.50" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="3.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="2.1.1" />
+  </ItemGroup>
+
+</Project>

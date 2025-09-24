@@ -10,5 +10,6 @@ namespace CryptoSpot.Core.Interfaces
         Task PushPriceDataToMultipleSymbolsAsync(Dictionary<string, object> priceUpdates);
         Task PushOrderBookDataAsync(string symbol, int depth = 20);
         Task PushOrderBookDeltaAsync(string symbol, List<OrderBookLevel> bidChanges, List<OrderBookLevel> askChanges);
+        Task PushExternalOrderBookSnapshotAsync(string symbol, IReadOnlyList<OrderBookLevel> bids, IReadOnlyList<OrderBookLevel> asks, long timestamp);
     }
 }
