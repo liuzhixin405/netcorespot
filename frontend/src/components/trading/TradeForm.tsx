@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { useAuth } from '../../contexts/AuthContext';
+import { tradingService } from '../../services/tradingService';
 
 const Container = styled.div`
   height: 100%;
@@ -187,12 +188,32 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    
+    if (orderType === 'limit' && !price) return;
+    if (!amount) return;
+
     setIsLoading(true);
-    // Mock trade submission
-    setTimeout(() => {
+    try {
+      const sideEnum = activeTab === 'buy' ? 'Buy' : 'Sell';
+      const typeEnum = orderType === 'limit' ? 'Limit' : 'Market';
+      const payload = {
+        symbol,
+        side: sideEnum,
+        type: typeEnum,
+        quantity: parseFloat(amount),
+        price: orderType === 'limit' ? parseFloat(price) : undefined,
+      } as any;
+      const res = await tradingService.submitOrder(payload);
+      if (!res.success) {
+        console.error('下单失败', res.error);
+      } else {
+        setAmount('');
+        if (orderType === 'limit') setPrice('');
+      }
+    } catch (err) {
+      console.error('提交订单异常', err);
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   const handlePercentClick = (percent: number) => {

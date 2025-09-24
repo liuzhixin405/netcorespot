@@ -40,6 +40,7 @@ namespace CryptoSpot.Application.Services
             {
                 return await _unitOfWork.ExecuteInTransactionAsync(async () =>
                 {
+                    var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     var trade = new Trade
                     {
                         BuyOrderId = buyOrder.Id,
@@ -52,24 +53,14 @@ namespace CryptoSpot.Application.Services
                         Quantity = quantity,
                         Fee = CalculateFee(price, quantity),
                         FeeAsset = "USDT",
-                        ExecutedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                        CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                        UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        ExecutedAt = now,
+                        CreatedAt = now,
+                        UpdatedAt = now
                     };
 
-                    // 更新订单成交量与状态
-                    buyOrder.FilledQuantity += quantity;
-                    sellOrder.FilledQuantity += quantity;
-                    buyOrder.Status = buyOrder.FilledQuantity >= buyOrder.Quantity ? OrderStatus.Filled : OrderStatus.PartiallyFilled;
-                    sellOrder.Status = sellOrder.FilledQuantity >= sellOrder.Quantity ? OrderStatus.Filled : OrderStatus.PartiallyFilled;
-                    buyOrder.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    sellOrder.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
                     var createdTrade = await _tradeRepository.AddAsync(trade);
-                    await _orderRepository.UpdateAsync(buyOrder);
-                    await _orderRepository.UpdateAsync(sellOrder);
 
-                    // 资产结算
+                    // 资产结算（不再这里修改订单成交量/状态，避免与订单服务重复计算）
                     var tradingPair = await _tradingPairRepository.GetByIdAsync(buyOrder.TradingPairId);
                     if (tradingPair != null)
                     {

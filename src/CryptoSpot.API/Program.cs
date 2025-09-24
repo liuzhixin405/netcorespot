@@ -19,6 +19,8 @@ using System.Text;
 using CryptoSpot.API.Services;
 using CryptoSpot.Application.DependencyInjection;
 using Common.Redis.Extensions; // added for Redis
+using System.Text.Json; // for JsonNamingPolicy
+using System.Text.Json.Serialization; // for JsonStringEnumConverter
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,7 +30,14 @@ builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers(options => { })
+    .AddJsonOptions(o =>
+    {
+        // 允许前端传递小写/驼峰枚举 (buy/sell, limit/market)
+        o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+        // 兼容旧格式: 额外开启大小写不敏感
+        o.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 

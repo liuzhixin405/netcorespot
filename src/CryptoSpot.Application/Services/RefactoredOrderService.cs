@@ -38,6 +38,15 @@ namespace CryptoSpot.Application.Services
                     throw new ArgumentException($"交易对 {symbol} 不存在");
                 }
 
+                if (quantity <= 0)
+                    throw new ArgumentException("数量必须大于0", nameof(quantity));
+
+                if (type == OrderType.Limit && (!price.HasValue || price.Value <= 0))
+                    throw new ArgumentException("限价单必须提供正价格", nameof(price));
+
+                // 限价单直接进入撮合队列 -> Active, 市价单先 Pending 等待撮合结果
+                var initialStatus = type == OrderType.Limit ? OrderStatus.Active : OrderStatus.Pending;
+
                 // 创建订单
                 var order = new Order
                 {
@@ -48,28 +57,17 @@ namespace CryptoSpot.Application.Services
                     Type = type,
                     Quantity = quantity,
                     Price = price,
-                    Status = OrderStatus.Pending,
+                    Status = initialStatus,
                     ClientOrderId = GenerateOrderId(),
                     CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                     UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 };
 
-                // 使用Unit of Work进行事务管理
-                var transaction = await _unitOfWork.BeginTransactionAsync();
-                try
-                {
-                    var createdOrder = await _orderRepository.AddAsync(order);
-                    await _unitOfWork.CommitTransactionAsync(transaction);
-                    
-                    _logger.LogInformation("订单创建成功: {OrderId}", order.OrderId);
-                    return createdOrder;
-                }
-                catch (Exception ex)
-                {
-                    await _unitOfWork.RollbackTransactionAsync(transaction);
-                    _logger.LogError(ex, "订单创建失败: {OrderId}", order.OrderId);
-                    throw;
-                }
+                // 精简：无需显式事务，单表写入直接 SaveChanges
+                var createdOrder = await _orderRepository.AddAsync(order);
+                await _unitOfWork.SaveChangesAsync();
+                _logger.LogInformation("订单创建成功: {OrderId} Status={Status}", order.OrderId, order.Status);
+                return createdOrder;
             }
             catch (Exception ex)
             {
@@ -114,23 +112,47 @@ namespace CryptoSpot.Application.Services
                 if (order == null)
                     return;
 
+                var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+                // 累加成交数量并计算加权平均价
+                if (filledQuantity > 0)
+                {
+                    var previousFilled = order.FilledQuantity;
+                    var previousAvg = order.AveragePrice;
+                    var newFilled = previousFilled + filledQuantity;
+
+                    if (averagePrice > 0)
+                    {
+                        if (previousFilled <= 0)
+                        {
+                            order.AveragePrice = averagePrice; // 首次成交
+                        }
+                        else
+                        {
+                            order.AveragePrice = (previousAvg * previousFilled + averagePrice * filledQuantity) / newFilled;
+                        }
+                    }
+
+                    order.FilledQuantity = newFilled;
+
+                    // 自动推导状态
+                    if (newFilled >= order.Quantity && order.Quantity > 0)
+                    {
+                        status = OrderStatus.Filled;
+                    }
+                    else if (newFilled > 0 && status != OrderStatus.Cancelled && status != OrderStatus.Rejected)
+                    {
+                        status = OrderStatus.PartiallyFilled;
+                    }
+                }
+
+                // 如果没有成交新增但外部希望改状态（如 Cancelled / Rejected / Active），直接使用传入状态
                 order.Status = status;
-                order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                
-                var transaction = await _unitOfWork.BeginTransactionAsync();
-                try
-                {
-                    await _orderRepository.UpdateAsync(order);
-                    await _unitOfWork.CommitTransactionAsync(transaction);
-                    
-                    _logger.LogInformation("订单状态更新成功: {OrderId} -> {Status}", order.OrderId, status);
-                }
-                catch (Exception ex)
-                {
-                    await _unitOfWork.RollbackTransactionAsync(transaction);
-                    _logger.LogError(ex, "订单状态更新失败: {OrderId}", order.OrderId);
-                    throw;
-                }
+                order.UpdatedAt = now;
+
+                await _orderRepository.UpdateAsync(order);
+                await _unitOfWork.SaveChangesAsync();
+                _logger.LogInformation("订单状态更新成功: {OrderId} -> {Status} Filled={Filled}/{Qty} Avg={Avg}", order.OrderId, order.Status, order.FilledQuantity, order.Quantity, order.AveragePrice);
             }
             catch (Exception ex)
             {

@@ -3,6 +3,7 @@ using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Core.Interfaces.Users; // 新增 引入资产服务接口
 
 namespace CryptoSpot.Application.Services
 {
@@ -16,19 +17,25 @@ namespace CryptoSpot.Application.Services
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
         private readonly ILogger<RefactoredTradingService> _logger;
+        private readonly IOrderMatchingEngine _matchingEngine; // 获取订单簿深度
+        private readonly IAssetService _assetService; // 新增 资产服务
 
         public RefactoredTradingService(
             ICommandBus commandBus,
             ITradingPairService tradingPairService,
             IOrderService orderService,
             ITradeService tradeService,
-            ILogger<RefactoredTradingService> logger)
+            ILogger<RefactoredTradingService> logger,
+            IOrderMatchingEngine matchingEngine,
+            IAssetService assetService) // 新增注入
         {
             _commandBus = commandBus;
             _tradingPairService = tradingPairService;
             _orderService = orderService;
             _tradeService = tradeService;
             _logger = logger;
+            _matchingEngine = matchingEngine;
+            _assetService = assetService; // 赋值
         }
 
         public async Task<IEnumerable<TradingPair>> GetTradingPairsAsync()
@@ -57,32 +64,21 @@ namespace CryptoSpot.Application.Services
             }
         }
 
-        public async Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string timeFrame, int limit = 100)
+        public Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string timeFrame, int limit = 100)
         {
-            try
-            {
-                // 这里应该调用K线数据服务
-                // 为了保持接口兼容性，暂时返回空列表
-                return new List<KLineData>();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting K-line data for {Symbol} {TimeFrame}", symbol, timeFrame);
-                return new List<KLineData>();
-            }
+            // TODO: 集成真正的K线服务
+            return Task.FromResult<IEnumerable<KLineData>>(new List<KLineData>());
         }
 
         public async Task<IEnumerable<Asset>> GetUserAssetsAsync(int userId)
         {
             try
             {
-                // 这里应该调用资产服务
-                // 为了保持接口兼容性，暂时返回空列表
-                return new List<Asset>();
+                return await _assetService.GetUserAssetsAsync(userId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting user assets for user {UserId}", userId);
+                _logger.LogError(ex, "Error getting user assets for {UserId}", userId);
                 return new List<Asset>();
             }
         }
@@ -178,6 +174,95 @@ namespace CryptoSpot.Application.Services
                 _logger.LogError(ex, "Error cancelling order {OrderId} for user {UserId}", orderId, userId);
                 return false;
             }
+        }
+
+        public async Task<Order?> GetOrderAsync(int userId, int orderId)
+        {
+            var order = await _orderService.GetOrderByIdAsync(orderId, userId);
+            return order;
+        }
+
+        public async Task<IEnumerable<Trade>> GetOrderTradesAsync(int userId, int orderId)
+        {
+            var order = await _orderService.GetOrderByIdAsync(orderId, userId);
+            if (order == null) return Enumerable.Empty<Trade>();
+            return await _tradeService.GetOrderTradesAsync(orderId);
+        }
+
+        public async Task<IEnumerable<Order>> GetOpenOrdersAsync(int userId, string? symbol = null)
+        {
+            var all = await _orderService.GetUserOrdersAsync(userId, null, 500);
+            return all.Where(o => o.Status == OrderStatus.Pending || o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled)
+                      .Where(o => string.IsNullOrEmpty(symbol) || (o.TradingPair != null && o.TradingPair.Symbol == symbol));
+        }
+
+        public async Task<bool> CancelAllOrdersAsync(int userId, string? symbol = null)
+        {
+            var openOrders = await GetOpenOrdersAsync(userId, symbol);
+            var success = true;
+            foreach (var o in openOrders)
+            {
+                var cancelled = await CancelOrderAsync(userId, o.Id);
+                if (!cancelled) success = false;
+            }
+            return success;
+        }
+
+        public async Task<OrderBookDepth> GetOrderBookDepthAsync(string symbol, int depth = 20)
+        {
+            // 利用撮合引擎聚合逻辑
+            var depthData = await _matchingEngine.GetOrderBookDepthAsync(symbol, depth);
+            return new OrderBookDepth
+            {
+                Symbol = depthData.Symbol,
+                Bids = depthData.Bids.Select(b => new OrderBookLevel { Price = b.Price, Quantity = b.Quantity, OrderCount = b.OrderCount, Total = b.Total }).ToList(),
+                Asks = depthData.Asks.Select(a => new OrderBookLevel { Price = a.Price, Quantity = a.Quantity, OrderCount = a.OrderCount, Total = a.Total }).ToList()
+            };
+        }
+
+        public async Task<TestOrderResult> TestOrderAsync(int userId, SubmitOrderRequest request)
+        {
+            var result = new TestOrderResult { Success = false, NormalizedRequest = request };
+            try
+            {
+                if (request.Quantity <= 0)
+                {
+                    result.Message = "数量必须大于0";
+                    return result;
+                }
+                if (request.Type == OrderType.Limit && (!request.Price.HasValue || request.Price <= 0))
+                {
+                    result.Message = "限价单需提供有效价格";
+                    return result;
+                }
+                var pair = await _tradingPairService.GetTradingPairAsync(request.Symbol);
+                if (pair == null)
+                {
+                    result.Message = "交易对不存在";
+                    return result;
+                }
+                decimal? needQuote = null; decimal? needBase = null;
+                if (request.Side == OrderSide.Buy)
+                {
+                    if (request.Type == OrderType.Limit)
+                        needQuote = request.Quantity * request.Price!.Value;
+                    // 市价买单无法准确预估，这里简单返回0或留空
+                }
+                else
+                {
+                    needBase = request.Quantity;
+                }
+                result.RequiredQuoteAmount = needQuote;
+                result.RequiredBaseAmount = needBase;
+                result.Success = true;
+                result.Message = "OK";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "测试下单失败");
+                result.Message = "内部错误";
+            }
+            return result;
         }
 
         /// <summary>

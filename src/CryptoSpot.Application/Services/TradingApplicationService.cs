@@ -56,6 +56,8 @@ namespace CryptoSpot.Application.Services
             try
             {
                 var createdOrder = await _orderRepository.AddAsync(order);
+                // 保存到数据库
+                await _unitOfWork.SaveChangesAsync();
                 await _unitOfWork.CommitTransactionAsync(transaction);
                 
                 _logger.LogInformation("订单提交成功: {OrderId}, 用户: {UserId}", order.OrderId, userId);
@@ -91,6 +93,8 @@ namespace CryptoSpot.Application.Services
                 order.Status = OrderStatus.Cancelled;
                 order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 await _orderRepository.UpdateAsync(order);
+                // 保存取消状态
+                await _unitOfWork.SaveChangesAsync();
                 await _unitOfWork.CommitTransactionAsync(transaction);
                 
                 _logger.LogInformation("订单取消成功: {OrderId}", order.OrderId);

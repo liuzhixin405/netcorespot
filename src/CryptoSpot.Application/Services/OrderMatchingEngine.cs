@@ -357,8 +357,28 @@ namespace CryptoSpot.Application.Services
                 if (trade != null)
                 {
                     trades.Add(trade);
+
+                    // 增量更新买/卖双方订单
+                    if (marketOrder.Side == OrderSide.Buy)
+                    {
+                        await _orderService.UpdateOrderStatusAsync(marketOrder.Id, marketOrder.Status, matchQuantity, matchPrice);
+                        await _orderService.UpdateOrderStatusAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
+                    }
+                    else
+                    {
+                        await _orderService.UpdateOrderStatusAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
+                        await _orderService.UpdateOrderStatusAsync(marketOrder.Id, marketOrder.Status, matchQuantity, matchPrice);
+                    }
+
                     remainingQuantity -= matchQuantity;
                 }
+            }
+
+            // 市价单若未完全成交，直接取消（也可选择 Rejected）
+            if (remainingQuantity > 0)
+            {
+                _logger.LogWarning("市价单未完全成交，剩余数量={Remaining}，订单将被取消: OrderId={OrderId}", remainingQuantity, marketOrder.OrderId);
+                await _orderService.UpdateOrderStatusAsync(marketOrder.Id, OrderStatus.Cancelled);
             }
 
             return trades;
@@ -389,7 +409,7 @@ namespace CryptoSpot.Application.Services
                 
             _logger.LogDebug("找到 {Count} 个可匹配订单", matchableOrders.Count());
 
-            var remainingQuantity = limitOrder.Quantity;
+            var remainingQuantity = limitOrder.RemainingQuantity; // 使用当前剩余(已可能被部分成交)
 
             foreach (var oppositeOrder in matchableOrders)
             {
@@ -404,10 +424,23 @@ namespace CryptoSpot.Application.Services
                 if (trade != null)
                 {
                     trades.Add(trade);
+
+                    if (limitOrder.Side == OrderSide.Buy)
+                    {
+                        await _orderService.UpdateOrderStatusAsync(limitOrder.Id, limitOrder.Status, matchQuantity, matchPrice);
+                        await _orderService.UpdateOrderStatusAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
+                    }
+                    else
+                    {
+                        await _orderService.UpdateOrderStatusAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
+                        await _orderService.UpdateOrderStatusAsync(limitOrder.Id, limitOrder.Status, matchQuantity, matchPrice);
+                    }
+
                     remainingQuantity -= matchQuantity;
                 }
             }
 
+            // 限价单剩余部分保持 Active (由前面 CreateOrder 已设 Active)；若完全成交由增量更新内部已自动变为 Filled
             return trades;
         }
 
@@ -445,23 +478,15 @@ namespace CryptoSpot.Application.Services
 
         private async Task UpdateOrderStatusAfterMatch(Order order, List<Trade> trades)
         {
-            // 交易服务已处理订单成交量与状态，这里只刷新最新状态(从仓储再取或根据现有FilledQuantity判断)
+            // 现在增量在匹配循环里已处理；这里只在完全无成交情况下保持状态或激活
             try
             {
-                if (order.FilledQuantity >= order.Quantity)
+                if (!trades.Any())
                 {
-                    if (order.Status != OrderStatus.Filled)
-                        await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Filled, order.FilledQuantity);
-                }
-                else if (order.FilledQuantity > 0)
-                {
-                    if (order.Status != OrderStatus.PartiallyFilled)
-                        await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.PartiallyFilled, order.FilledQuantity);
-                }
-                else
-                {
-                    if (order.Status != OrderStatus.Pending)
-                        await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Pending, order.FilledQuantity);
+                    if (order.Type == OrderType.Limit && order.Status == OrderStatus.Pending)
+                    {
+                        await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Active);
+                    }
                 }
             }
             catch (Exception ex)

@@ -275,7 +275,7 @@ namespace CryptoSpot.API.Services
 
                 if (tradingPairId > 0 && k.IsClosed && klineService != null)
                 {
-                    // 同样为 K 线持久化创建独立作用域
+                    _logger.LogDebug("准备持久化K线 {Symbol} {Interval} open={Open} tpId={TpId}", k.Symbol, interval, k.OpenTime, tradingPairId);
                     var symbol = k.Symbol;
                     var intervalCopy = interval;
                     var entityCopy = new KLineData
@@ -298,6 +298,7 @@ namespace CryptoSpot.API.Services
                             using var persistScope = _scopeFactory.CreateScope();
                             var scopedKLineService = persistScope.ServiceProvider.GetRequiredService<IKLineDataService>();
                             await scopedKLineService.AddOrUpdateKLineDataAsync(entityCopy);
+                            _logger.LogDebug("已持久化K线 {Symbol} {Interval} open={Open}", symbol, intervalCopy, entityCopy.OpenTime);
                         }
                         catch (Exception ex)
                         {

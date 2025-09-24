@@ -46,25 +46,32 @@ export interface TradingPair {
 
 // 交易相关类型
 export interface Order {
-  id: string;
+  id: number;            // 内部数据库主键
+  orderId?: string;      // 业务订单号（可选）
   symbol: string;
   side: 'buy' | 'sell';
   type: 'limit' | 'market';
   quantity: number;
   price?: number;
-  status: 'pending' | 'filled' | 'cancelled' | 'partial';
+  filledQuantity?: number;
+  remainingQuantity?: number;
+  status: 'pending' | 'active' | 'partial' | 'filled' | 'cancelled';
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
+  averagePrice?: number; // 预留
 }
 
 export interface Trade {
-  id: string;
+  id: number;
+  tradeId?: string;
   symbol: string;
-  side: 'buy' | 'sell';
   quantity: number;
   price: number;
-  fee: number;
-  createdAt: string;
+  fee?: number;
+  feeAsset?: string;
+  totalValue?: number;
+  executedAt: string;
+  side?: 'buy' | 'sell'; // 若后端后续补充
 }
 
 export interface Asset {
@@ -72,7 +79,7 @@ export interface Asset {
   available: number;
   frozen: number;
   total: number;
-  usdtValue: number;
+  usdtValue?: number; // 可选，本地根据价格计算
 }
 
 // K线图相关类型

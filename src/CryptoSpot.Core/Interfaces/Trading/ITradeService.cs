@@ -38,6 +38,11 @@ namespace CryptoSpot.Core.Interfaces.Trading
         Task<IEnumerable<Trade>> GetTradesByOrderIdAsync(int orderId);
         
         /// <summary>
+        /// 新增别名方法，方便上层调用
+        /// </summary>
+        Task<IEnumerable<Trade>> GetOrderTradesAsync(int orderId) => GetTradesByOrderIdAsync(orderId);
+        
+        /// <summary>
         /// 获取交易统计
         /// </summary>
         Task<decimal> GetTradingVolumeAsync(string symbol, TimeSpan timeRange);

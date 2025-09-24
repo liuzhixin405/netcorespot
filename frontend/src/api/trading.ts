@@ -46,32 +46,54 @@ export class TradingApi extends BaseApi {
     });
   }
 
-  // 提交交易订单
+  // 提交交易订单 (前端已将 side/type 转为 PascalCase 以兼容后端枚举)
   async submitOrder(orderData: TradeFormData): Promise<Order> {
     return this.post<Order>('/trading/orders', orderData);
   }
 
-  // 获取用户当前委托
-  async getCurrentOrders(symbol?: string): Promise<Order[]> {
+  // 获取用户当前委托(开放/部分成交)
+  async getOpenOrders(symbol?: string): Promise<Order[]> {
     const params = symbol ? { symbol } : {};
-    return this.get<Order[]>('/trading/orders/current', { params });
+    return this.get<Order[]>('/trading/open-orders', { params });
   }
 
-  // 获取用户历史委托
-  async getOrderHistory(symbol?: string, limit: number = 50): Promise<Order[]> {
-    const params = symbol ? { symbol, limit } : { limit };
-    return this.get<Order[]>('/trading/orders/history', { params });
+  // 获取全部订单（可选过滤symbol）
+  async getAllOrders(symbol?: string): Promise<Order[]> {
+    const params = symbol ? { symbol } : {};
+    return this.get<Order[]>('/trading/orders', { params });
+  }
+
+  // 获取指定订单
+  async getOrder(id: number): Promise<Order> {
+    return this.get<Order>(`/trading/orders/${id}`);
+  }
+
+  // 获取订单成交明细
+  async getOrderTrades(id: number): Promise<Trade[]> {
+    return this.get<Trade[]>(`/trading/orders/${id}/trades`);
   }
 
   // 取消订单
-  async cancelOrder(orderId: string): Promise<void> {
-    return this.delete<void>(`/trading/orders/${orderId}`);
+  async cancelOrder(orderId: number): Promise<any> {
+    return this.delete(`/trading/orders/${orderId}`);
   }
 
-  // 获取用户成交记录
-  async getTradeHistory(symbol?: string, limit: number = 50): Promise<Trade[]> {
-    const params = symbol ? { symbol, limit } : { limit };
-    return this.get<Trade[]>('/trading/trades/history', { params });
+  // 批量取消
+  async cancelAllOrders(symbol?: string): Promise<any> {
+    const params = symbol ? { symbol } : {};
+    return this.delete('/trading/orders', { params });
+  }
+
+  // 用户成交记录
+  async getUserTrades(symbol?: string): Promise<Trade[]> {
+    const params = symbol ? { symbol } : {};
+    return this.get<Trade[]>('/trading/trades', { params });
+  }
+
+  // 获取历史订单（已成交或已取消）
+  async getOrderHistory(symbol?: string): Promise<Order[]> {
+    const params = symbol ? { symbol } : {};
+    return this.get<Order[]>('/trading/order-history', { params });
   }
 
   // 获取用户资产

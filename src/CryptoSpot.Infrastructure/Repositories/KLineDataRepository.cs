@@ -73,33 +73,37 @@ namespace CryptoSpot.Infrastructure.Repositories
 
         public async Task<int> SaveKLineDataBatchAsync(IEnumerable<KLineData> klineDataList)
         {
-            var klineDataArray = klineDataList.ToArray();
-            
-            // 批量插入新数据
-            await _dbSet.AddRangeAsync(klineDataArray);
-            
-            // 对于已存在的数据，更新价格信息
-            foreach (var klineData in klineDataArray)
+            var list = klineDataList.ToList();
+            if (!list.Any()) return 0;
+            var pairIds = list.Select(k => k.TradingPairId).Distinct().ToArray();
+            var timeFrames = list.Select(k => k.TimeFrame).Distinct().ToArray();
+            var openTimes = list.Select(k => k.OpenTime).Distinct().ToArray();
+
+            // 预取已存在记录，减少循环内查询
+            var existingDict = await _dbSet
+                .Where(k => pairIds.Contains(k.TradingPairId) && timeFrames.Contains(k.TimeFrame) && openTimes.Contains(k.OpenTime))
+                .ToDictionaryAsync(k => (k.TradingPairId, k.TimeFrame, k.OpenTime));
+
+            foreach (var item in list)
             {
-                var existing = await _dbSet
-                    .FirstOrDefaultAsync(k => k.TradingPairId == klineData.TradingPairId && 
-                                            k.TimeFrame == klineData.TimeFrame && 
-                                            k.OpenTime == klineData.OpenTime);
-                
-                if (existing != null)
+                var key = (item.TradingPairId, item.TimeFrame, item.OpenTime);
+                if (existingDict.TryGetValue(key, out var exist))
                 {
-                    existing.Open = klineData.Open;
-                    existing.High = klineData.High;
-                    existing.Low = klineData.Low;
-                    existing.Close = klineData.Close;
-                    existing.Volume = klineData.Volume;
-                    existing.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                    
-                    _dbSet.Update(existing);
+                    exist.Open = item.Open;
+                    exist.High = item.High;
+                    exist.Low = item.Low;
+                    exist.Close = item.Close;
+                    exist.Volume = item.Volume;
+                    exist.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    _dbSet.Update(exist);
+                }
+                else
+                {
+                    await _dbSet.AddAsync(item);
                 }
             }
-            
-            return klineDataArray.Length;
+            await _context.SaveChangesAsync();
+            return list.Count;
         }
 
         public async Task<bool> UpsertKLineDataAsync(KLineData klineData)
@@ -108,7 +112,6 @@ namespace CryptoSpot.Infrastructure.Repositories
                 .FirstOrDefaultAsync(k => k.TradingPairId == klineData.TradingPairId && 
                                         k.TimeFrame == klineData.TimeFrame && 
                                         k.OpenTime == klineData.OpenTime);
-            
             if (existing != null)
             {
                 existing.Open = klineData.Open;
@@ -123,7 +126,7 @@ namespace CryptoSpot.Infrastructure.Repositories
             {
                 await _dbSet.AddAsync(klineData);
             }
-            
+            await _context.SaveChangesAsync();
             return true;
         }
 

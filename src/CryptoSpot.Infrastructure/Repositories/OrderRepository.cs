@@ -20,7 +20,9 @@ namespace CryptoSpot.Infrastructure.Repositories
 
         public async Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null)
         {
-            IQueryable<Order> query = _dbSet.Where(o => o.Status == OrderStatus.Active);
+            IQueryable<Order> query = _dbSet
+                .Include(o => o.TradingPair)
+                .Where(o => o.Status == OrderStatus.Active);
             if (!string.IsNullOrEmpty(symbol))
             {
                 var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -33,7 +35,9 @@ namespace CryptoSpot.Infrastructure.Repositories
 
         public async Task<IEnumerable<Order>> GetUserOrdersAsync(int userId, string? symbol = null, OrderStatus? status = null, int limit = 100)
         {
-            var query = _dbSet.Where(o => o.UserId == userId);
+            var query = _dbSet
+                .Include(o => o.TradingPair)
+                .Where(o => o.UserId == userId);
             if (!string.IsNullOrEmpty(symbol))
             {
                 var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -52,6 +56,7 @@ namespace CryptoSpot.Infrastructure.Repositories
         public async Task<Order?> GetOrderByOrderIdStringAsync(string orderIdString)
         {
             return await _dbSet
+                .Include(o => o.TradingPair)
                 .FirstOrDefaultAsync(o => o.OrderId == orderIdString);
         }
 
@@ -67,7 +72,9 @@ namespace CryptoSpot.Infrastructure.Repositories
 
         public async Task<IEnumerable<Order>> GetOrdersByUserIdAsync(int userId, string? symbol = null, OrderStatus? status = null)
         {
-            var query = _dbSet.Where(o => o.UserId == userId);
+            var query = _dbSet
+                .Include(o => o.TradingPair)
+                .Where(o => o.UserId == userId);
             if (!string.IsNullOrEmpty(symbol))
             {
                 var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -156,7 +163,9 @@ namespace CryptoSpot.Infrastructure.Repositories
 
         public async Task<IEnumerable<Order>> GetUserOrderHistoryAsync(int userId, string? symbol = null, int limit = 100)
         {
-            var query = _dbSet.Where(o => o.UserId == userId);
+            var query = _dbSet
+                .Include(o => o.TradingPair)
+                .Where(o => o.UserId == userId);
             if (!string.IsNullOrEmpty(symbol))
             {
                 var tradingPairId = await ResolveTradingPairIdAsync(symbol);

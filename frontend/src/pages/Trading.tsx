@@ -10,7 +10,8 @@ import AccountTabs from '../components/trading/AccountTabs';
 
 const TradingContainer = styled.div`
   display: grid;
-  grid-template-rows: 60px 1fr;
+  /* 移除原先顶部 60px Header 行, 让内容直接紧贴全局导航栏 */
+  grid-template-rows: 1fr;
   height: 100%;
   background: #0d1117;
   color: #f0f6fc;
@@ -19,16 +20,22 @@ const TradingContainer = styled.div`
 
 const MainContent = styled.div`
   display: grid;
-  grid-template-columns: 1fr 320px;
+  /* 调整：使用固定 260px 右侧栏 + 自适应左侧 (较原320缩小，避免表单被压缩到只剩按钮) */
+  grid-template-columns: 1fr 260px;
   gap: 1px;
   background: #0d1117;
   overflow: hidden;
   min-height: 0;
+  @media (max-width: 1300px) {
+    /* 窄屏再进一步压缩，但保持>=230 保障输入框显示 */
+    grid-template-columns: 1fr 230px;
+  }
 `;
 
 const LeftPanel = styled.div`
   display: grid;
-  grid-template-rows: 1fr 200px;
+  /* 新增第一行用于紧凑 Header, 其后是图表与账户区域 */
+  grid-template-rows: 56px 1fr 200px;
   gap: 1px;
   background: #0d1117;
   min-height: 0;
@@ -36,10 +43,12 @@ const LeftPanel = styled.div`
 
 const RightPanel = styled.div`
   display: grid;
-  grid-template-rows: 300px 80px 1fr;
+  /* 原: 300px 80px 1fr -> 调整为 1fr 180px 240px 让订单簿自动撑满上方，提高其相对位置 */
+  grid-template-rows: 1fr 180px 240px;
   gap: 1px;
   background: #0d1117;
   min-height: 0;
+  min-width: 230px; /* 确保表单最小展示宽度 */
 `;
 
 const ChartSection = styled.div`
@@ -95,15 +104,15 @@ const Trading: React.FC = () => {
 
   return (
     <TradingContainer>
-      <TradingHeader 
-        symbol={selectedSymbol}
-        onSymbolChange={setSelectedSymbol}
-        timeframe={timeframe}
-        onTimeframeChange={setTimeframe}
-      />
-      
+      {/* 顶部Header已移除并内嵌到左侧面板 */}
       <MainContent>
         <LeftPanel>
+          <div style={{ background:'#161b22', border:'1px solid #30363d', overflow:'hidden' }}>
+            <TradingHeader 
+              symbol={selectedSymbol}
+              onSymbolChange={setSelectedSymbol}
+            />
+          </div>
           <ChartSection>
             <ProfessionalKLineChart 
               symbol={selectedSymbol} 
@@ -111,12 +120,10 @@ const Trading: React.FC = () => {
               onTimeframeChange={setTimeframe}
             />
           </ChartSection>
-          
           <BottomSection>
             <AccountTabs />
           </BottomSection>
         </LeftPanel>
-        
         <RightPanel>
           <TopRightSection>
             <OrderBook symbol={selectedSymbol} />

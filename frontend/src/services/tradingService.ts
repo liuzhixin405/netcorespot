@@ -134,13 +134,36 @@ export class TradingService {
     }
   }
 
-  // 获取用户订单
+  // 获取用户订单 (全部)
   async getUserOrders(symbol?: string): Promise<Order[]> {
     try {
-      return await tradingApi.getCurrentOrders(symbol);
+      const raw = await tradingApi.getAllOrders(symbol);
+      return raw.map((o: any) => this.mapOrder(o));
     } catch (error) {
       console.error('获取用户订单失败:', error);
       throw error;
+    }
+  }
+
+  // 获取未完成订单
+  async getOpenOrders(symbol?: string): Promise<Order[]> {
+    try {
+      const raw = await tradingApi.getOpenOrders(symbol);
+      return raw.map((o: any) => this.mapOrder(o));
+    } catch (e) {
+      console.error('获取未完成订单失败:', e);
+      throw e;
+    }
+  }
+
+  // 获取历史订单 (已成交/已取消)
+  async getOrderHistory(symbol?: string): Promise<Order[]> {
+    try {
+      const raw = await tradingApi.getOrderHistory(symbol);
+      return raw.map((o: any) => this.mapOrder(o));
+    } catch (e) {
+      console.error('获取历史订单失败:', e);
+      throw e;
     }
   }
 
@@ -157,11 +180,20 @@ export class TradingService {
   // 获取用户成交记录
   async getUserTrades(symbol?: string): Promise<Trade[]> {
     try {
-      return await tradingApi.getTradeHistory(symbol);
+      const raw = await tradingApi.getUserTrades(symbol);
+      return raw.map((t: any) => this.mapTrade(t));
     } catch (error) {
       console.error('获取用户成交记录失败:', error);
       throw error;
     }
+  }
+
+  async cancelOrder(orderId: number) {
+    return tradingApi.cancelOrder(orderId);
+  }
+
+  async cancelAllOrders(symbol?: string) {
+    return tradingApi.cancelAllOrders(symbol);
   }
 
   // 验证交易表单
@@ -203,6 +235,55 @@ export class TradingService {
       { value: '4h', label: '4小时' },
       { value: '1d', label: '1天' },
     ];
+  }
+
+  private normalizeStatus(raw: string): Order['status'] {
+    const map: Record<string, Order['status']> = {
+      Pending: 'pending',
+      Active: 'active',
+      PartiallyFilled: 'partial',
+      Filled: 'filled',
+      Cancelled: 'cancelled',
+      pending: 'pending',
+      active: 'active',
+      partial: 'partial',
+      filled: 'filled',
+      cancelled: 'cancelled'
+    };
+    return map[raw] || 'pending';
+  }
+
+  private mapOrder(o: any): Order {
+    return {
+      id: o.id,
+      orderId: o.orderId,
+      symbol: o.symbol,
+      side: (o.side || '').toLowerCase() === 'sell' ? 'sell' : 'buy',
+      type: (o.type || '').toLowerCase() === 'market' ? 'market' : 'limit',
+      quantity: o.quantity,
+      price: o.price,
+      filledQuantity: o.filledQuantity,
+      remainingQuantity: o.remainingQuantity,
+      status: this.normalizeStatus(o.status),
+      createdAt: o.createdAt,
+      updatedAt: o.updatedAt,
+      averagePrice: o.averagePrice
+    };
+  }
+
+  private mapTrade(t: any): Trade {
+    return {
+      id: t.id,
+      tradeId: t.tradeId,
+      symbol: t.symbol,
+      quantity: t.quantity,
+      price: t.price,
+      fee: t.fee,
+      feeAsset: t.feeAsset,
+      totalValue: t.totalValue,
+      executedAt: t.executedAt,
+      side: (t.side || '').toLowerCase() === 'sell' ? 'sell' : (t.side ? 'buy' : undefined)
+    };
   }
 
   // 所有模拟数据方法已清除

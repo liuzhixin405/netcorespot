@@ -236,6 +236,98 @@ namespace CryptoSpot.API.Controllers
             }
         }
 
+        [HttpGet("open-orders")]
+        public async Task<IActionResult> GetOpenOrders([FromQuery] string? symbol = null)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (userId == null)
+                {
+                    return Unauthorized(new
+                    {
+                        success = false,
+                        message = "Unauthorized"
+                    });
+                }
+
+                var orders = await _tradingService.GetUserOrdersAsync(userId.Value, symbol);
+                var openStatuses = new[] { OrderStatus.Pending, OrderStatus.Active, OrderStatus.PartiallyFilled };
+                var openOrders = orders.Where(o => openStatuses.Contains(o.Status));
+
+                return Ok(new
+                {
+                    success = true,
+                    data = openOrders.Select(o => new
+                    {
+                        id = o.Id,
+                        orderId = o.OrderId,
+                        symbol = o.TradingPair.Symbol,
+                        side = o.Side.ToString(),
+                        type = o.Type.ToString(),
+                        quantity = o.Quantity,
+                        price = o.Price,
+                        filledQuantity = o.FilledQuantity,
+                        remainingQuantity = o.RemainingQuantity,
+                        averagePrice = o.AveragePrice,
+                        status = o.Status.ToString(),
+                        createdAt = o.CreatedAt,
+                        updatedAt = o.UpdatedAt
+                    })
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting open orders");
+                return StatusCode(500, new
+                {
+                    success = false,
+                    message = "Internal server error"
+                });
+            }
+        }
+
+        [HttpGet("order-history")]
+        public async Task<IActionResult> GetOrderHistory([FromQuery] string? symbol = null)
+        {
+            try
+            {
+                var userId = GetCurrentUserId();
+                if (userId == null)
+                {
+                    return Unauthorized(new { success = false, message = "Unauthorized" });
+                }
+                var orders = await _tradingService.GetUserOrdersAsync(userId.Value, symbol);
+                var historyStatuses = new[] { OrderStatus.Filled, OrderStatus.Cancelled };
+                var historyOrders = orders.Where(o => historyStatuses.Contains(o.Status));
+                return Ok(new
+                {
+                    success = true,
+                    data = historyOrders.Select(o => new
+                    {
+                        id = o.Id,
+                        orderId = o.OrderId,
+                        symbol = o.TradingPair.Symbol,
+                        side = o.Side.ToString(),
+                        type = o.Type.ToString(),
+                        quantity = o.Quantity,
+                        price = o.Price,
+                        filledQuantity = o.FilledQuantity,
+                        remainingQuantity = o.RemainingQuantity,
+                        averagePrice = o.AveragePrice,
+                        status = o.Status.ToString(),
+                        createdAt = o.CreatedAt,
+                        updatedAt = o.UpdatedAt
+                    })
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting order history");
+                return StatusCode(500, new { success = false, message = "Internal server error" });
+            }
+        }
+
         [HttpGet("trades")]
         public async Task<IActionResult> GetUserTrades([FromQuery] string? symbol = null)
         {
@@ -305,6 +397,23 @@ namespace CryptoSpot.API.Controllers
                     });
                 }
 
+                // 确保导航属性可用（可能未跟踪加载）
+                var symbolValue = order.TradingPair?.Symbol ?? request.Symbol;
+                var priceValue = order.Price;
+                if (priceValue == null && order.Type == OrderType.Market)
+                {
+                    // 市价单：使用当前交易对最新价格（如果有）
+                    try
+                    {
+                        var pair = await _tradingService.GetTradingPairAsync(symbolValue);
+                        if (pair != null && pair.Price > 0)
+                        {
+                            priceValue = pair.Price;
+                        }
+                    }
+                    catch { }
+                }
+
                 return Ok(new
                 {
                     success = true,
@@ -312,11 +421,14 @@ namespace CryptoSpot.API.Controllers
                     {
                         id = order.Id,
                         orderId = order.OrderId,
-                        symbol = order.TradingPair.Symbol,
+                        symbol = symbolValue,
                         side = order.Side.ToString(),
                         type = order.Type.ToString(),
                         quantity = order.Quantity,
-                        price = order.Price,
+                        price = priceValue,
+                        filledQuantity = order.FilledQuantity,
+                        remainingQuantity = order.RemainingQuantity,
+                        averagePrice = order.AveragePrice,
                         status = order.Status.ToString(),
                         createdAt = order.CreatedAt
                     }
