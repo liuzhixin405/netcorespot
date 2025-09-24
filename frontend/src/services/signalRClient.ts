@@ -47,27 +47,29 @@ export class SignalRClient {
       this.connection = new signalR.HubConnectionBuilder()
         .withUrl(signalRUrl, {
           accessTokenFactory: () => token || '',
-          transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.ServerSentEvents,
-          skipNegotiation: false,
+          transport: signalR.HttpTransportType.WebSockets, // 强制只用 WebSocket
+          skipNegotiation: true // 跳过协商
         })
         .withHubProtocol(new signalR.JsonHubProtocol())
         .withAutomaticReconnect()
-        .configureLogging(signalR.LogLevel.Error)
+        .configureLogging(signalR.LogLevel.Information)
         .build();
 
       // 设置连接事件
       this.connection.onclose((error?: Error) => {
+        console.warn('[SignalR] WebSocket closed', error);
         this.isConnecting = false;
       });
 
       this.connection.onreconnecting((error?: Error) => {
-        // 正在重连
+        console.warn('[SignalR] Reconnecting WebSocket...', error);
       });
 
       this.connection.onreconnected(async (connectionId?: string) => {
+        console.log('[SignalR] Reconnected via WebSocket, id=', connectionId);
         this.reconnectAttempts = 0;
         try {
-          // 重连后需要重新加入所有组（SignalR会丢失之前的Group membership）
+          // 重连后重新订阅
           if (this.subscribedPriceSymbols.length) {
             await this.connection!.invoke('SubscribePriceData', this.subscribedPriceSymbols);
           }
@@ -78,11 +80,12 @@ export class SignalRClient {
             await this.connection!.invoke('SubscribeOrderBook', ob.symbol, ob.depth ?? 20);
           }
         } catch (e) {
-          // 忽略重订阅异常
+          console.warn('[SignalR] Re-subscribe after reconnect failed', e);
         }
       });
 
       await this.connection.start();
+      console.log('[SignalR] Connected via WebSocket');
       this.reconnectAttempts = 0;
       this.isConnecting = false;
       
