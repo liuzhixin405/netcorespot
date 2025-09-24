@@ -227,7 +227,7 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
   }>({ visible: false, x: 0, y: 0, data: null });
   
   // 缩放和平移状态
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomLevel, setZoomLevel] = useState(0.5); // 默认从 1 调整为 0.5，初始显示缩小一倍
   const [panOffset, setPanOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, panStart: 0 });
@@ -632,7 +632,7 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
             </span>
             <button
               onClick={() => {
-                setZoomLevel(1);
+                setZoomLevel(0.5); // 与新的默认缩放保持一致
                 setPanOffset(0);
               }}
               style={{

@@ -34,10 +34,31 @@ namespace CryptoSpot.API.Hubs
             {
                 var groupName = $"kline_{symbol}_{interval}";
                 await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-                
-                // 通知客户端订阅成功（历史数据通过API获取）
                 await Clients.Caller.SendAsync("KLineSubscribed", symbol, interval);
-                
+
+                // 新增: 立即推送最近一条历史/最新K线，避免订阅后长时间无数据
+                var latest = await _klineDataService.GetLatestKLineDataAsync(symbol, interval);
+                if (latest != null)
+                {
+                    var initial = new
+                    {
+                        symbol,
+                        interval,
+                        timestamp = latest.OpenTime,
+                        open = latest.Open,
+                        high = latest.High,
+                        low = latest.Low,
+                        close = latest.Close,
+                        volume = latest.Volume,
+                        isNewKLine = false
+                    };
+                    await Clients.Caller.SendAsync("KLineUpdate", initial, false);
+                    _logger.LogDebug("Initial KLine snapshot sent to {ConnId} for {Symbol} {Interval}", Context.ConnectionId, symbol, interval);
+                }
+                else
+                {
+                    _logger.LogDebug("No existing KLine found for initial push {Symbol} {Interval}", symbol, interval);
+                }
                 _logger.LogDebug($"Client {Context.ConnectionId} subscribed to {symbol} {interval} K-line real-time updates");
             }
             catch (Exception ex)

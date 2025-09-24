@@ -55,14 +55,16 @@ namespace CryptoSpot.Infrastructure.Services
             catch { return false; }
         }
         private string GetRedisKey(string symbol) => RedisKeyPrefix + symbol.ToUpper();
-
-        private class PersistModel
+        
+        [MessagePack.MessagePackObject(true)]
+        public class PersistModel
         {
             public long Ts { get; set; }
             public List<PriceLevel> Bids { get; set; } = new();
             public List<PriceLevel> Asks { get; set; } = new();
         }
-        private class PriceLevel
+        [MessagePack.MessagePackObject(true)]
+        public class PriceLevel
         {
             public decimal P { get; set; }
             public decimal Q { get; set; }

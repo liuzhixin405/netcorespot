@@ -68,6 +68,7 @@ namespace CryptoSpot.API.Services
                         await provider.SubscribeTradesAsync(symbol, stoppingToken);
                         foreach (var itv in _klineIntervals)
                         {
+                            // 统一调用 SubscribeKLineAsync（内部现已直接使用 mark-price-candleX 频道）
                             await provider.SubscribeKLineAsync(symbol, itv, stoppingToken);
                         }
                     }
@@ -157,14 +158,27 @@ namespace CryptoSpot.API.Services
 
                 if (priceService != null)
                 {
-                    _ = priceService.UpdateTradingPairPriceAsync(t.Symbol, t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h)
-                        .ContinueWith(task =>
+                    // 原逻辑: 复用当前 scope 的 priceService 并 ContinueWith -> scope 可能已在任务执行时被释放
+                    // 新逻辑: fire-and-forget 任务内部创建独立作用域, 只捕获原始值, 不捕获 scoped 实例
+                    var symbol = t.Symbol;
+                    var last = t.Last;
+                    var change = t.ChangePercent;
+                    var vol = t.Volume24h;
+                    var high = t.High24h;
+                    var low = t.Low24h;
+                    _ = Task.Run(async () =>
+                    {
+                        try
                         {
-                            if (task.IsFaulted)
-                            {
-                                _logger.LogWarning(task.Exception, "价格持久化失败但已继续推送 {Symbol}", t.Symbol);
-                            }
-                        }, TaskScheduler.Default);
+                            using var persistScope = _scopeFactory.CreateScope();
+                            var scopedPriceService = persistScope.ServiceProvider.GetRequiredService<IPriceDataService>();
+                            await scopedPriceService.UpdateTradingPairPriceAsync(symbol, last, change, vol, high, low);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "价格持久化任务失败 {Symbol}", symbol);
+                        }
+                    }, CancellationToken.None);
                 }
 
                 await push.PushPriceDataAsync(t.Symbol, priceData);
@@ -261,13 +275,35 @@ namespace CryptoSpot.API.Services
 
                 if (tradingPairId > 0 && k.IsClosed && klineService != null)
                 {
-                    _ = klineService.AddOrUpdateKLineDataAsync(klineEntity).ContinueWith(task =>
+                    // 同样为 K 线持久化创建独立作用域
+                    var symbol = k.Symbol;
+                    var intervalCopy = interval;
+                    var entityCopy = new KLineData
                     {
-                        if (task.IsFaulted)
+                        TradingPairId = klineEntity.TradingPairId,
+                        TimeFrame = klineEntity.TimeFrame,
+                        OpenTime = klineEntity.OpenTime,
+                        CloseTime = klineEntity.CloseTime,
+                        Open = klineEntity.Open,
+                        High = klineEntity.High,
+                        Low = klineEntity.Low,
+                        Close = klineEntity.Close,
+                        Volume = klineEntity.Volume
+                    };
+
+                    _ = Task.Run(async () =>
+                    {
+                        try
                         {
-                            _logger.LogWarning(task.Exception, "K线持久化失败但已继续推送 {Symbol} {Interval} @ {Open}", k.Symbol, interval, k.OpenTime);
+                            using var persistScope = _scopeFactory.CreateScope();
+                            var scopedKLineService = persistScope.ServiceProvider.GetRequiredService<IKLineDataService>();
+                            await scopedKLineService.AddOrUpdateKLineDataAsync(entityCopy);
                         }
-                    }, TaskScheduler.Default);
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "K线持久化任务失败 {Symbol} {Interval} @ {Open}", symbol, intervalCopy, entityCopy.OpenTime);
+                        }
+                    }, CancellationToken.None);
                 }
 
                 await push.PushKLineDataAsync(k.Symbol, interval, klineEntity, k.IsClosed);
