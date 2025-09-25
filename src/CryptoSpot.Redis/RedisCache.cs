@@ -1,40 +1,52 @@
-﻿using CSRedis;
-using Common.Redis.Extensions.Serializer;
+﻿using CryptoSpot.Redis.Configuration;
+using CryptoSpot.Redis.Serializer;
 using Microsoft.Extensions.Logging;
+using Newtonsoft.Json;
 using StackExchange.Redis;
 using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Common.Redis.Extensions
+namespace CryptoSpot.Redis
 {
     /// <summary>
-    /// 基于CsRedis的实现
+    /// RedisClient
     /// </summary>
-    public class CsRedisCache : IRedisCache
-    { 
-        private readonly ILogger<CsRedisCache> _logger;
+    public class RedisCache : IRedisCache
+    {
+        private readonly IConnectionMultiplexer _connection;
+        private readonly RedisConfiguration configuration;
+        private readonly ILogger<RedisCache> _logger;
+
         /// <summary>
         /// 序列化器
         /// </summary>
         public ISerializer Serializer { get; }
 
         /// <summary>
-        /// 获取IConnectionMultiplexer对象,对于csredis则是null
+        /// 获取IConnectionMultiplexer对象
         /// </summary>
-        public IConnectionMultiplexer Connection { get; }
+        public IConnectionMultiplexer Connection { get { return _connection; } }
+
+        /// <summary>
+        /// 获取database
+        /// </summary>
+        public IDatabase Database => _connection.GetDatabase(configuration.Database);
 
         /// <summary>
         /// 序列化器
         /// </summary> 
         /// <param name="logger"></param>
-        /// <param name="customSerializer">MsgPackSerializer/JsonSerializer/ProtobufSerializer/BsonSerializer</param>
-       public CsRedisCache(ILogger<CsRedisCache> logger, ISerializer customSerializer)
+        /// <param name="connection"></param>
+        /// <param name="config"></param>
+        /// <param name="serializer"></param>
+        public RedisCache(ILogger<RedisCache> logger, IConnectionMultiplexer connection, RedisConfiguration config, ISerializer serializer)
         {
-
-            Serializer = customSerializer ?? new Serializer.BsonSerializer();
+            configuration = config ?? throw new ArgumentNullException(nameof(config), "The configuration could not be null");
             _logger = logger;
+            _connection = connection;
+            Serializer = serializer ?? new Serializer.JsonSerializer(null);
         }
 
         /// <summary>
@@ -48,30 +60,36 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                byte[] valueBytes = RedisHelper.Get<byte[]>(key);
-
-                return null == valueBytes || 0 == valueBytes.Length ? default(T) : SerializerHelper.Deserialize<T>(valueBytes, Serializer, customSerializer);
-
+                var valueBytes = Database.StringGet(key);
+                return !valueBytes.HasValue ? default(T) : SerializerHelper.Deserialize<T>(valueBytes, Serializer, customSerializer);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning($"从redis读取{key}键值的数据出错，原因：{ex.Message}");
                 return default(T);
             }
+
         }
+
         /// <summary>
         /// 获取
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="key"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
         public async Task<T> GetAsync<T>(string key, ISerializer customSerializer = null)
         {
             try
             {
-                byte[] valueBytes = await RedisHelper.GetAsync<byte[]>(key);
-                return null == valueBytes || 0 == valueBytes.Length ? default(T) :   SerializerHelper.Deserialize<T>(valueBytes, Serializer, customSerializer);
+                var valueBytes = await Database.StringGetAsync(key);
+
+                if (!valueBytes.HasValue)
+                {
+                    return default(T);
+                }
+
+                return SerializerHelper.Deserialize<T>(valueBytes, Serializer, customSerializer);
             }
             catch (Exception ex)
             {
@@ -86,14 +104,14 @@ namespace Common.Redis.Extensions
         /// <typeparam name="T"></typeparam>
         /// <param name="key"></param>
         /// <param name="value"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
         public bool Add<T>(string key, T value, ISerializer customSerializer = null)
         {
             try
             {
                 var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
-                bool added = RedisHelper.Set(key, entryBytes);
+                bool added = Database.StringSet(key, entryBytes);
                 if (!added)
                 {
                     _logger.LogWarning($" redis添加{key}键值数据出错");
@@ -114,14 +132,75 @@ namespace Common.Redis.Extensions
         /// <typeparam name="T"></typeparam>
         /// <param name="key"></param>
         /// <param name="value"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
         public async Task<bool> AddAsync<T>(string key, T value, ISerializer customSerializer = null)
         {
             try
             {
+                //var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
+                //  var jsonString = JsonConvert.SerializeObject(value);
                 var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
-                bool added = await RedisHelper.SetAsync(key, entryBytes);
+                bool added = await Database.StringSetAsync(key, entryBytes);
+                if (!added)
+                {
+                    _logger.LogWarning($" redis添加{key}键值数据出错");
+                }
+
+                return added;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis添加{key}键值数据出错，原因：{ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 添加
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="key"></param>
+        /// <param name="value"></param>
+        /// <param name="expiresIn"></param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        /// <returns></returns>
+        public bool Add<T>(string key, T value, TimeSpan expiresIn, ISerializer customSerializer = null)
+        {
+            try
+            {
+                var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
+                bool added = Database.StringSet(key, entryBytes, expiresIn);
+                if (!added)
+                {
+                    _logger.LogWarning($" redis添加{key}键值数据出错");
+                }
+
+                return added;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis添加{key}键值数据出错，原因：{ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 添加
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="key"></param>
+        /// <param name="value"></param>
+        /// <param name="expiresAt"></param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        /// <returns></returns>
+        public bool Add<T>(string key, T value, DateTimeOffset expiresAt, ISerializer customSerializer = null)
+        {
+            try
+            {
+                var expiration = expiresAt.Subtract(DateTimeOffset.Now);
+                var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
+                bool added = Database.StringSet(key, entryBytes, expiration);
                 if (!added)
                 {
                     _logger.LogWarning($" redis添加{key}键值数据出错");
@@ -144,14 +223,14 @@ namespace Common.Redis.Extensions
         /// <param name="key"></param>
         /// <param name="value"></param>
         /// <param name="expiresIn"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
-        public bool Add<T>(string key, T value, TimeSpan expiresIn, ISerializer customSerializer = null)
+        public async Task<bool> AddAsync<T>(string key, T value, TimeSpan expiresIn, ISerializer customSerializer = null)
         {
             try
             {
                 var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
-                bool added = RedisHelper.Set(key, entryBytes, Convert.ToInt32(expiresIn.TotalSeconds));
+                bool added = await Database.StringSetAsync(key, entryBytes, expiresIn);
                 if (!added)
                 {
                     _logger.LogWarning($" redis添加{key}键值数据出错");
@@ -173,15 +252,15 @@ namespace Common.Redis.Extensions
         /// <param name="key"></param>
         /// <param name="value"></param>
         /// <param name="expiresAt"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
-        public bool Add<T>(string key, T value, DateTimeOffset expiresAt, ISerializer customSerializer = null)
+        public async Task<bool> AddAsync<T>(string key, T value, DateTimeOffset expiresAt, ISerializer customSerializer = null)
         {
             try
             {
-                int expireTimes = Convert.ToInt32(expiresAt.Subtract(DateTimeOffset.Now).TotalSeconds);
+                var expiration = expiresAt.Subtract(DateTimeOffset.Now);
                 var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
-                bool added = RedisHelper.Set(key, entryBytes, expireTimes);
+                bool added = await Database.StringSetAsync(key, entryBytes, expiration);
                 if (!added)
                 {
                     _logger.LogWarning($" redis添加{key}键值数据出错");
@@ -194,8 +273,8 @@ namespace Common.Redis.Extensions
                 _logger.LogWarning($" redis添加{key}键值数据出错，原因：{ex.Message}");
                 return false;
             }
-
         }
+
         /// <summary>
         /// 添加缓存数据
         /// </summary>
@@ -203,14 +282,15 @@ namespace Common.Redis.Extensions
         /// <param name="key">键</param>
         /// <param name="value">值</param>
         /// <param name="expiresSeconds">缓存超时时间，单位：秒</param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
         public bool Add<T>(string key, T value, Int32 expiresSeconds, ISerializer customSerializer = null)
         {
             try
             {
+                var expiration = DateTimeOffset.Now.AddSeconds(expiresSeconds).Subtract(DateTimeOffset.Now);
                 var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
-                bool added = RedisHelper.Set(key, entryBytes, expiresSeconds);
+                bool added = Database.StringSet(key, entryBytes, expiration);
                 if (!added)
                 {
                     _logger.LogWarning($" redis添加{key}键值数据出错");
@@ -224,69 +304,6 @@ namespace Common.Redis.Extensions
                 return false;
             }
         }
-
-        /// <summary>
-        /// 添加
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="key"></param>
-        /// <param name="value"></param>
-        /// <param name="expiresIn"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
-        /// <returns></returns>
-        public async Task<bool> AddAsync<T>(string key, T value, TimeSpan expiresIn, ISerializer customSerializer = null)
-        {
-            try
-            {
-                var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
-
-                bool added = await RedisHelper.SetAsync(key, entryBytes, Convert.ToInt32(expiresIn.TotalSeconds));
-                if (!added)
-                {
-                    _logger.LogWarning($" redis添加{key}键值数据出错");
-                }
-
-                return added;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($" redis添加{key}键值数据出错，原因：{ex.Message}");
-                return false;
-            }
-
-        }
-
-        /// <summary>
-        /// 添加
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="key"></param>
-        /// <param name="value"></param>
-        /// <param name="expiresAt"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
-        /// <returns></returns>
-        public async Task<bool> AddAsync<T>(string key, T value, DateTimeOffset expiresAt, ISerializer customSerializer = null)
-        {
-            try
-            {
-                int expireTimes = Convert.ToInt32(expiresAt.Subtract(DateTimeOffset.Now).TotalSeconds);
-                var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
-
-                bool added = await RedisHelper.SetAsync(key, entryBytes, expireTimes);
-                if (!added)
-                {
-                    _logger.LogWarning($" redis添加{key}键值数据出错");
-                }
-
-                return added;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($" redis添加{key}键值数据出错，原因：{ex.Message}");
-                return false;
-            }
-        }
-
         /// <summary>
         /// 是否存在
         /// </summary>
@@ -296,14 +313,13 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Exists(key);
+                return Database.KeyExists(key);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning($" redis获取{key}键值数据出错，原因：{ex.Message}");
                 return false;
             }
-
         }
 
         /// <summary>
@@ -315,14 +331,13 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return await RedisHelper.ExistsAsync(key);
+                return await Database.KeyExistsAsync(key);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning($" redis获取{key}键值数据出错，原因：{ex.Message}");
                 return false;
             }
-
         }
 
         /// <summary>
@@ -334,10 +349,10 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                bool deleted = RedisHelper.Del(key) > 0;
+                bool deleted = Database.KeyDelete(key);
                 if (!deleted)
                 {
-                    _logger.LogDebug($" redis删除{key}键值数据出错,键值不存在");
+                    _logger.LogDebug($" rediss删除{key}键值数据出错");
                 }
 
                 return deleted;
@@ -358,10 +373,10 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                bool deleted = await RedisHelper.DelAsync(key) > 0;
+                bool deleted = await Database.KeyDeleteAsync(key);
                 if (!deleted)
                 {
-                    _logger.LogDebug($" redis删除{key}键值数据出错,键值不存在");
+                    _logger.LogDebug($" rediss删除{key}键值数据出错");
                 }
 
                 return deleted;
@@ -373,51 +388,67 @@ namespace Common.Redis.Extensions
             }
         }
         /// <summary>
-        /// ListLeftPush
+        /// ListLeftPush 
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="key"></param>
         /// <param name="value"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
-        /// <returns></returns>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        /// <returns>返回list长度</returns>
         public long ListLeftPush<T>(string key, T value, ISerializer customSerializer = null) where T : class
         {
             try
             {
-                var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
-                return RedisHelper.LPush<byte[]>(key, entryBytes);
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+                if (value == null)
+                {
+                    throw new ArgumentNullException(nameof(value), "item cannot be null.");
+                }
+                var serializedItem = SerializerHelper.Serialize(value, Serializer, customSerializer);
+
+                return Database.ListLeftPush(key, serializedItem);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"redis ListLeftPush key:{key} Error，Exception：{ex.Message}");
+                _logger.LogWarning($"redis ListAddToLeft key:{key} Error，Exception：{ex.Message}");
                 return 0;
             }
-        }
 
+        }
         /// <summary>
         /// ListLeftPushAsync
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="key"></param>
         /// <param name="value"></param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
-        /// <returns></returns>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        /// <returns>返回list长度</returns>
         public async Task<long> ListLeftPushAsync<T>(string key, T value, ISerializer customSerializer = null) where T : class
         {
             try
             {
-                var entryBytes = SerializerHelper.Serialize(value, Serializer, customSerializer);
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+                if (value == null)
+                {
+                    throw new ArgumentNullException(nameof(value), "item cannot be null.");
+                }
+                var serializedItem = SerializerHelper.Serialize(value, Serializer, customSerializer);
 
-                return await RedisHelper.LPushAsync<byte[]>(key, entryBytes);
+                return await Database.ListLeftPushAsync(key, serializedItem);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"redis ListLeftPushAsync key:{key} Error，Exception：{ex.Message}");
+                _logger.LogWarning($"redis ListAddToLeft key:{key} Error，Exception：{ex.Message}");
                 return 0;
             }
 
         }
-
         /// <summary>
         /// ListLeftPushAsync
         /// </summary>
@@ -430,54 +461,90 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                List<byte[]> list = new List<byte[]>();
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+
+                if (null == valueList || 0 == valueList.Count)
+                {
+                    throw new ArgumentNullException(nameof(valueList), "valueList cannot be null.");
+                }
+
+                List<RedisValue> list = new List<RedisValue>();
                 foreach (var value in valueList)
                 {
                     list.Add(SerializerHelper.Serialize(value, Serializer, customSerializer));
+
                 }
 
-                return await RedisHelper.LPushAsync<byte[]>(key, list.ToArray());
+                return await Database.ListLeftPushAsync(key, list.ToArray());
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"redis ListLeftPushAsync key:{key} Error，Exception：{ex.Message}");
+                _logger.LogWarning($"redis ListAddToLeft key:{key} Error，Exception：{ex.Message}");
                 return 0;
             }
 
         }
+
         /// <summary>
         /// ListLeftPushAsync
         /// </summary>
         /// <param name="key"></param>
         /// <param name="value"></param>
-        /// <returns></returns>
+        /// <returns>返回list长度</returns>
         public async Task<long> ListLeftPushAsync(string key, string value)
         {
-            return await RedisHelper.LPushAsync<string>(key, value);
-        }
+            try
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
 
+#if DEBUG
+                _logger.LogWarning("日志输出OK");
+#endif
+                return await Database.ListLeftPushAsync(key, value);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"redis ListAddToLeft key:{key} Error，Exception：{ex.Message}");
+                return 0;
+            }
+        }
 
         /// <summary>
         /// ListRightPop
         /// </summary>
         /// <typeparam name="T"></typeparam>
-        /// <param name="key"></param>
-        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        /// <param name="key"></param> 
+        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
         public T ListRightPop<T>(string key, ISerializer customSerializer = null) where T : class, new()
         {
             try
             {
-                byte[] valueBytes = RedisHelper.RPop<byte[]>(key);
 
-                return null == valueBytes || 0 == valueBytes.Length ? default(T) : SerializerHelper.Deserialize<T>(valueBytes, Serializer, customSerializer);
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+
+                var item = Database.ListRightPop(key);
+
+                if (item == RedisValue.Null) return null;
+
+                return item == RedisValue.Null ? null : SerializerHelper.Deserialize<T>(item, Serializer, customSerializer);
 
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($" redis ListRightPop  key:{key} Error，Exception：{ex.Message}");
+                _logger.LogWarning($" redis ListLeftPop  key:{key} Error，Exception：{ex.Message}");
                 return null;
             }
+
         }
         /// <summary>
         /// ListRightPopAsync
@@ -490,28 +557,25 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                byte[] valueBytes = await RedisHelper.RPopAsync<byte[]>(key);
-                return null == valueBytes || 0 == valueBytes.Length ? default(T) :  SerializerHelper.Deserialize<T>(valueBytes, Serializer, customSerializer);
 
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+
+                var item = await Database.ListRightPopAsync(key);
+
+                if (item == RedisValue.Null) return null;
+
+                return item == RedisValue.Null ? null : SerializerHelper.Deserialize<T>(item, Serializer, customSerializer);
 
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($" redis ListRightPop  key:{key} Error，Exception：{ex.Message}");
+                _logger.LogWarning($" redis ListLeftPop  key:{key} Error，Exception：{ex.Message}");
                 return null;
             }
 
-
-        }
-
-        /// <summary>
-        /// ListRightPopAsync
-        /// </summary>
-        /// <param name="key"></param>
-        /// <returns></returns>
-        public async Task<string> ListRightPopAsync(string key)
-        {
-            return await RedisHelper.RPopAsync<string>(key);
         }
         /// <summary>
         /// 高性能从列表右边弹出数据并清除弹出数据，类似ListRightPopAsync，会占用一个分布锁（LockTake，占用的key值为LockTake:{key}）
@@ -522,10 +586,8 @@ namespace Common.Redis.Extensions
         /// <param name="isUseLockTake">使用分布锁防止并发，默认值：true</param>
         /// <param name="lockTakeTimeOut">分布锁超时时间</param>
         /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
-        /// <returns></returns>
         public async Task<List<T>> ListBatchRightPopAsync<T>(string key, int popnum = 100, bool isUseLockTake = true, int lockTakeTimeOut = 60, ISerializer customSerializer = null) where T : class, new()
         {
-
             try
             {
                 if (string.IsNullOrEmpty(key))
@@ -533,13 +595,15 @@ namespace Common.Redis.Extensions
                     throw new ArgumentException("key cannot be empty.", nameof(key));
                 }
                 string lockkey = $"LockTake:{Convert.ToBase64String(UTF8Encoding.UTF8.GetBytes(key))}";
-                if ((!isUseLockTake)||(RedisHelper.Lock(lockkey, lockTakeTimeOut) !=null))
+                if ((!isUseLockTake) || await Database.LockTakeAsync(lockkey, lockkey, TimeSpan.FromSeconds(lockTakeTimeOut)))
                 {
                     try
                     {
+                        var r = Database.CreateBatch();
                         RedisKey redisKey = key;
-                        var task = RedisHelper.LRangeAsync<T>(redisKey, -popnum, -1);
-                        var tasktrim = RedisHelper.LTrimAsync(redisKey, 0, -popnum - 1);
+                        var task = r.ListRangeAsync(redisKey, -popnum, -1);
+                        var tasktrim = r.ListTrimAsync(redisKey, 0, -popnum - 1);
+                        r.Execute();
                         await Task.WhenAll(task, tasktrim);
                         var list = await task;
                         List<T> rlist = new List<T>();
@@ -548,7 +612,7 @@ namespace Common.Redis.Extensions
                             for (int i = list.Length - 1; i >= 0; i--)
                             {
                                 var item = list[i];
-                                rlist.Add(item);
+                                rlist.Add(SerializerHelper.Deserialize<T>(item, Serializer, customSerializer));
                             }
                         }
                         return rlist;
@@ -557,7 +621,7 @@ namespace Common.Redis.Extensions
                     {
                         if (isUseLockTake)
                         {
-                            await RedisHelper.DelAsync(lockkey);
+                            await Database.LockReleaseAsync(lockkey, lockkey);
                         }
                     }
                 }
@@ -574,13 +638,39 @@ namespace Common.Redis.Extensions
             }
 
         }
+
+        /// <summary>
+        /// ListRightPopAsync
+        /// </summary>
+        /// <param name="key"></param>
+        /// <returns></returns>
+        public async Task<string> ListRightPopAsync(string key)
+        {
+            try
+            {
+
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+
+                return await Database.ListRightPopAsync(key);
+
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis ListLeftPop  key:{key} Error，Exception：{ex.Message}");
+                return null;
+            }
+        }
+
         /// <summary>
         /// 批量pop队列数据，最多只pop topNum条记录
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="key">redis的key值</param>
         /// <param name="topNum">pop 数量</param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
         public List<T> ListRightPop<T>(string key, int topNum, ISerializer customSerializer = null) where T : class, new()
         {
@@ -602,7 +692,7 @@ namespace Common.Redis.Extensions
         /// <typeparam name="T"></typeparam>
         /// <param name="key">redis的key值</param>
         /// <param name="topNum">pop 数量</param>
-        /// <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法</param>
         /// <returns></returns>
         public async Task<List<T>> ListRightPopAsync<T>(string key, int topNum, ISerializer customSerializer = null) where T : class, new()
         {
@@ -618,7 +708,6 @@ namespace Common.Redis.Extensions
             }
             return list;
         }
-
         /// <summary>
         /// list队列长度
         /// </summary>
@@ -628,7 +717,7 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.LLen(key);
+                return Database.ListLength(key);
             }
             catch (Exception ex)
             {
@@ -645,7 +734,7 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return await RedisHelper.LLenAsync(key);
+                return await Database.ListLengthAsync(key);
             }
             catch (Exception ex)
             {
@@ -653,19 +742,24 @@ namespace Common.Redis.Extensions
                 return 0;
             }
         }
-
         /// <summary>
         /// 获取指定范围内的元素
         /// </summary>
         /// <param name="key"></param>
-        /// <param name="start">0 表示第一个</param>
-        /// <param name="stop">-1 表示最后</param>
+        /// <param name="start"></param>
+        /// <param name="stop"></param>
         /// <returns></returns>
         public string[] ListRange(string key, long start, long stop)
         {
             try
             {
-                return RedisHelper.LRange(key, start, stop);
+                List<string> list = new List<string>();
+                var listArray = Database.ListRange(key, start, stop);
+                foreach (var item in listArray)
+                {
+                    list.Add(item);
+                }
+                return list.ToArray();
             }
             catch (Exception ex)
             {
@@ -673,18 +767,25 @@ namespace Common.Redis.Extensions
                 return new string[0];
             }
         }
+
         /// <summary>
         /// 获取指定范围内的元素
         /// </summary>
         /// <param name="key"></param>
-        /// <param name="start">0 表示第一个</param>
-        /// <param name="stop">-1 表示最后</param>
+        /// <param name="start"></param>
+        /// <param name="stop"></param>
         /// <returns></returns>
         public async Task<string[]> ListRangeAsync(string key, long start, long stop)
         {
             try
             {
-                return await RedisHelper.LRangeAsync(key, start, stop);
+                List<string> list = new List<string>();
+                var listArray = await Database.ListRangeAsync(key, start, stop);
+                foreach (var item in listArray)
+                {
+                    list.Add(item);
+                }
+                return list.ToArray();
             }
             catch (Exception ex)
             {
@@ -692,49 +793,61 @@ namespace Common.Redis.Extensions
                 return new string[0];
             }
         }
+
         /// <summary>
         /// 获取指定范围内的元素
         /// </summary>
         /// <param name="key"></param>
-        /// <param name="start">0 表示第一个</param>
-        /// <param name="stop">-1 表示最后</param>
+        /// <param name="start"></param>
+        /// <param name="stop"></param>
         ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法，此参数只对StackExchange.Redis生效,CsRedis只能使用json</param>
         /// <returns></returns>
         public T[] ListRange<T>(string key, long start, long stop, ISerializer customSerializer = null)
         {
             try
             {
-                return RedisHelper.LRange<T>(key, start, stop);
+                List<T> list = new List<T>();
+                var listArray = Database.ListRange(key, start, stop);
+                foreach (var item in listArray)
+                {
+                    list.Add(SerializerHelper.Deserialize<T>(item, Serializer, customSerializer));
 
+                }
+                return list.ToArray();
             }
             catch (Exception ex)
             {
                 _logger.LogWarning($" redis ListRange<T>  key:{key} Error，Exception：{ex.Message}");
-                return default(T[]);// T[0];
+                return default(T[]);
             }
         }
         /// <summary>
         /// 获取指定范围内的元素
         /// </summary>
         /// <param name="key"></param>
-        /// <param name="start">0 表示第一个</param>
-        /// <param name="stop">-1 表示最后</param>
+        /// <param name="start"></param>
+        /// <param name="stop"></param>
         ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法，此参数只对StackExchange.Redis生效,CsRedis只能使用json</param>
         /// <returns></returns>
         public async Task<T[]> ListRangeAsync<T>(string key, long start, long stop, ISerializer customSerializer = null)
         {
             try
             {
-                return await RedisHelper.LRangeAsync<T>(key, start, stop);
+                List<T> list = new List<T>();
+                var listArray = await Database.ListRangeAsync(key, start, stop);
+                foreach (var item in listArray)
+                {
+                    list.Add(SerializerHelper.Deserialize<T>(item, Serializer, customSerializer));
+
+                }
+                return list.ToArray();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($" redis LRangeAsync<T>  key:{key} Error，Exception：{ex.Message}");
-                return default(T[]);// T[0];
+                _logger.LogWarning($" redis ListRangeAsync<T>  key:{key} Error，Exception：{ex.Message}");
+                return default(T[]);
             }
         }
-
-
 
         #region Stream相关的功能
         /// <summary>
@@ -749,11 +862,13 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                if(null== maxLength)
+                NameValueEntry[] streamPairs = new NameValueEntry[fieldValues.Length];
+
+                for (int i = 0; i < fieldValues.Length; i++)
                 {
-                    maxLength = 0;
+                    streamPairs[i] = new NameValueEntry(fieldValues[i].Item1, fieldValues[i].Item2);
                 }
-                return RedisHelper.Instance.XAdd(key,Convert.ToInt64( maxLength), id = "*", fieldValues);
+                return Database.StreamAdd(key, streamPairs, id, maxLength: maxLength);
             }
             catch (Exception ex)
             {
@@ -761,6 +876,7 @@ namespace Common.Redis.Extensions
                 return string.Empty;
             }
         }
+
         /// <summary>
         /// 将指定的流条目追加到指定key的流中。 如果key不存在，作为运行这个命令的副作用，将使用流的条目自动创建key。
         /// </summary>
@@ -771,9 +887,21 @@ namespace Common.Redis.Extensions
         /// <returns></returns>
         public async Task<string> XAddAsync(string key, string id = "*", int? maxLength = null, params (string, string)[] fieldValues)
         {
+            try
+            {
+                NameValueEntry[] streamPairs = new NameValueEntry[fieldValues.Length];
 
-            return XAdd(key, id, maxLength, fieldValues);//伪异步
-
+                for (int i = 0; i < fieldValues.Length; i++)
+                {
+                    streamPairs[i] = new NameValueEntry(fieldValues[i].Item1, fieldValues[i].Item2);
+                }
+                return await Database.StreamAddAsync(key, streamPairs, id, maxLength: maxLength);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis XAddAsync  key:{key} Error，Exception：{ex.Message}");
+                return string.Empty;
+            }
         }
         /// <summary>
         /// Xlen
@@ -784,7 +912,7 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Instance.XLen(key);
+                return Database.StreamLength(key);
             }
             catch (Exception ex)
             {
@@ -799,7 +927,15 @@ namespace Common.Redis.Extensions
         /// <returns></returns>
         public async Task<long> XLenAsync(string key)
         {
-            return XLen(key);//伪异步
+            try
+            {
+                return await Database.StreamLengthAsync(key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis XLenAsync  key:{key} Error，Exception：{ex.Message}");
+                return -1;
+            }
         }
         /// <summary>
         ///  XTRIM将流裁剪为指定数量的项目，如有需要，将驱逐旧的项目（ID较小的项目）。此命令被设想为接受多种修整策略，但目前只实现了一种，即MAXLEN，并且与XADD中的MAXLEN选项完全相同。
@@ -811,23 +947,31 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Instance.XTrim(key, maxLen);
+
+                return Database.StreamTrim(key, maxLen);
             }
             catch (Exception ex)
             {
                 _logger.LogWarning($" redis XTrim  key:{key} Error，Exception：{ex.Message}");
                 return -1;
             }
-        }
-        /// <summary>
-        ///  XTRIM将流裁剪为指定数量的项目，如有需要，将驱逐旧的项目（ID较小的项目）。此命令被设想为接受多种修整策略，但目前只实现了一种，即MAXLEN，并且与XADD中的MAXLEN选项完全相同。
-        /// </summary>
-        /// <param name="key">不含prefix前辍</param>
-        /// <param name="maxLen">上限流，当小于0时</param>
-        /// <returns></returns>
+        } /// <summary>
+          ///  XTRIM将流裁剪为指定数量的项目，如有需要，将驱逐旧的项目（ID较小的项目）。此命令被设想为接受多种修整策略，但目前只实现了一种，即MAXLEN，并且与XADD中的MAXLEN选项完全相同。
+          /// </summary>
+          /// <param name="key">不含prefix前辍</param>
+          /// <param name="maxLen">上限流，当小于0时</param>
+          /// <returns></returns>
         public async Task<long> XTrimAsync(string key, int maxLen)
         {
-            return XTrim(key, maxLen);//伪异步
+            try
+            {
+                return await Database.StreamTrimAsync(key, maxLen);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis XTrimAsync  key:{key} Error，Exception：{ex.Message}");
+                return -1;
+            }
         }
 
         /// <summary>
@@ -842,7 +986,8 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Instance.XRange(key, start, end, count);
+                StreamEntry[] resultEntrys = Database.StreamRange(key, start, end, count);
+                return StreamEntryToArray(resultEntrys);
             }
             catch (Exception ex)
             {
@@ -861,9 +1006,20 @@ namespace Common.Redis.Extensions
         /// <returns></returns> 
         public async Task<(string id, string[] items)[]> XRangeAsync(string key, string start, string end, int count = 1)
         {
-            return XRange(key, start, end, count);
+            try
+            {
+                StreamEntry[] resultEntrys = await Database.StreamRangeAsync(key, start, end, count);
+                return StreamEntryToArray(resultEntrys);
 
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis XRangeAsync  key:{key} Error，Exception：{ex.Message}");
+                return null;
+            }
         }
+
+
         /// <summary>
         /// 与XRANGE完全相同，但显著的区别是以相反的顺序返回条目，并以相反的顺序获取开始-结束参数：在XREVRANGE中，你需要先指定结束ID，再指定开始ID，该命令就会从结束ID侧开始生成两个ID之间（或完全相同）的所有元素。
         /// </summary>
@@ -876,7 +1032,8 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Instance.XRevRange(key, end, start, count);
+                StreamEntry[] resultEntrys = Database.StreamRange(key, start, end, count, Order.Descending);
+                return StreamEntryToArray(resultEntrys);
             }
             catch (Exception ex)
             {
@@ -894,9 +1051,17 @@ namespace Common.Redis.Extensions
         /// <returns></returns>
         public async Task<(string id, string[] items)[]> XRevRangeAsync(string key, string end, string start, int count = 1)
         {
-            return XRevRange(key, end, start, count);
+            try
+            {
+                StreamEntry[] resultEntrys = await Database.StreamRangeAsync(key, start, end, count, Order.Descending);
+                return StreamEntryToArray(resultEntrys);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis XRevRangeAsync  key:{key} Error，Exception：{ex.Message}");
+                return null;
+            }
         }
-
         /// <summary>
         /// 查找所有分区节点中符合给定模式(pattern)的 key
         /// </summary>
@@ -906,7 +1071,24 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Instance.Keys(pattern);
+                var server = _connection.GetServer(configuration.Hosts[0].Host, configuration.Hosts[0].Port);
+
+                var keysArray = server.Keys(configuration.Database, pattern);
+                if (null != keysArray)
+                {
+                    List<string> keysList = new List<string>();
+                    foreach (var item in keysArray)
+                    {
+
+                        keysList.Add(item);
+                    }
+                    return keysList.ToArray();
+                }
+                else
+                {
+                    return null;
+                }
+
             }
             catch (Exception ex)
             {
@@ -914,6 +1096,7 @@ namespace Common.Redis.Extensions
                 return null;
             }
         }
+
         /// <summary>
         ///  对一个列表进行修剪，让列表只保留指定区间内的元素，不在指定区间之内的元素都将被删除
         /// </summary>
@@ -925,7 +1108,8 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Instance.LTrim(key, start, stop);
+                Database.ListTrim(key, start, stop);
+                return true;
             }
             catch (Exception ex)
             {
@@ -944,7 +1128,8 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return await RedisHelper.Instance.LTrimAsync(key, start, stop);
+                await Database.ListTrimAsync(key, start, stop);
+                return true;
             }
             catch (Exception ex)
             {
@@ -952,8 +1137,6 @@ namespace Common.Redis.Extensions
                 return false;
             }
         }
-
-
         #endregion
 
         #region 消息队列相关
@@ -970,8 +1153,8 @@ namespace Common.Redis.Extensions
             try
             {
                 var entryBytes = SerializerHelper.Serialize(message, Serializer, customSerializer);
-                string value = System.Text.Encoding.UTF8.GetString(entryBytes);
-                return RedisHelper.Instance.Publish(channel, value);
+
+                return Database.Publish(channel, entryBytes);
             }
             catch (Exception ex)
             {
@@ -990,8 +1173,8 @@ namespace Common.Redis.Extensions
             try
             {
                 var entryBytes = SerializerHelper.Serialize(message, Serializer, customSerializer);
-                string value = System.Text.Encoding.UTF8.GetString(entryBytes);
-                return await RedisHelper.Instance.PublishAsync(channel, value);
+                return await Database.PublishAsync(channel, entryBytes);
+
             }
             catch (Exception ex)
             {
@@ -999,16 +1182,17 @@ namespace Common.Redis.Extensions
             }
         }
         /// <summary>
-        ///  订阅，根据分区规则返回SubscribeObject，Subscribe(("chan1", msg => Console.WriteLine(msg.Body)),
+        ///  Subscribe to perform some operation when a message to the preferred/active node is broadcast, without any guarantee of ordered handling.
         /// </summary>
-        /// <param name="channel"> </param>
-        /// <param name="handler"> 频道和接收器</param> 
-        /// <returns>返回可停止订阅的对象</returns>
+        /// <param name="channel">The channel to subscribe to.</param>
+        /// <param name="handler">The handler to invoke when a message is received on channel.</param>
+        /// <param name="flags">The command flags to use.</param>
         public void Subscribe(string channel, Action<RedisChannel, RedisValue> handler)
         {
             try
             {
-                RedisHelper.Instance.SubscribeList(new string[] { channel }, (x1, x2) => { handler(x1, x2); });
+                _connection.GetSubscriber().Subscribe(channel, handler, CommandFlags.None);
+
             }
             catch (Exception ex)
             {
@@ -1017,14 +1201,23 @@ namespace Common.Redis.Extensions
             }
         }
         /// <summary>
-        ///  订阅，根据分区规则返回SubscribeObject，Subscribe(("chan1", msg => Console.WriteLine(msg.Body)),
+        ///  Subscribe to perform some operation when a message to the preferred/active node is broadcast, without any guarantee of ordered handling.
         /// </summary>
-        /// <param name="channel"> </param>
-        /// <param name="handler"> 频道和接收器</param> 
-        /// <returns>返回可停止订阅的对象</returns>
+        /// <param name="channel">The channel to subscribe to.</param>
+        /// <param name="handler">The handler to invoke when a message is received on channel.</param>
+        /// <param name="flags">The command flags to use.</param>
         public async Task SubscribeAsync(string channel, Action<RedisChannel, RedisValue> handler)
         {
-            Subscribe(channel, handler);
+            try
+            {
+                await _connection.GetSubscriber().SubscribeAsync(channel, handler, CommandFlags.None);
+
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis SubscribeAsync  channel:{channel} Error，Exception：{ex.Message}");
+
+            }
         }
         #endregion
 
@@ -1039,7 +1232,7 @@ namespace Common.Redis.Extensions
 
             try
             {
-                return RedisHelper.Instance.HGetAll(key);
+                return StreamEntryToArray(Database.HashGetAll(key));
 
             }
             catch (Exception ex)
@@ -1059,12 +1252,12 @@ namespace Common.Redis.Extensions
 
             try
             {
-                return await RedisHelper.Instance.HGetAllAsync(key);
+                return StreamEntryToArray(await Database.HashGetAllAsync(key));
 
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($" redis HGetAll  channel:{key} Error，Exception：{ex.Message}");
+                _logger.LogWarning($" redis HashGetAllAsync  channel:{key} Error，Exception：{ex.Message}");
                 return null;
 
             }
@@ -1077,10 +1270,13 @@ namespace Common.Redis.Extensions
         /// <returns></returns>
         public async Task<Dictionary<string, T>> HGetAllAsync<T>(string key, ISerializer customSerializer = null)
         {
-
             try
             {
-                return await RedisHelper.Instance.HGetAllAsync<T>(key);
+                if (!await Database.KeyExistsAsync(key))
+                {
+                    return null;
+                }
+                return await StreamEntryToArrayAsync<T>(await Database.HashGetAllAsync(key), customSerializer);
 
             }
             catch (Exception ex)
@@ -1095,12 +1291,38 @@ namespace Common.Redis.Extensions
         /// </summary>
         /// <param name="key">不含prefix前辍</param>
         /// <param name="field">字段</param>
+        ///   <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法，此参数只对StackExchange.Redis生效,CsRedis只能使用json</param>
+        /// <returns></returns>
+        public async Task<T> HGetAsync<T>(string key, string field, ISerializer customSerializer = null)
+        {
+
+            try
+            {
+                if (!await Database.HashExistsAsync(key, field))
+                {
+                    return default(T);
+                }
+                var result = await Database.HashGetAsync(key, field);
+                return SerializerHelper.Deserialize<T>(result, Serializer, customSerializer);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis  HGetAsync<T> channel:{key},fields:{field} Error，Exception：{ex.Message}");
+                return default(T);
+
+            }
+        }
+        /// <summary>
+        /// 获取存储在哈希表中指定字段的值
+        /// </summary>
+        /// <param name="key">不含prefix前辍</param>
+        /// <param name="field">字段</param>
         /// <returns></returns>
         public async Task<string> HGetAsync(string key, string field)
         {
             try
             {
-                return await RedisHelper.Instance.HGetAsync(key, field);
+                return await Database.HashGetAsync(key, field);
 
             }
             catch (Exception ex)
@@ -1110,27 +1332,7 @@ namespace Common.Redis.Extensions
 
             }
         }
-        /// <summary>
-        /// 获取存储在哈希表中指定字段的值
-        /// </summary>
-        /// <param name="key">不含prefix前辍</param>
-        /// <param name="field">字段</param>
-        ///   <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法，此参数只对StackExchange.Redis生效,CsRedis只能使用json</param>
-        /// <returns></returns>
-        public async Task<T> HGetAsync<T>(string key, string field, ISerializer customSerializer = null)
-        {
-            try
-            {
-                return await RedisHelper.Instance.HGetAsync<T>(key, field); //暂时不对customSerializer进行处理，HGet相关方法建议使用RedisCache的
 
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($" redis HGetAsync  channel:{key} Error，Exception：{ex.Message}");
-                return default(T);
-
-            }
-        }
         /// <summary>
         /// HGet多个field的值HGet key field1,field2,...
         /// </summary>
@@ -1142,13 +1344,26 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                List<T> dataList = new List<T>();
-                foreach (var field in fields) //简单实现，csredis 不支持批量读取多个，也可使用pipeline操作，性能更好
+                if (null == fields || 0 == fields.Length)
                 {
-                  var value=  await RedisHelper.Instance.HGetAsync<T>(key, field); //暂时不对customSerializer进行处理，HGet相关方法建议使用RedisCache的
-               if(null!= value)
+                    return null;
+                }
+                List<RedisValue> fieldsList = new List<RedisValue>();
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    fieldsList.Add(fields[i]);
+                }
+                var values = await Database.HashGetAsync(key, fieldsList.ToArray());
+                List<T> dataList = new List<T>();
+                if (null != values && values.Length > 0)
+                {
+                    foreach (var item in values)
                     {
-                        dataList.Add(value);
+                        if (item.HasValue)
+                        {
+                            dataList.Add(SerializerHelper.Deserialize<T>(item, Serializer, customSerializer));
+                        }
+
                     }
                 }
                 return dataList;
@@ -1161,8 +1376,6 @@ namespace Common.Redis.Extensions
 
             }
         }
-
-
         /// 删除一个或多个哈希表字段
         /// </summary>
         /// <param name="key">不含prefix前辍</param>
@@ -1173,7 +1386,12 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Instance.HDel(key, fields);
+                RedisValue[] hashFields = new RedisValue[fields.Length];
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    hashFields[i] = fields[i];
+                }
+                return Database.HashDelete(key, hashFields);
 
             }
             catch (Exception ex)
@@ -1194,7 +1412,12 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return await RedisHelper.Instance.HDelAsync(key, fields);
+                RedisValue[] hashFields = new RedisValue[fields.Length];
+                for (int i = 0; i < fields.Length; i++)
+                {
+                    hashFields[i] = fields[i];
+                }
+                return await Database.HashDeleteAsync(key, hashFields);
 
             }
             catch (Exception ex)
@@ -1216,7 +1439,8 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return RedisHelper.Instance.HMSet(key, keyValues);
+                Database.HashSet(key, StreamEntryToArray(keyValues).ToArray());
+                return true;
             }
             catch (Exception ex)
             {
@@ -1235,8 +1459,30 @@ namespace Common.Redis.Extensions
         {
             try
             {
-                return await RedisHelper.Instance.HMSetAsync(key, keyValues);
+                await Database.HashSetAsync(key, StreamEntryToArray(keyValues).ToArray());
+                return true;
 
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis HMSetAsync  channel:{key} Error，Exception：{ex.Message}");
+                return false;
+
+            }
+        }
+
+        /// <summary>
+        /// 直接将HashEntry数组批量写入hash key中
+        /// </summary>
+        /// <param name="key">不含prefix前辍</param>
+        /// <param name="keyValues">key1 value1 [key2 value2]</param>
+        /// <returns></returns>
+        public async Task<bool> HMSetAsync(string key, HashEntry[] keyValues)
+        {
+            try
+            {
+                await Database.HashSetAsync(key, keyValues);
+                return true;
             }
             catch (Exception ex)
             {
@@ -1255,7 +1501,18 @@ namespace Common.Redis.Extensions
         /// <returns></returns>
         public async Task<bool> HincrbyAsync(string key, string field, long num = 1)
         {
-            return false;
+            try
+            {
+                await Database.HashIncrementAsync(key, field, num);
+                return true;
+
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis HincrbyAsync  channel:{key} Error，Exception：{ex.Message}");
+                return false;
+
+            }
         }
 
 
@@ -1268,7 +1525,17 @@ namespace Common.Redis.Extensions
         /// <returns></returns>
         public bool Hincrby(string key, string field, long num = 1)
         {
-            return false;
+            try
+            {
+                Database.HashIncrement(key, field, num);
+                return true;
+
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis Hincrby  channel:{key} Error，Exception：{ex.Message}");
+                return false;
+            }
         }
 
 
@@ -1279,7 +1546,7 @@ namespace Common.Redis.Extensions
         /// <returns></returns>
         public IBatch CreateBatch(object asyncState = null)
         {
-            throw new NotImplementedException();
+            return Database.CreateBatch(asyncState);
         }
         /// <summary>
         ///   Allows creation of a group of operations that will be sent to the server as a single unit, and processed on the server as a single unit
@@ -1288,7 +1555,7 @@ namespace Common.Redis.Extensions
         /// <returns> The created transaction.</returns>
         public IBatch CreateTransaction(object asyncState = null)
         {
-            throw new NotImplementedException();
+            return Database.CreateTransaction(asyncState);
         }
         /// <summary>
         /// Execute an arbitrary command against the server; this is primarily intended for
@@ -1301,37 +1568,155 @@ namespace Common.Redis.Extensions
 
         public RedisResult Execute(string command, params object[] args)
         {
-            throw new NotImplementedException();
+            return Database.Execute(command, args);
         }
+
+        #region 辅助方法
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="resultEntrys"></param>
+        /// <returns></returns>
+        public (string id, string[] items)[] StreamEntryToArray(StreamEntry[] resultEntrys)
+        {
+            if (null != resultEntrys)
+            {
+                (string id, string[] items)[] resultArray = new (string id, string[] items)[resultEntrys.Length];
+                for (int i = 0; i < resultEntrys.Length; i++)
+                {
+                    resultArray[i].id = resultEntrys[i].Id;
+                    if (null != resultEntrys[i].Values)
+                    {
+                        resultArray[i].items = new string[resultEntrys[i].Values.Length + 1];
+                        resultArray[i].items[0] = resultEntrys[i].Id;
+                        for (int j = 0; j < resultEntrys[i].Values.Length; j++)
+                        {
+                            resultArray[i].items[j + 1] = resultEntrys[i].Values[j].Value;
+                        }
+                    }
+
+                }
+                return resultArray;
+            }
+            else
+            {
+                return null;
+            }
+        }
+        /// <summary>
+        /// HashEntry[]转换成Dictionary<string, string>
+        /// </summary>
+        /// <param name="resultEntrys"></param> 
+        /// <returns></returns>
+        public Dictionary<string, string> StreamEntryToArray(HashEntry[] resultEntrys)
+        {
+            Dictionary<string, string> resultDc = new Dictionary<string, string>();
+            if (null != resultEntrys)
+            {
+
+                for (int i = 0; i < resultEntrys.Length; i++)
+                {
+                    if (!resultDc.ContainsKey(resultEntrys[i].Name))
+                    {
+                        resultDc.Add(resultEntrys[i].Name, resultEntrys[i].Value);
+                    }
+                }
+                return resultDc;
+            }
+            else
+            {
+                return null;
+            }
+        }
+        /// <summary>
+        /// HashEntry[]转换成Dictionary<string, string>
+        /// </summary>
+        /// <param name="resultEntrys"></param> 
+        ///  <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法，此参数只对StackExchange.Redis生效,CsRedis只能使用json</param>
+        /// <returns></returns>
+        public async Task<Dictionary<string, T>> StreamEntryToArrayAsync<T>(HashEntry[] resultEntrys, ISerializer customSerializer = null)
+        {
+            Dictionary<string, T> resultDc = new Dictionary<string, T>();
+            if (null != resultEntrys)
+            {
+
+                for (int i = 0; i < resultEntrys.Length; i++)
+                {
+                    if (!resultDc.ContainsKey(resultEntrys[i].Name))
+                    {
+                        resultDc.Add(resultEntrys[i].Name, SerializerHelper.Deserialize<T>(resultEntrys[i].Value, Serializer, customSerializer));
+
+                    }
+                }
+                return resultDc;
+            }
+            else
+            {
+                return null;
+            }
+        }
+        /// <summary>
+        /// object[] keyValues 转换成 HashEntry[]
+        /// </summary>
+        /// <param name="keyValues"></param>
+        /// <returns></returns>
+        public List<HashEntry> StreamEntryToArray(object[] keyValues)
+        {
+            List<HashEntry> resultList = new List<HashEntry>();
+            // HashEntry[] resultDc = new HashEntry[keyValues.Length];
+            if (null != keyValues && keyValues.Length > 0)
+            {
+
+                for (int i = 0; i < keyValues.Length; i++)
+                {
+                    resultList.Add((HashEntry)keyValues[i]);
+                    // resultDc[i] = new HashEntry(keyValues[i].ToString(), keyValues[i].ToString()); 
+                }
+                return resultList;
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        #endregion
+
 
         public Task<bool> LockTakeAsync(string key, string token, TimeSpan expiresIn)
         {
-            throw new NotImplementedException();
+            return Database.LockTakeAsync(key, token, expiresIn);
         }
 
         public Task<bool> LockReleaseAsync(string key, string token)
         {
-            throw new NotImplementedException();
+            return Database.LockReleaseAsync(key, token);
         }
 
         public Task<TimeSpan?> TTLAsync(string key, CommandFlags flag = CommandFlags.None)
         {
-            throw new NotImplementedException();
+            return Database.KeyTimeToLiveAsync(key, flag);
         }
 
-        public Task<bool> KeyExpireAsync(string key, TimeSpan? expiry, CommandFlags flag = CommandFlags.None)
+        public async Task<bool> KeyExpireAsync(string key, TimeSpan? expiry, CommandFlags flag = CommandFlags.None)
         {
-            throw new NotImplementedException();
+            return await Database.KeyExpireAsync(key, expiry, flag);
         }
-
-        public Task<long> StringIncrementAsync(string key, TimeSpan? expiry = null, long value = 1, CommandFlags flags = CommandFlags.None)
+        /// <summary>
+        /// Increments the number stored at key by increment. If the key does not exist,
+        ///     it is set to 0 before performing the operation. An error is returned if the key
+        ///     contains a value of the wrong type or contains a string that is not representable
+        ///    as integer. This operation is limited to 64 bit signed integers.
+        ///     https://redis.io/commands/incrby
+        /// </summary>
+        public async Task<long> StringIncrementAsync(string key, TimeSpan? expiry = null, long value = 1, CommandFlags flags = CommandFlags.None)
         {
-            throw new NotImplementedException();
-        }
-
-        public Task<bool> HMSetAsync(string key, HashEntry[] keyValues)
-        {
-            throw new NotImplementedException();
+            var r = await Database.StringIncrementAsync(key, value, flags);
+            if (expiry != null)
+            {
+                await Database.KeyExpireAsync(key, expiry);
+            }
+            return r;
         }
         /// <summary>
         /// Execute a lua script against the server, using previously prepared script.
@@ -1343,7 +1728,7 @@ namespace Common.Redis.Extensions
         /// <returns>A dynamic representation of the script's result</returns>
         public async Task<RedisResult> ScriptEvaluateAsync(LuaScript script, object parameters = null, CommandFlags flags = CommandFlags.None)
         {
-            throw new NotImplementedException();
+          return  await Database.ScriptEvaluateAsync(script, parameters, flags); 
         }
 
         /// <summary>
@@ -1352,9 +1737,34 @@ namespace Common.Redis.Extensions
         /// <param name="key"></param>
         /// <param name="valueDc"></param>
         /// <returns></returns>
-        public async Task<bool> SortedSetAddAsync(string key, Dictionary<string, long> valueDc) 
+        public async Task<bool> SortedSetAddAsync(string key, Dictionary<string,long> valueDc)
         {
-            throw new NotImplementedException();
+            try
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+
+                if (null == valueDc || 0 == valueDc.Count)
+                {
+                    throw new ArgumentNullException(nameof(valueDc), "valueList cannot be null.");
+                }
+                List<SortedSetEntry> list = new List<SortedSetEntry>();
+                foreach (var value in valueDc)
+                {
+                    list.Add(new SortedSetEntry(value.Key, value.Value) );
+
+                }
+                await Database.SortedSetAddAsync(key, list.ToArray());
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis SortedSetAddAsync  channel:{key} Error，Exception：{ex.Message}");
+                return false;
+
+            }
         }
 
         /// <summary>
@@ -1364,9 +1774,24 @@ namespace Common.Redis.Extensions
         /// <param name="start"></param>
         /// <param name="stop"></param>
         /// <returns></returns>
-        public async Task<bool> SortedSetRemoveRangeByScore(string key, double start, double stop)
+        public async Task<bool> SortedSetRemoveRangeByScore(string key, double start, double stop)  
         {
-            throw new NotImplementedException();
+            try
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+ 
+                await Database.SortedSetRemoveRangeByScoreAsync(key, start, stop);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis SortedSetAddAsync  channel:{key} Error，Exception：{ex.Message}");
+                return false;
+
+            }
         }
 
         /// <summary>
@@ -1379,10 +1804,37 @@ namespace Common.Redis.Extensions
         /// <param name="skip"></param>
         /// <param name="take"></param>
         /// <returns></returns>
-        public async Task<List<string>> SortedSetRangeByScoreAsync(string key, double start = double.NegativeInfinity, double stop = double.PositiveInfinity, bool isAscending = true, long skip = 0, long take = -1)
+        public async Task<List<string>> SortedSetRangeByScoreAsync(string key, double start = double.NegativeInfinity, double stop = double.PositiveInfinity,  bool isAscending=true, long skip = 0, long take = -1)
         {
-            throw new NotImplementedException();
+                List<string> dataList = new List<string>();
+            try
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+
+
+                var order =isAscending ?   Order.Ascending:   Order.Descending;
+              var values= await Database.SortedSetRangeByScoreAsync(key, start  ,   stop, Exclude.None,   order  ,   skip ,   take);
+                foreach (var item in values)
+                {
+                    if (item.HasValue)
+                    {
+                        dataList.Add(item.ToString());
+                    }
+
+                }
+                return dataList;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis SortedSetAddAsync  channel:{key} Error，Exception：{ex.Message}");
+                return null;
+
+            }
         }
+
         /// <summary>
         /// 获取SortedSet的总记录数
         /// </summary>
@@ -1390,9 +1842,26 @@ namespace Common.Redis.Extensions
         /// <param name="min"></param>
         /// <param name="max"></param>
         /// <returns></returns>
-        public async Task<long> SortedSetLengthAsync(string key, double min = double.NegativeInfinity, double max = double.PositiveInfinity)
+        public async Task<long> SortedSetLengthAsync(string key,  double min = double.NegativeInfinity, double max = double.PositiveInfinity)
         {
-            throw new NotImplementedException();
+            try
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    throw new ArgumentException("key cannot be empty.", nameof(key));
+                }
+
+                return await Database.SortedSetLengthAsync(key, min, max);
+                 
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($" redis SortedSetLengthAsync key:{key} Error，Exception：{ex.Message}");
+                return -1;
+
+            }
         }
+
     }
+
 }

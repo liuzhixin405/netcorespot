@@ -1,11 +1,11 @@
-﻿using Common.Redis.Extensions;
+﻿using CryptoSpot.Redis.Extensions;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Common.Redis.Extensions
+namespace CryptoSpot.Redis.Extensions
 {
     /// <summary>
     /// 分布式id生成器

@@ -18,7 +18,7 @@ using System.Net;
 using System.Text;
 using CryptoSpot.API.Services;
 using CryptoSpot.Application.DependencyInjection;
-using Common.Redis.Extensions; // added for Redis
+using CryptoSpot.Redis; // renamed
 using System.Text.Json; // for JsonNamingPolicy
 using System.Text.Json.Serialization; // for JsonStringEnumConverter
 

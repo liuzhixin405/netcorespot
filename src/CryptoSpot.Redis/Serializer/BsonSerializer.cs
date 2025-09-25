@@ -1,29 +1,18 @@
-﻿using Newtonsoft.Json;
-using Newtonsoft.Json.Bson;
+﻿using Newtonsoft.Json.Bson;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using CryptoSpot.Redis;
 
-namespace Common.Redis.Extensions.Serializer
+namespace CryptoSpot.Redis.Serializer
 {
     /// <summary>
-    /// Json序列化器
+    /// Bson序列化器
     /// </summary>
-    public class JsonSerializer : ISerializer
+    public class BsonSerializer : ISerializer
     {
-        private static readonly Encoding encoding = Encoding.UTF8;
-        private readonly JsonSerializerSettings settings;
-        /// <summary>
-		/// Initializes a new instance of the <see cref="JsonSerializer"/> class.
-		/// </summary>
-		/// <param name="settings">The settings.</param>
-		public JsonSerializer(JsonSerializerSettings settings)
-        {
-            this.settings = settings ?? new JsonSerializerSettings();
-        }
-
         /// <summary>
         /// 序列化
         /// </summary>
@@ -31,9 +20,13 @@ namespace Common.Redis.Extensions.Serializer
         /// <returns></returns>
         public byte[] Serialize(object item)
         {
-            var type = item?.GetType();
-            var jsonString = JsonConvert.SerializeObject(item, type, settings);
-            return encoding.GetBytes(jsonString);
+            using (var ms = new MemoryStream())
+            using (var writer = new BsonDataWriter(ms))
+            {
+                var serializer = new Newtonsoft.Json.JsonSerializer();
+                serializer.Serialize(writer, item);
+                return ms.ToArray();
+            }
         }
 
         /// <summary>
@@ -61,7 +54,7 @@ namespace Common.Redis.Extensions.Serializer
         /// </summary>
         /// <param name="serializedObject"></param>
         /// <returns></returns>
-        public Task<object> DeserializeAsync(byte[] serializedObject)
+        public async Task<object> DeserializeAsync(byte[] serializedObject)
         {
             return Task.Run(() => Deserialize(serializedObject));
         }
@@ -74,8 +67,12 @@ namespace Common.Redis.Extensions.Serializer
         /// <returns></returns>
         public T Deserialize<T>(byte[] serializedObject)
         {
-            var jsonString = encoding.GetString(serializedObject);
-            return JsonConvert.DeserializeObject<T>(jsonString, settings);
+            using (var ms = new MemoryStream(serializedObject))
+            using(var reader = new BsonDataReader(ms))
+            {
+                var serializer = new Newtonsoft.Json.JsonSerializer();
+                return serializer.Deserialize<T>(reader);
+            }
         }
 
         /// <summary>

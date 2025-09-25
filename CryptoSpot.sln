@@ -1,5 +1,4 @@
-﻿
-Microsoft Visual Studio Solution File, Format Version 12.00
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -13,7 +12,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CryptoSpot.Application", "s
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Common.Redis", "src\Common.Redis\Common.Redis.csproj", "{4855B07D-30C2-4101-9804-EF4A5A872D5B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CryptoSpot.Redis", "src\CryptoSpot.Redis\CryptoSpot.Redis.csproj", "{4855B07D-30C2-4101-9804-EF4A5A872D5B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CryptoSpot.Bus", "src\CryptoSpot.Bus\CryptoSpot.Bus.csproj", "{D02F4A0D-2761-64FC-E5EA-4AE66D54CE77}"
 EndProject

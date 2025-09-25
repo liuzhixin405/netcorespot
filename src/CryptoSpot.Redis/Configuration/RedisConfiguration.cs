@@ -2,7 +2,7 @@
 using System.Net.Security;
 using StackExchange.Redis;
 
-namespace Common.Redis.Extensions.Configuration
+namespace CryptoSpot.Redis.Configuration
 {
     public class RedisConfiguration
     {

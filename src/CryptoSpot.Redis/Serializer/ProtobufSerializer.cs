@@ -1,16 +1,16 @@
-﻿using Newtonsoft.Json.Bson;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using CryptoSpot.Redis;
 
-namespace Common.Redis.Extensions.Serializer
+namespace CryptoSpot.Redis.Serializer
 {
     /// <summary>
-    /// Bson序列化器
+    /// Protobuf序列化器
     /// </summary>
-    public class BsonSerializer : ISerializer
+    public class ProtobufSerializer : ISerializer
     {
         /// <summary>
         /// 序列化
@@ -20,10 +20,8 @@ namespace Common.Redis.Extensions.Serializer
         public byte[] Serialize(object item)
         {
             using (var ms = new MemoryStream())
-            using (var writer = new BsonDataWriter(ms))
             {
-                var serializer = new Newtonsoft.Json.JsonSerializer();
-                serializer.Serialize(writer, item);
+                ProtoBuf.Serializer.Serialize(ms, item);
                 return ms.ToArray();
             }
         }
@@ -33,7 +31,7 @@ namespace Common.Redis.Extensions.Serializer
         /// </summary>
         /// <param name="item"></param>
         /// <returns></returns>
-        public   Task<byte[]> SerializeAsync(object item)
+        public Task<byte[]> SerializeAsync(object item)
         {
             return Task.Run(() => Serialize(item));
         }
@@ -53,7 +51,7 @@ namespace Common.Redis.Extensions.Serializer
         /// </summary>
         /// <param name="serializedObject"></param>
         /// <returns></returns>
-        public async Task<object> DeserializeAsync(byte[] serializedObject)
+        public Task<object> DeserializeAsync(byte[] serializedObject)
         {
             return Task.Run(() => Deserialize(serializedObject));
         }
@@ -67,10 +65,8 @@ namespace Common.Redis.Extensions.Serializer
         public T Deserialize<T>(byte[] serializedObject)
         {
             using (var ms = new MemoryStream(serializedObject))
-            using(var reader = new BsonDataReader(ms))
             {
-                var serializer = new Newtonsoft.Json.JsonSerializer();
-                return serializer.Deserialize<T>(reader);
+                return ProtoBuf.Serializer.Deserialize<T>(ms);
             }
         }
 
@@ -80,7 +76,7 @@ namespace Common.Redis.Extensions.Serializer
         /// <typeparam name="T"></typeparam>
         /// <param name="serializedObject"></param>
         /// <returns></returns>
-        public   Task<T> DeserializeAsync<T>(byte[] serializedObject)
+        public Task<T> DeserializeAsync<T>(byte[] serializedObject)
         {
             return Task.Run(() => Deserialize<T>(serializedObject));
         }

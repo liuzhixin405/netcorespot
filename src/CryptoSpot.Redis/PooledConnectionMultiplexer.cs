@@ -6,7 +6,7 @@ using CodeProject.ObjectPool;
 using StackExchange.Redis;
 using StackExchange.Redis.Profiling;
 
-namespace Common.Redis.Extensions
+namespace CryptoSpot.Redis
 {
     /// <summary>
     /// PooledConnectionMultiplexer

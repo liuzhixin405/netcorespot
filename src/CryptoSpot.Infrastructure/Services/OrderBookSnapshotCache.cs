@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;
 using System.Collections.Generic;
+using CryptoSpot.Redis;
 
 namespace CryptoSpot.Infrastructure.Services
 {

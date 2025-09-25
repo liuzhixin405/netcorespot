@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Common.Redis.Extensions.Configuration;
+using CryptoSpot.Redis.Configuration;
 using StackExchange.Redis;
 
-namespace Common.Redis.Extensions.ServerIteration
+namespace CryptoSpot.Redis.Extensions.ServerIteration
 {
 	public static class ServerIteratorFactory
 	{

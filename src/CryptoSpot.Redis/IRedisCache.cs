@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Common.Redis.Extensions
+namespace CryptoSpot.Redis
 {
 
     /// <summary>
@@ -271,7 +271,7 @@ namespace Common.Redis.Extensions
         /// </summary>
         /// <param name="key"></param>
         /// <param name="start">0 表示第一个</param>
-        /// <param name="stop">-1 表示最后</param>
+        /// <param="stop">-1 表示最后</param>
         ///   <param name="customSerializer">自定义序列化实例，为null则使用全局设置的序列化方法，此参数只对StackExchange.Redis生效,CsRedis只能使用json</param>
         /// <returns></returns>
         T[] ListRange<T>(string key, long start, long stop, ISerializer customSerializer = null);

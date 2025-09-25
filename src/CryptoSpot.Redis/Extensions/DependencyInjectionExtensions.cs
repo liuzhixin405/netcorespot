@@ -2,15 +2,15 @@
 using System.Collections.Generic;
 using System.Text;
 using CodeProject.ObjectPool;
-using Common.Redis.Extensions.Configuration;
-using Common.Redis.Extensions.Serializer;
+using CryptoSpot.Redis.Configuration;
+using CryptoSpot.Redis.Serializer;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 
-namespace Common.Redis.Extensions
+namespace CryptoSpot.Redis
 {
     /// <summary>
     /// RedisDI

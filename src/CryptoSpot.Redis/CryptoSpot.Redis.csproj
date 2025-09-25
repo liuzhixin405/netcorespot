@@ -4,11 +4,13 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageProjectUrl>https://github.com/kuaiben/CommonLibary/</PackageProjectUrl>
-    <Description>新增sortedset SortedSetLengthAsync</Description>
+    <Description>Redis utilities (renamed from Common.Redis)</Description>
+    <AssemblyName>CryptoSpot.Redis</AssemblyName>
+    <RootNamespace>CryptoSpot.Redis</RootNamespace>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <DocumentationFile>bin\Release\netstandard2.0\Common.Redis.Extensions.xml</DocumentationFile>
+    <DocumentationFile>bin\Release\netstandard2.0\CryptoSpot.Redis.xml</DocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>

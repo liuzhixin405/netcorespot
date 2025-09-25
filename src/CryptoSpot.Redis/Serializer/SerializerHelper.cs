@@ -2,8 +2,9 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
+using CryptoSpot.Redis;
 
-namespace Common.Redis.Extensions.Serializer
+namespace CryptoSpot.Redis.Serializer
 {
     /// <summary>
     /// 序列化辅助类

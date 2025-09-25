@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 
-namespace Common.Redis.Extensions.Serializer
+namespace CryptoSpot.Redis.Serializer
 {
     /// <summary>
     /// 序列化类型

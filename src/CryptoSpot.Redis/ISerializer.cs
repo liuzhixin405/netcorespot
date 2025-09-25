@@ -1,6 +1,6 @@
 ﻿using System.Threading.Tasks;
 
-namespace Common.Redis.Extensions
+namespace CryptoSpot.Redis
 {
 	/// <summary>
 	/// Contract for Serializer implementation

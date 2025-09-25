@@ -1,9 +1,9 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
-using Common.Redis.Extensions.Configuration;
+using CryptoSpot.Redis.Configuration;
 using StackExchange.Redis;
 
-namespace Common.Redis.Extensions.ServerIteration
+namespace CryptoSpot.Redis.Extensions.ServerIteration
 {
 	public class ServerEnumerable : IEnumerable<IServer>
 	{

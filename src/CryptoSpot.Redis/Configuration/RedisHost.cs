@@ -1,4 +1,4 @@
-﻿namespace Common.Redis.Extensions.Configuration
+﻿namespace CryptoSpot.Redis.Configuration
 {
 	/// <summary>
 	/// redis host

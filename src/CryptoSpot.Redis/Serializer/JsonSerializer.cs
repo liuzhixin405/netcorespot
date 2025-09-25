@@ -1,18 +1,30 @@
-﻿using MessagePack;
+﻿using Newtonsoft.Json;
 using Newtonsoft.Json.Bson;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using CryptoSpot.Redis;
 
-namespace Common.Redis.Extensions.Serializer
+namespace CryptoSpot.Redis.Serializer
 {
     /// <summary>
-    /// MsgPackSerializer序列化器
+    /// Json序列化器
     /// </summary>
-    public class MsgPackSerializer : ISerializer
+    public class JsonSerializer : ISerializer
     {
+        private static readonly Encoding encoding = Encoding.UTF8;
+        private readonly JsonSerializerSettings settings;
+        /// <summary>
+		/// Initializes a new instance of the <see cref="JsonSerializer"/> class.
+		/// </summary>
+		/// <param name="settings">The settings.</param>
+		public JsonSerializer(JsonSerializerSettings settings)
+        {
+            this.settings = settings ?? new JsonSerializerSettings();
+        }
+
         /// <summary>
         /// 序列化
         /// </summary>
@@ -20,7 +32,9 @@ namespace Common.Redis.Extensions.Serializer
         /// <returns></returns>
         public byte[] Serialize(object item)
         {
-            return MessagePackSerializer.Serialize(item, MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray));
+            var type = item?.GetType();
+            var jsonString = JsonConvert.SerializeObject(item, type, settings);
+            return encoding.GetBytes(jsonString);
         }
 
         /// <summary>
@@ -28,10 +42,8 @@ namespace Common.Redis.Extensions.Serializer
         /// </summary>
         /// <param name="item"></param>
         /// <returns></returns>
-        [Obsolete("弃用")]
         public Task<byte[]> SerializeAsync(object item)
         {
-           
             return Task.Run(() => Serialize(item));
         }
 
@@ -39,10 +51,10 @@ namespace Common.Redis.Extensions.Serializer
         /// 反序列化
         /// </summary>
         /// <param name="serializedObject"></param>
-        /// <returns></returns> 
+        /// <returns></returns>
         public object Deserialize(byte[] serializedObject)
         {
-            return MessagePackSerializer.Deserialize<object>(serializedObject);
+            return Deserialize<object>(serializedObject);
         }
 
         /// <summary>
@@ -50,7 +62,6 @@ namespace Common.Redis.Extensions.Serializer
         /// </summary>
         /// <param name="serializedObject"></param>
         /// <returns></returns>
-        [Obsolete("弃用")]
         public Task<object> DeserializeAsync(byte[] serializedObject)
         {
             return Task.Run(() => Deserialize(serializedObject));
@@ -64,7 +75,8 @@ namespace Common.Redis.Extensions.Serializer
         /// <returns></returns>
         public T Deserialize<T>(byte[] serializedObject)
         {
-            return MessagePackSerializer.Deserialize<T>(serializedObject, MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray));
+            var jsonString = encoding.GetString(serializedObject);
+            return JsonConvert.DeserializeObject<T>(jsonString, settings);
         }
 
         /// <summary>
@@ -73,7 +85,6 @@ namespace Common.Redis.Extensions.Serializer
         /// <typeparam name="T"></typeparam>
         /// <param name="serializedObject"></param>
         /// <returns></returns>
-        [Obsolete("弃用")]
         public Task<T> DeserializeAsync<T>(byte[] serializedObject)
         {
             return Task.Run(() => Deserialize<T>(serializedObject));
