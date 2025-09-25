@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Commands.Trading;
+using CryptoSpot.Application.DomainCommands.Trading; // 引入所有命令
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Entities;
 using CryptoSpot.Bus.Core;

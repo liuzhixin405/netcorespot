@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Commands.Trading;
+using CryptoSpot.Application.DomainCommands.Trading; // 新命名空间
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Interfaces.Repositories;

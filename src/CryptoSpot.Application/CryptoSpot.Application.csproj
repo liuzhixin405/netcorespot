@@ -6,7 +6,8 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\CryptoSpot.Core\CryptoSpot.Core.csproj" />
-    <ProjectReference Include="..\CryptoSpot.Infrastructure\CryptoSpot.Infrastructure.csproj" />
+    <ProjectReference Include="..\CryptoSpot.Bus\CryptoSpot.Bus.csproj" />
+    <!-- 仍不直接引用 Infrastructure 保持依赖方向 -->
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="MessagePackAnalyzer" Version="2.2.60" />
@@ -15,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="UseCases\" />
+    <Folder Include="DomainCommands\" />
   </ItemGroup>
 </Project>

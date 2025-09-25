@@ -8,11 +8,14 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
-	  <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0" />
   </ItemGroup>
 
+  <!-- 移除已迁移到 Application 层的 Trading 命令，防止重复 & Bus 依赖 -->
   <ItemGroup>
-    <ProjectReference Include="..\CryptoSpot.Bus\CryptoSpot.Bus.csproj" />
+    <Compile Remove="Commands\Trading\**\*.cs" />
   </ItemGroup>
+
+  <!-- AuthCommands 仍保留于 Core；后续若引入总线再迁移或重塑 -->
 
 </Project>
