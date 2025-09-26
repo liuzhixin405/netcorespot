@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using CryptoSpot.Core.Interfaces.Trading;
-using Common.Redis.Extensions; // redis
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;

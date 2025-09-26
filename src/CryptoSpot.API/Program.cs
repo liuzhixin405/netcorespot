@@ -6,9 +6,9 @@ using CryptoSpot.Core.Interfaces.Auth;
 using CryptoSpot.Core.Interfaces.Repositories;
 using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Core.Interfaces.Caching;
-using CryptoSpot.Infrastructure.Data;
+// using CryptoSpot.Infrastructure.Data; // replaced by Persistence
 using CryptoSpot.Infrastructure.ExternalServices;
-using CryptoSpot.Infrastructure.Repositories;
+// using CryptoSpot.Infrastructure.Repositories; // repositories now from Persistence
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.Application.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -21,6 +21,8 @@ using CryptoSpot.Application.DependencyInjection;
 using CryptoSpot.Redis; // renamed
 using System.Text.Json; // for JsonNamingPolicy
 using System.Text.Json.Serialization; // for JsonStringEnumConverter
+using CryptoSpot.Persistence.DependencyInjection; // new persistence DI
+using CryptoSpot.Persistence.Data; // for context resolution
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,20 +43,9 @@ builder.Services.AddControllers(options => { })
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Database - 使用连接池以处理高并发
-builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
-{
-    options.UseMySql(builder.Configuration.GetConnectionString("DefaultConnection"), ServerVersion.Parse("8.0"), mysqlOptions =>
-    {
-        mysqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 3,
-            maxRetryDelay: TimeSpan.FromSeconds(30),
-            errorNumbersToAdd: null);
-        mysqlOptions.CommandTimeout(60);
-    });
-    options.EnableThreadSafetyChecks(false); // 禁用线程安全检查
-    // options.EnableServiceProviderCaching(false); // 注释掉，使用默认缓存
-}, poolSize: 20); // 适中的连接池大小 
+// 移除直接 AddDbContextPool<ApplicationDbContext> (旧 Infrastructure) 改为 Persistence 封装
+// Database - 使用连接池以处理高并发 由 AddPersistence 负责
+builder.Services.AddPersistence(builder.Configuration);
 
 // 添加 Redis (开发环境本地) - 放在数据库之后
 builder.Services.AddRedis(builder.Configuration.GetSection("Redis"));
@@ -92,7 +83,6 @@ builder.Services.AddScoped<IOrderMatchingEngine, OrderMatchingEngine>();
 // Use Cases
 builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.LoginUseCase>();
 builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.RegisterUseCase>();
-
 
 // SignalR Data Push Service
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
@@ -157,7 +147,6 @@ builder.Services.AddHttpClient<BinanceMarketDataProvider>((serviceProvider, clie
     return handler;
 });
 
-
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
@@ -216,8 +205,6 @@ app.UseHttpsRedirection(); // Commented out for HTTP development
 
 app.UseRouting();
 
-
-
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -226,8 +213,6 @@ app.MapControllers();
 
 // Map SignalR Hub
 app.MapHub<CryptoSpot.API.Hubs.TradingHub>("/tradingHub");
-
-
 
 // Ensure database is created and up-to-date
 using (var scope = app.Services.CreateScope())
