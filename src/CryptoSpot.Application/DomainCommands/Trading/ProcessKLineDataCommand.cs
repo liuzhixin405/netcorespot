@@ -1,5 +1,5 @@
 using CryptoSpot.Bus.Core;
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 
 namespace CryptoSpot.Application.DomainCommands.Trading
 {

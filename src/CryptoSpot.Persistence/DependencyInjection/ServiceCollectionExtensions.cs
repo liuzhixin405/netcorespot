@@ -2,7 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.EntityFrameworkCore;
 using CryptoSpot.Persistence.Data;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Interfaces.Repositories; // TODO move interfaces to Application
 using CryptoSpot.Persistence.Repositories;
 
 namespace CryptoSpot.Persistence.DependencyInjection;

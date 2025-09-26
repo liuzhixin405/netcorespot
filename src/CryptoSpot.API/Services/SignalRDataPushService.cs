@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using CryptoSpot.API.Hubs;
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Core.Interfaces.Trading;
 

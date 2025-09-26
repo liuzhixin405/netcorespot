@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Core.Interfaces.Auth;
 using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Commands.Auth;

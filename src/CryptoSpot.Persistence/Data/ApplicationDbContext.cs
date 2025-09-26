@@ -1,5 +1,5 @@
 using Microsoft.EntityFrameworkCore;
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 
 namespace CryptoSpot.Persistence.Data;
 

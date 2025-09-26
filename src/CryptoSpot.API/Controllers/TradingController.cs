@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using System.Security.Claims;
 
 namespace CryptoSpot.API.Controllers

@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Core.Interfaces.Users;
@@ -6,9 +6,7 @@ using CryptoSpot.Core.Interfaces.Auth;
 using CryptoSpot.Core.Interfaces.Repositories;
 using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Core.Interfaces.Caching;
-// using CryptoSpot.Infrastructure.Data; // replaced by Persistence
 using CryptoSpot.Infrastructure.ExternalServices;
-// using CryptoSpot.Infrastructure.Repositories; // repositories now from Persistence
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.Application.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -18,11 +16,11 @@ using System.Net;
 using System.Text;
 using CryptoSpot.API.Services;
 using CryptoSpot.Application.DependencyInjection;
-using CryptoSpot.Redis; // renamed
-using System.Text.Json; // for JsonNamingPolicy
-using System.Text.Json.Serialization; // for JsonStringEnumConverter
-using CryptoSpot.Persistence.DependencyInjection; // new persistence DI
-using CryptoSpot.Persistence.Data; // for context resolution
+using CryptoSpot.Redis;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using CryptoSpot.Persistence.DependencyInjection;
+using CryptoSpot.Persistence.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 

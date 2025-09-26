@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Bus.Core;
 
 namespace CryptoSpot.Application.DomainCommands.Trading

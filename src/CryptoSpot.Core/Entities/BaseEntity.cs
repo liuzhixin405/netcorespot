@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using CryptoSpot.Core.Extensions;
 
-namespace CryptoSpot.Core.Entities
+namespace CryptoSpot.Domain.Entities
 {
     /// <summary>
     /// 基础实体类 - 包含所有表的公共字段

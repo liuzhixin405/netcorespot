@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Core.Interfaces;
 using CryptoSpot.Core.Interfaces.MarketData;
 using CryptoSpot.Core.Interfaces.Users;

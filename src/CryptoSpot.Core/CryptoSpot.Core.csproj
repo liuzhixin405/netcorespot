@@ -4,18 +4,18 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Rename logical assembly & root namespace to Domain -->
+    <AssemblyName>CryptoSpot.Domain</AssemblyName>
+    <RootNamespace>CryptoSpot.Domain</RootNamespace>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.0" />
-  </ItemGroup>
+  <!-- Removed EF Core package references to keep domain pure -->
 
-  <!-- 移除已迁移到 Application 层的 Trading 命令，防止重复 & Bus 依赖 -->
   <ItemGroup>
     <Compile Remove="Commands\Trading\**\*.cs" />
+    <!-- Repository interfaces retained temporarily until migrated to Application.Abstractions -->
   </ItemGroup>
 
-  <!-- AuthCommands 仍保留于 Core；后续若引入总线再迁移或重塑 -->
+  <!-- AuthCommands 保留; 其余接口逐步迁移到 Application.Abstractions -->
 
 </Project>

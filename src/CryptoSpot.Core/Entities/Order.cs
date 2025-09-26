@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using CryptoSpot.Core.ValueObjects;
 
-namespace CryptoSpot.Core.Entities
+namespace CryptoSpot.Domain.Entities
 {
     public enum OrderSide
     {

@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
+    <!-- 目前 Domain 物理目录仍是 CryptoSpot.Core，先保持此引用；物理重命名后再更新 -->
     <ProjectReference Include="..\CryptoSpot.Core\CryptoSpot.Core.csproj" />
   </ItemGroup>
   <ItemGroup>

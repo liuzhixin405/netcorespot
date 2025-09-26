@@ -1,5 +1,5 @@
 using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Application.Services

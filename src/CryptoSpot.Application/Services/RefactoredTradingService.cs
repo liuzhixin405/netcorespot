@@ -1,6 +1,6 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 引入所有命令
 using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Core.Interfaces.Users; // 新增 引入资产服务接口

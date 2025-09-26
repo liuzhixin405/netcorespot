@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Entities;
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Core.Interfaces.Users;
 using CryptoSpot.Core.Interfaces.Caching;
 using CryptoSpot.Core.Interfaces.Repositories;

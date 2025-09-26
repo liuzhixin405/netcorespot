@@ -2,7 +2,7 @@ using CryptoSpot.Core.Extensions;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace CryptoSpot.Core.Entities
+namespace CryptoSpot.Domain.Entities
 {
     [Table("TradingPairs")]
     public class TradingPair : BaseEntity

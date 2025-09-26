@@ -1,5 +1,5 @@
-using CryptoSpot.Core.Entities;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Domain.Entities;
+using CryptoSpot.Core.Interfaces.Repositories; // TODO move to Application.Abstractions later
 using CryptoSpot.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 

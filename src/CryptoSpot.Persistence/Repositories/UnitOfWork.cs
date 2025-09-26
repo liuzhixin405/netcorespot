@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Core.Interfaces.Repositories; // TODO rename namespace after interface relocation
 using CryptoSpot.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;

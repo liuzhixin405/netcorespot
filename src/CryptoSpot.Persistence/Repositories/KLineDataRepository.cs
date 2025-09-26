@@ -1,6 +1,6 @@
 // filepath: g:\github\netcorespot\src\CryptoSpot.Persistence\Repositories\KLineDataRepository.cs
-using CryptoSpot.Core.Entities;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Domain.Entities;
+using CryptoSpot.Core.Interfaces.Repositories; // TODO migrate later
 using CryptoSpot.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;

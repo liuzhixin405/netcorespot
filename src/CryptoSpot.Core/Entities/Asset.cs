@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace CryptoSpot.Core.Entities
+namespace CryptoSpot.Domain.Entities
 {
     /// <summary>
     /// 统一资产表 - 支持用户资产和系统资产
