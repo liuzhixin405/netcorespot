@@ -12,6 +12,7 @@
     <ProjectReference Include="..\CryptoSpot.Application\CryptoSpot.Application.csproj" />
     <ProjectReference Include="..\CryptoSpot.Redis\CryptoSpot.Redis.csproj" />
     <ProjectReference Include="..\CryptoSpot.Persistence\CryptoSpot.Persistence.csproj" />
+    <ProjectReference Include="..\CryptoSpot.Domain\CryptoSpot.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>

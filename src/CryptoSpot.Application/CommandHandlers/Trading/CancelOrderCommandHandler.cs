@@ -2,6 +2,7 @@ using CryptoSpot.Application.DomainCommands.Trading; // 新命名空间
 using CryptoSpot.Core.Interfaces.Trading;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Domain.Entities; // 添加引用枚举
 
 namespace CryptoSpot.Application.CommandHandlers.Trading
 {
@@ -37,7 +38,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 }
 
                 // 检查订单状态是否可以取消
-                if (order.Status != Core.Entities.OrderStatus.Pending)
+                if (order.Status != OrderStatus.Pending)
                 {
                     _logger.LogWarning("Order {OrderId} cannot be cancelled, current status: {Status}", 
                         command.OrderId, order.Status);

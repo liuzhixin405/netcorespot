@@ -5,8 +5,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <!-- 目前 Domain 物理目录仍是 CryptoSpot.Core，先保持此引用；物理重命名后再更新 -->
-    <ProjectReference Include="..\CryptoSpot.Core\CryptoSpot.Core.csproj" />
+    <!-- 物理目录已重命名为 CryptoSpot.Domain -->
+    <ProjectReference Include="..\CryptoSpot.Domain\CryptoSpot.Domain.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />

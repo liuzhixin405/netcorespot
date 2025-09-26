@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CryptoSpot.Core\CryptoSpot.Core.csproj" />
     <ProjectReference Include="..\CryptoSpot.Redis\CryptoSpot.Redis.csproj" />
+    <ProjectReference Include="..\CryptoSpot.Domain\CryptoSpot.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
