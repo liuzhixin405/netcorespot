@@ -8,11 +8,11 @@ namespace CryptoSpot.Infrastructure.Hubs
 {
     public class TradingHub : Hub
     {
-        private readonly IKLineDataService _klineDataService;
+        private readonly IKLineDataDomainService _klineDataService; // 调整为领域接口
         private readonly IOrderMatchingEngine _orderMatchingEngine;
         private readonly ILogger<TradingHub> _logger;
 
-        public TradingHub(IKLineDataService klineDataService, IOrderMatchingEngine orderMatchingEngine, ILogger<TradingHub> logger)
+        public TradingHub(IKLineDataDomainService klineDataService, IOrderMatchingEngine orderMatchingEngine, ILogger<TradingHub> logger)
         {
             _klineDataService = klineDataService;
             _orderMatchingEngine = orderMatchingEngine;
@@ -37,7 +37,7 @@ namespace CryptoSpot.Infrastructure.Hubs
                 await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
                 await Clients.Caller.SendAsync("KLineSubscribed", symbol, interval);
 
-                // 新增: 立即推送最近一条历史/最新K线，避免订阅后长时间无数据
+                // 使用领域服务获取最新一条实体
                 var latest = await _klineDataService.GetLatestKLineDataAsync(symbol, interval);
                 if (latest != null)
                 {

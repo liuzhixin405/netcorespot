@@ -39,10 +39,10 @@ namespace CryptoSpot.Application.DependencyInjection
             services.AddSingleton<IDtoMappingService, DtoMappingService>(); // 改为 Singleton，便于在单例后台服务中使用
             
             // DTO V2 服务注册集中于此，避免在 Program.cs 分散注册
-            services.AddScoped<ITradingServiceV2, TradingServiceV2>();
-            services.AddScoped<IAssetServiceV2, AssetServiceV2>(); // 新增
-            services.AddScoped<IUserServiceV2, UserServiceV2>();   // 新增
-            services.AddScoped<IKLineDataServiceV2, KLineDataServiceV2>(); // 新增
+            services.AddScoped<ITradingService, TradingService>();
+            services.AddScoped<IAssetService, AssetService>();
+            services.AddScoped<IUserService, UserService>();
+            services.AddScoped<IKLineDataService, KLineDataService>(); // DTO 服务
             
             return services;
         }

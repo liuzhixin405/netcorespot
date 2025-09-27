@@ -23,4 +23,9 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
+  <!-- 移除重复领域服务实现旧文件（已重命名为 KLineDataDomainService.cs） -->
+  <ItemGroup>
+    <Compile Remove="Services\KLineDataService.cs" />
+  </ItemGroup>
+
 </Project>

@@ -26,8 +26,8 @@ namespace CryptoSpot.Application.Services
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
         private readonly IOrderMatchingEngine _matchingEngine;
-        private readonly IAssetService _assetService;
-        private readonly IKLineDataDomainService _klineDataService; // 更新: 领域接口改名
+        private readonly IAssetDomainService _assetService;
+        private readonly IKLineDataDomainService _klineDataService; // 更新
 
         public TradingService(
             IDtoMappingService mappingService,
@@ -37,7 +37,7 @@ namespace CryptoSpot.Application.Services
             IOrderService orderService,
             ITradeService tradeService,
             IOrderMatchingEngine matchingEngine,
-            IAssetService assetService,
+            IAssetDomainService assetService,
             IKLineDataDomainService klineDataService)
         {
             _mappingService = mappingService;
@@ -156,22 +156,16 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var assetsResponse = await _assetService.GetUserAssetsAsync(userId);
-                if (!assetsResponse.Success || assetsResponse.Data == null)
-                {
-                    return ApiResponseDto<AssetSummaryDto>.CreateError(assetsResponse.Message ?? "获取用户资产失败");
-                }
-                var assets = assetsResponse.Data.ToList();
-                var totalValue = assets.Sum(a => a.Total);
-                var availableValue = assets.Sum(a => a.Available);
-                var frozenValue = assets.Sum(a => a.Frozen);
+                // 领域服务直接返回资产实体集合，不再是 ApiResponseDto
+                var assets = await _assetService.GetUserAssetsAsync(userId);
+                var assetList = assets.ToList();
 
                 var summary = new AssetSummaryDto
                 {
-                    TotalValue = totalValue,
-                    AvailableValue = availableValue,
-                    FrozenValue = frozenValue,
-                    AssetTypes = assets.Count(),
+                    TotalValue = assetList.Sum(a => a.Total),
+                    AvailableValue = assetList.Sum(a => a.Available),
+                    FrozenValue = assetList.Sum(a => a.Frozen),
+                    AssetTypes = assetList.Count(a => a.Total > 0),
                     LastUpdated = DateTime.UtcNow
                 };
 

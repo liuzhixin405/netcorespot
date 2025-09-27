@@ -11,25 +11,26 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using CryptoSpot.Application.Abstractions.Repositories;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     public class AuthService : IAuthService
     {
-        private readonly IUserService _userService; // 修改: 依赖领域用户服务
-        private readonly IAssetService _assetService;
+        private readonly IUserRepository _userRepository;
+        private readonly IAssetDomainService _assetService;
         private readonly IConfiguration _configuration;
         private readonly ILogger<AuthService> _logger;
         private readonly IDtoMappingService _mappingService;
 
         public AuthService(
-            IUserService userService,
-            IAssetService assetService,
+            IUserRepository userRepository,
+            IAssetDomainService assetService,
             IConfiguration configuration,
             ILogger<AuthService> logger,
             IDtoMappingService mappingService)
         {
-            _userService = userService;
+            _userRepository = userRepository;
             _assetService = assetService;
             _configuration = configuration;
             _logger = logger;
@@ -40,7 +41,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var user = await _userService.GetUserByUsernameAsync(request.Username);
+                var user = (await _userRepository.FindAsync(u => u.Username == request.Username)).FirstOrDefault();
                 if (user == null || string.IsNullOrWhiteSpace(user.PasswordHash))
                 {
                     _logger.LogWarning("登录失败: {Username}", request.Username);
@@ -54,14 +55,8 @@ namespace CryptoSpot.Infrastructure.Services
                     return ApiResponseDto<AuthResultDto?>.CreateError("用户名或密码错误");
                 }
 
-                // 惰性升级旧格式
-                if (verifyResult.NeedsUpgrade && verifyResult.UpgradedHash != null)
-                {
-                    user.PasswordHash = verifyResult.UpgradedHash;
-                }
-
                 user.LastLoginAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                await _userService.UpdateUserAsync(user);
+                await _userRepository.UpdateAsync(user);
 
                 var token = GenerateJwtToken(user);
                 var dto = new AuthResultDto
@@ -83,9 +78,9 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                if (await _userService.GetUserByUsernameAsync(request.Username) != null)
+                if ((await _userRepository.FindAsync(u => u.Username == request.Username)).Any())
                     return ApiResponseDto<AuthResultDto?>.CreateError("用户名已存在");
-                if (await _userService.GetUserByEmailAsync(request.Email) != null)
+                if ((await _userRepository.FindAsync(u => u.Email == request.Email)).Any())
                     return ApiResponseDto<AuthResultDto?>.CreateError("邮箱已存在");
 
                 var user = new Domain.Entities.User
@@ -95,9 +90,8 @@ namespace CryptoSpot.Infrastructure.Services
                     PasswordHash = HashPassword(request.Password),
                     IsActive = true
                 };
-                var created = await _userService.CreateUserAsync(user);
+                var created = await _userRepository.AddAsync(user);
 
-                // 初始化资产
                 var initialBalances = new Dictionary<string, decimal>
                 {
                     { "USDT", 10000m },
@@ -127,7 +121,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var user = await _userService.GetUserByIdAsync(userId);
+                var user = await _userRepository.GetByIdAsync(userId);
                 return ApiResponseDto<UserDto?>.CreateSuccess(user != null ? _mappingService.MapToDto(user) : null);
             }
             catch (Exception ex)
@@ -168,7 +162,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         #region 密码 & Token
         private const string PasswordAlgo = "PBKDF2-SHA256";
-        private const int PasswordIterations = 600000; // 与现有策略保持
+        private const int PasswordIterations = 600000;
         private const int SaltSize = 16;
         private const int KeySize = 32;
 
@@ -187,20 +181,18 @@ namespace CryptoSpot.Infrastructure.Services
             if (string.IsNullOrWhiteSpace(stored)) return (false, false, null);
             try
             {
-                // 新格式: algo$iter$salt$hash
                 if (stored.Contains('$'))
                 {
                     var parts = stored.Split('$');
                     if (parts.Length != 4) return (false, false, null);
                     var algo = parts[0];
-                    if (!string.Equals(algo, PasswordAlgo, StringComparison.Ordinal)) return (false, false, null); // 只支持当前算法
+                    if (!string.Equals(algo, PasswordAlgo, StringComparison.Ordinal)) return (false, false, null);
                     if (!int.TryParse(parts[1], out var iter) || iter <= 0) return (false, false, null);
                     var saltBytes = Convert.FromBase64String(parts[2]);
                     var storedKey = Convert.FromBase64String(parts[3]);
                     var derived = Rfc2898DeriveBytes.Pbkdf2(password, saltBytes, iter, HashAlgorithmName.SHA256, storedKey.Length);
                     var isValid = CryptographicOperations.FixedTimeEquals(derived, storedKey);
-                    // 若参数需升级（比如未来调整迭代次数）可在此判断 iter != PasswordIterations
-                    var needsUpgrade = isValid && iter != PasswordIterations; // 预留未来策略
+                    var needsUpgrade = isValid && iter != PasswordIterations;
                     string? upgraded = null;
                     if (needsUpgrade)
                     {
@@ -211,7 +203,6 @@ namespace CryptoSpot.Infrastructure.Services
                 }
                 else
                 {
-                    // 旧格式: Base64( salt(16) + hash(32) )
                     byte[] raw;
                     try { raw = Convert.FromBase64String(stored); } catch { return (false, false, null); }
                     if (raw.Length != SaltSize + KeySize) return (false, false, null);
@@ -222,7 +213,6 @@ namespace CryptoSpot.Infrastructure.Services
                     var derived = Rfc2898DeriveBytes.Pbkdf2(password, salt, PasswordIterations, HashAlgorithmName.SHA256, KeySize);
                     var isValid = CryptographicOperations.FixedTimeEquals(derived, oldHash);
                     if (!isValid) return (false, false, null);
-                    // 需要升级到新格式
                     var upgraded = string.Join('$', PasswordAlgo, PasswordIterations.ToString(), Convert.ToBase64String(salt), Convert.ToBase64String(oldHash));
                     return (true, true, upgraded);
                 }

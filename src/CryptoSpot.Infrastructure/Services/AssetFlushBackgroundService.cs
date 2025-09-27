@@ -41,7 +41,7 @@ namespace CryptoSpot.Infrastructure.Services
         private async Task FlushAsync(CancellationToken ct)
         {
             using var scope = _serviceProvider.CreateScope();
-            var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>() as AssetService;
+            var assetService = scope.ServiceProvider.GetRequiredService<IAssetDomainService>() as AssetDomainService;
             if (assetService == null) return; // 只在具体实现可用时 flush
             await assetService.FlushDirtyAssetsAsync(ct);
         }

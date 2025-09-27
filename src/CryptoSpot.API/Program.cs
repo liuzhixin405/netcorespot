@@ -79,16 +79,20 @@ builder.Services.AddSingleton<RedisCacheService>();
 
 // Infrastructure Services (Data Access & External Services)
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IUserService, UserService>(); // 领域用户服务
+// 替换旧领域用户服务注册 -> 统一后的应用用户服务已在 AddCleanArchitecture 中注册, 此处移除
+// builder.Services.AddScoped<IUserService, UserService>();
 // 移除: IUserServiceV2 / IAssetServiceV2 / IKLineDataServiceV2 / ITradingServiceV2 的重复注册 (集中在 AddCleanArchitecture)
 // builder.Services.AddScoped<IUserServiceV2, UserServiceV2>();
 builder.Services.AddScoped<IPriceDataService, PriceDataService>();
-builder.Services.AddScoped<IKLineDataService, KLineDataService>();
-// builder.Services.AddScoped<IKLineDataServiceV2, KLineDataServiceV2>();
+// 更新: 领域服务与 DTO 服务分离
+builder.Services.AddScoped<IKLineDataDomainService, KLineDataDomainService>(); // 领域
+builder.Services.AddScoped<IKLineDataService, KLineDataService>(); // DTO
+// builder.Services.AddScoped<IKLineDataServiceV2, KLineDataServiceV2>(); // 已移除
 builder.Services.AddScoped<ITradingPairService, TradingPairService>();
 // builder.Services.AddScoped<ITradingServiceV2, TradingServiceV2>();
 // builder.Services.AddScoped<IOrderService, OrderService>(); // 已由 AddCleanArchitecture 注册 RefactoredOrderService
-builder.Services.AddScoped<IAssetService, AssetService>();
+builder.Services.AddScoped<IAssetDomainService, AssetDomainService>(); // 领域
+// builder.Services.AddScoped<IAssetService, AssetService>(); // old infra registration removed (now DTO facade in Application)
 
 // Data Initialization Service
 builder.Services.AddScoped<DataInitializationService>();

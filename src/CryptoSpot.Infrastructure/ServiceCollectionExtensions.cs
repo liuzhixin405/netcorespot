@@ -43,7 +43,8 @@ namespace CryptoSpot.Infrastructure
             // 注册基础设施服务实现 (应用层只保留接口)
             services.AddScoped<IOrderService, OrderService>();
             services.AddScoped<ITradeService, TradeService>();
-            services.AddScoped<IUserService, UserService>(); // 新增：注册领域用户服务
+            // 移除旧的领域 IUserService 注册，统一在 Application 中注册新的用户服务
+            // services.AddScoped<IUserService, UserService>();
 
             services.AddScoped<DataInitializationService>();
             // 注册多做市配置与注册表

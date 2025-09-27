@@ -28,7 +28,8 @@ namespace CryptoSpot.Redis.Extensions.ServerIteration
 				var server = multiplexer.GetServer(endPoint);
 				if (targetRole == ServerEnumerationStrategy.TargetRoleOptions.PreferSlave)
 				{
-					if (!server.IsSlave)
+					// 兼容: 仅检查新属性 IsReplica
+					if (!server.IsReplica)
 						continue;
 				}
 				if (unreachableServerAction == ServerEnumerationStrategy.UnreachableServerActionOptions.IgnoreIfOtherAvailable)

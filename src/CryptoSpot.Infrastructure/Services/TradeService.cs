@@ -15,7 +15,7 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IOrderRepository _orderRepository; // 预留: 若未来需要直接更新订单
         private readonly ITradingPairRepository _tradingPairRepository;
         private readonly IUnitOfWork _unitOfWork;
-        private readonly IAssetService _assetService;
+        private readonly IAssetDomainService _assetService;
         private readonly ILogger<TradeService> _logger;
         private readonly IMarketMakerRegistry _marketMakerRegistry; // 新增
 
@@ -24,7 +24,7 @@ namespace CryptoSpot.Infrastructure.Services
             IOrderRepository orderRepository,
             ITradingPairRepository tradingPairRepository,
             IUnitOfWork unitOfWork,
-            IAssetService assetService,
+            IAssetDomainService assetService,
             ILogger<TradeService> logger,
             IMarketMakerRegistry marketMakerRegistry) // 新增
         {

@@ -102,7 +102,7 @@ namespace CryptoSpot.Application.Services
 
                 using var scope = _serviceScopeFactory.CreateScope();
                 var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
-                var tradingService = scope.ServiceProvider.GetRequiredService<ITradingServiceV2>();
+                var tradingService = scope.ServiceProvider.GetRequiredService<ITradingService>();
 
                 // 获取当前价格
                 var currentPrice = await priceDataService.GetCurrentPriceAsync(symbol);
@@ -191,7 +191,7 @@ namespace CryptoSpot.Application.Services
         public async Task RebalanceSystemAssetsAsync()
         {
             using var scope = _serviceScopeFactory.CreateScope();
-            var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>();
+            var assetService = scope.ServiceProvider.GetRequiredService<IAssetDomainService>();
             
             try
             {
@@ -213,7 +213,7 @@ namespace CryptoSpot.Application.Services
             using var scope = _serviceScopeFactory.CreateScope();
             var orderService = scope.ServiceProvider.GetRequiredService<IOrderService>();
             var tradeService = scope.ServiceProvider.GetRequiredService<ITradeService>();
-            var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>();
+            var assetService = scope.ServiceProvider.GetRequiredService<IAssetDomainService>();
             
             try
             {

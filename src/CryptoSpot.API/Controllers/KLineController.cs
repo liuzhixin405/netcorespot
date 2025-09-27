@@ -60,7 +60,7 @@ namespace CryptoSpot.API.Controllers
                 var klineData = await _klineDataService.GetKLineDataAsync(symbol, interval, startTime, endTime, limit);
 
                 // 转换为前端期望的格式
-                var response = klineData.Select(k => new
+                var response = klineData.Data.Select(k => new
                 {
                     timestamp = k.OpenTime,
                     open = k.Open,
@@ -108,7 +108,7 @@ namespace CryptoSpot.API.Controllers
 
                 // 获取最新的一条K线数据
                 var klineData = await _klineDataService.GetKLineDataAsync(symbol, interval, null, null, 1);
-                var latestKline = klineData.FirstOrDefault();
+                var latestKline = klineData.Data.FirstOrDefault();
 
                 if (latestKline == null)
                 {

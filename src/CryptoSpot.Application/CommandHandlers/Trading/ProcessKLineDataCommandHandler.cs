@@ -10,12 +10,12 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
     /// </summary>
     public class ProcessKLineDataCommandHandler : ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>
     {
-        private readonly IKLineDataService _klineDataService; // 修改: 使用域服务接口
+        private readonly IKLineDataDomainService _klineDataService; // 更新
         private readonly ICommandBus _commandBus;
         private readonly ILogger<ProcessKLineDataCommandHandler> _logger;
 
         public ProcessKLineDataCommandHandler(
-            IKLineDataService klineDataService, // 修改: 注入域服务
+            IKLineDataDomainService klineDataService, // 更新
             ICommandBus commandBus,
             ILogger<ProcessKLineDataCommandHandler> logger)
         {

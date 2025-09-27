@@ -7,20 +7,20 @@ using CryptoSpot.Application.Abstractions.Services.Users;
 namespace CryptoSpot.Application.Services
 {
     /// <summary>
-    /// DTO资产服务实现
+    /// 文件已重命名: 原 AssetServiceV2.cs 逻辑并入 AssetService (应用层 DTO 门面)。
     /// </summary>
-    public class AssetServiceV2 : IAssetServiceV2
+    public class AssetService : IAssetService
     {
-        private readonly IAssetService _assetService;
+        private readonly IAssetDomainService _domain; // 原 _assetService
         private readonly IDtoMappingService _mappingService;
-        private readonly ILogger<AssetServiceV2> _logger;
+        private readonly ILogger<AssetService> _logger;
 
-        public AssetServiceV2(
-            IAssetService assetService,
+        public AssetService(
+            IAssetDomainService domain,
             IDtoMappingService mappingService,
-            ILogger<AssetServiceV2> logger)
+            ILogger<AssetService> logger)
         {
-            _assetService = assetService;
+            _domain = domain;
             _mappingService = mappingService;
             _logger = logger;
         }
@@ -30,7 +30,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var assets = await _assetService.GetUserAssetsAsync(userId);
+                var assets = await _domain.GetUserAssetsAsync(userId);
                 var dtoList = _mappingService.MapToDto(assets);
                 return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(dtoList);
             }
@@ -45,7 +45,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var asset = await _assetService.GetUserAssetAsync(userId, symbol);
+                var asset = await _domain.GetUserAssetAsync(userId, symbol);
                 var dto = asset != null ? _mappingService.MapToDto(asset) : null;
                 return ApiResponseDto<AssetDto?>.CreateSuccess(dto);
             }
@@ -60,7 +60,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var assets = await _assetService.GetUserAssetsAsync(userId);
+                var assets = await _domain.GetUserAssetsAsync(userId);
                 var assetList = assets.ToList();
                 
                 var summary = new AssetSummaryDto
@@ -79,7 +79,9 @@ namespace CryptoSpot.Application.Services
                 _logger.LogError(ex, "Error getting user asset summary for user {UserId}", userId);
                 return ApiResponseDto<AssetSummaryDto>.CreateError("获取用户资产汇总失败");
             }
-        }        // 系统资产查询
+        }
+
+        // 系统资产查询
         public Task<ApiResponseDto<IEnumerable<AssetDto>>> GetSystemAssetsAsync()
         {
             try
@@ -115,7 +117,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var success = await _assetService.AddAssetAsync(userId, request.Symbol, request.Amount);
+                var success = await _domain.AddAssetAsync(userId, request.Symbol, request.Amount);
                 return ApiResponseDto<bool>.CreateSuccess(success, success ? "资产增加成功" : "资产增加失败");
             }
             catch (Exception ex)
@@ -129,7 +131,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var success = await _assetService.DeductAssetAsync(userId, request.Symbol, request.Amount);
+                var success = await _domain.DeductAssetAsync(userId, request.Symbol, request.Amount);
                 return ApiResponseDto<bool>.CreateSuccess(success, success ? "资产扣除成功" : "资产扣除失败");
             }
             catch (Exception ex)
@@ -143,7 +145,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var success = await _assetService.FreezeAssetAsync(userId, request.Symbol, request.Amount);
+                var success = await _domain.FreezeAssetAsync(userId, request.Symbol, request.Amount);
                 return ApiResponseDto<bool>.CreateSuccess(success, success ? "资产冻结成功" : "资产冻结失败");
             }
             catch (Exception ex)
@@ -157,7 +159,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var success = await _assetService.UnfreezeAssetAsync(userId, request.Symbol, request.Amount);
+                var success = await _domain.UnfreezeAssetAsync(userId, request.Symbol, request.Amount);
                 return ApiResponseDto<bool>.CreateSuccess(success, success ? "资产解冻成功" : "资产解冻失败");
             }
             catch (Exception ex)
@@ -173,20 +175,20 @@ namespace CryptoSpot.Application.Services
             try
             {
                 // 由于原始服务没有TransferAssetAsync，我们需要手动实现转账逻辑
-                var fromAsset = await _assetService.GetUserAssetAsync(fromUserId, request.Symbol);
-                if (fromAsset == null || !await _assetService.HasSufficientBalanceAsync(fromUserId, request.Symbol, request.Amount))
+                var fromAsset = await _domain.GetUserAssetAsync(fromUserId, request.Symbol);
+                if (fromAsset == null || !await _domain.HasSufficientBalanceAsync(fromUserId, request.Symbol, request.Amount))
                 {
                     return ApiResponseDto<bool>.CreateSuccess(false, "余额不足");
                 }
 
-                var deductSuccess = await _assetService.DeductAssetAsync(fromUserId, request.Symbol, request.Amount);
+                var deductSuccess = await _domain.DeductAssetAsync(fromUserId, request.Symbol, request.Amount);
                 if (deductSuccess)
                 {
-                    var addSuccess = await _assetService.AddAssetAsync(request.ToUserId, request.Symbol, request.Amount);
+                    var addSuccess = await _domain.AddAssetAsync(request.ToUserId, request.Symbol, request.Amount);
                     if (!addSuccess)
                     {
                         // 回滚扣除操作
-                        await _assetService.AddAssetAsync(fromUserId, request.Symbol, request.Amount);
+                        await _domain.AddAssetAsync(fromUserId, request.Symbol, request.Amount);
                         return ApiResponseDto<bool>.CreateSuccess(false, "转账失败，已回滚");
                     }
                 }
@@ -234,7 +236,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var assets = await _assetService.GetUserAssetsAsync(userId);
+                var assets = await _domain.GetUserAssetsAsync(userId);
                 // 简化计算，假设所有资产与USDT是1:1比例
                 var totalValue = assets.Sum(a => a.Total);
                 return ApiResponseDto<decimal>.CreateSuccess(totalValue);
@@ -250,7 +252,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var assets = await _assetService.GetUserAssetsAsync(userId);
+                var assets = await _domain.GetUserAssetsAsync(userId);
                 var filteredAssets = assets.Where(a => a.Total >= threshold);
                 var dtoList = _mappingService.MapToDto(filteredAssets);
                 return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(dtoList);
@@ -267,7 +269,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var isValid = await _assetService.HasSufficientBalanceAsync(userId, symbol, amount, includeFrozen);
+                var isValid = await _domain.HasSufficientBalanceAsync(userId, symbol, amount, includeFrozen);
                 return ApiResponseDto<bool>.CreateSuccess(isValid);
             }
             catch (Exception ex)
@@ -281,7 +283,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var asset = await _assetService.GetUserAssetAsync(userId, symbol);
+                var asset = await _domain.GetUserAssetAsync(userId, symbol);
                 var exists = asset != null;
                 return ApiResponseDto<bool>.CreateSuccess(exists);
             }

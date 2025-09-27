@@ -19,7 +19,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         private readonly IOrderMatchingEngine _orderMatchingEngine;
         private readonly ICommandBus _commandBus;
         private readonly ILogger<SubmitOrderCommandHandler> _logger;
-        private readonly IAssetService _assetService; // 新增: 资产服务用于冻结
+        private readonly IAssetDomainService _assetService; // 新增: 资产服务用于冻结
         private readonly IMarketMakerRegistry _marketMakerRegistry; // 多做市支持
 
         public SubmitOrderCommandHandler(
@@ -29,7 +29,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             IOrderMatchingEngine orderMatchingEngine,
             ICommandBus commandBus,
             ILogger<SubmitOrderCommandHandler> logger,
-            IAssetService assetService,
+            IAssetDomainService assetService,
             IMarketMakerRegistry marketMakerRegistry) // 注入注册表
         {
             _tradingPairService = tradingPairService;

@@ -370,7 +370,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 }
 
                 using var scope = _serviceScopeFactory.CreateScope();
-                var klineDataService = scope.ServiceProvider.GetRequiredService<IKLineDataService>();
+                var klineDataService = scope.ServiceProvider.GetRequiredService<IKLineDataDomainService>();
                 
                 var tasks = new List<Task>();
                 foreach (var kvp in _klineCache)

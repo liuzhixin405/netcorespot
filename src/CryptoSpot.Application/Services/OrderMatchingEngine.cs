@@ -18,7 +18,7 @@ namespace CryptoSpot.Application.Services
     {
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
-        private readonly IAssetService _assetService;
+        private readonly IAssetDomainService _assetService;
         private readonly ITradingPairService _tradingPairService;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<OrderMatchingEngine> _logger;
@@ -30,7 +30,7 @@ namespace CryptoSpot.Application.Services
         public OrderMatchingEngine(
             IOrderService orderService,
             ITradeService tradeService,
-            IAssetService assetService,
+            IAssetDomainService assetService,
             ITradingPairService tradingPairService,
             IServiceProvider serviceProvider,
             ILogger<OrderMatchingEngine> logger,

@@ -8,10 +8,10 @@ using CryptoSpot.Application.Abstractions.Services.Users;
 
 namespace CryptoSpot.Infrastructure.Services
 {
-    public class AssetService : IAssetService
+    public class AssetDomainService : IAssetDomainService // rename from AssetService, implement new interface
     {
         private readonly IAssetRepository _assetRepository;
-        private readonly ILogger<AssetService> _logger;
+        private readonly ILogger<AssetDomainService> _logger;
         private readonly IUnitOfWork _unitOfWork; // 仅用于后台flush
         private readonly IRedisCache _redis;
 
@@ -78,9 +78,9 @@ redis.call('HINCRBYFLOAT', @key, 'available', amount)
 redis.call('HSET', @key, 'updatedAt', now)
 return 1");
 
-        public AssetService(
+        public AssetDomainService(
             IAssetRepository assetRepository,
-            ILogger<AssetService> logger,
+            ILogger<AssetDomainService> logger,
             IUnitOfWork unitOfWork,
             IRedisCache redis)
         {
