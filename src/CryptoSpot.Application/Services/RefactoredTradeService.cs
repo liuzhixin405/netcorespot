@@ -1,8 +1,11 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Interfaces.Trading;
+// removed: using CryptoSpot.Core.Interfaces.Repositories;
+// removed: using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Trading;
 using Microsoft.Extensions.Logging;
-using CryptoSpot.Core.Interfaces.Users; // 为 IAssetService 所在命名空间(如果不正确请调整)
+// removed: using CryptoSpot.Core.Interfaces.Users; // 为 IAssetService 所在命名空间(如果不正确请调整)
+using CryptoSpot.Application.Abstractions.Users; // IAssetService
 
 namespace CryptoSpot.Application.Services
 {

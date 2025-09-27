@@ -1,7 +1,7 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Bus.Core;
 
-namespace CryptoSpot.Core.Commands.Trading
+namespace CryptoSpot.Domain.Commands.Trading
 {
     /// <summary>
     /// 处理K线数据命令 - 用于高频K线数据处理

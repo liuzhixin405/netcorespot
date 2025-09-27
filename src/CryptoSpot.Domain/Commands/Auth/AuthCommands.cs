@@ -1,4 +1,4 @@
-namespace CryptoSpot.Core.Commands.Auth
+namespace CryptoSpot.Domain.Commands.Auth
 {
     /// <summary>
     /// 登录命令 - Core层的纯业务对象（无验证注解）

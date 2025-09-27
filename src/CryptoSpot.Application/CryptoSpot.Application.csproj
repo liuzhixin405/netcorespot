@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\CryptoSpot.Core\CryptoSpot.Core.csproj" />
+    <!-- Removed Core project reference -->
     <ProjectReference Include="..\CryptoSpot.Bus\CryptoSpot.Bus.csproj" />
     <ProjectReference Include="..\CryptoSpot.Domain\CryptoSpot.Domain.csproj" />
     <!-- 仍不直接引用 Infrastructure 保持依赖方向 -->

@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.MarketData; // migrated from Core.Interfaces.MarketData
+using CryptoSpot.Application.Abstractions.Trading;   // migrated from Core.Interfaces.Trading
 
 namespace CryptoSpot.API.Hubs
 {

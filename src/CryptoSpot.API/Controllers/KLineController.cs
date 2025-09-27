@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using CryptoSpot.Core.Interfaces.MarketData;
+using CryptoSpot.Application.Abstractions.MarketData; // migrated from Core.Interfaces.MarketData
 using Microsoft.AspNetCore.Authorization;
 
 namespace CryptoSpot.API.Controllers

@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Interfaces.Caching;
+using CryptoSpot.Application.Abstractions.Caching; // migrated from Core.Interfaces.Caching
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 

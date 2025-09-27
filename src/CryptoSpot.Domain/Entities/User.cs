@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Extensions;
+using CryptoSpot.Domain.Extensions;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 

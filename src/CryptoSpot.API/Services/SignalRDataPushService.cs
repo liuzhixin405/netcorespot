@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.SignalR;
 using CryptoSpot.API.Hubs;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces;
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.RealTime; // migrated
+using CryptoSpot.Application.Abstractions.Trading; // migrated
 
 namespace CryptoSpot.API.Services
 {
@@ -48,7 +48,6 @@ namespace CryptoSpot.API.Services
                 _logger.LogError(ex, $"Failed to push KLine data for {symbol} {interval}");
             }
         }
-
 
         public async Task PushPriceDataAsync(string symbol, object priceData)
         {
@@ -161,7 +160,6 @@ namespace CryptoSpot.API.Services
             }
         }
 
-        // 新增: 推送外部流式订单簿快照(仅用于首次或重同步, 与内部撮合快照区分)
         public async Task PushExternalOrderBookSnapshotAsync(string symbol, IReadOnlyList<OrderBookLevel> bids, IReadOnlyList<OrderBookLevel> asks, long timestamp)
         {
             try

@@ -1,6 +1,6 @@
 using System;
 
-namespace CryptoSpot.Core.Extensions
+namespace CryptoSpot.Domain.Extensions
 {
     /// <summary>
     /// DateTime扩展方法

@@ -1,7 +1,7 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Interfaces.Caching;
+using CryptoSpot.Application.Abstractions.Users; // migrated from Core.Interfaces.Users
+using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
+using CryptoSpot.Application.Abstractions.Caching; // migrated from Core.Interfaces.Caching
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services

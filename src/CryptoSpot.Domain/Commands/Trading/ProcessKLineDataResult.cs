@@ -1,4 +1,4 @@
-namespace CryptoSpot.Core.Commands.Trading
+namespace CryptoSpot.Domain.Commands.Trading
 {
     /// <summary>
     /// 处理K线数据命令结果

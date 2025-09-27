@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace CryptoSpot.Core.ValueObjects
+namespace CryptoSpot.Domain.ValueObjects
 {
     /// <summary>
     /// 金额值对象 - 表示货币金额

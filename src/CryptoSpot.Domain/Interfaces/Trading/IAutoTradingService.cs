@@ -1,44 +1,8 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Extensions;
+using CryptoSpot.Domain.Extensions; // migrated from CryptoSpot.Core.Extensions
 
-namespace CryptoSpot.Core.Interfaces.Trading
+namespace CryptoSpot.Application.Abstractions.Trading // migrated from CryptoSpot.Core.Interfaces.Trading
 {
-    /// <summary>
-    /// 自动交易服务接口
-    /// </summary>
-    public interface IAutoTradingService
-    {
-        /// <summary>
-        /// 启动自动交易
-        /// </summary>
-        Task StartAutoTradingAsync();
-        
-        /// <summary>
-        /// 停止自动交易
-        /// </summary>
-        Task StopAutoTradingAsync();
-        
-        /// <summary>
-        /// 为指定交易对创建做市订单
-        /// </summary>
-        Task CreateMarketMakingOrdersAsync(string symbol);
-        
-        /// <summary>
-        /// 取消过期的系统订单
-        /// </summary>
-        Task CancelExpiredSystemOrdersAsync();
-        
-        /// <summary>
-        /// 重新平衡系统资产
-        /// </summary>
-        Task RebalanceSystemAssetsAsync();
-        
-        /// <summary>
-        /// 获取系统交易统计
-        /// </summary>
-        Task<AutoTradingStats> GetTradingStatsAsync(int systemAccountId);
-    }
-
     /// <summary>
     /// 自动交易统计
     /// </summary>

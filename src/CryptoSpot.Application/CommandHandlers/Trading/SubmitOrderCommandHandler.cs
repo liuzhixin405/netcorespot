@@ -1,7 +1,7 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 新命名空间
-using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Application.Abstractions.Trading;
+using CryptoSpot.Application.Abstractions.Users;
+using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
 using CryptoSpot.Bus.Core;
 using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.Logging;

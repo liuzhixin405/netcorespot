@@ -1,11 +1,14 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Interfaces;
-using CryptoSpot.Core.Interfaces.Users;
+// removed: using CryptoSpot.Core.Interfaces.Trading;
+// removed: using CryptoSpot.Core.Interfaces.MarketData;
+// removed: using CryptoSpot.Core.Interfaces;
+// removed: using CryptoSpot.Core.Interfaces.Users;
+using CryptoSpot.Application.Abstractions.Trading;
+using CryptoSpot.Application.Abstractions.MarketData;
+using CryptoSpot.Application.Abstractions.RealTime;
+using CryptoSpot.Application.Abstractions.Users;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
-using CryptoSpot.Core.Extensions;
 
 namespace CryptoSpot.Application.Services
 {

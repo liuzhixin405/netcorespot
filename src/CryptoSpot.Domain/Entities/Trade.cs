@@ -1,7 +1,7 @@
-using CryptoSpot.Core.Extensions;
+using CryptoSpot.Domain.Extensions; // migrated from CryptoSpot.Core.Extensions
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using CryptoSpot.Core.ValueObjects;
+using CryptoSpot.Domain.ValueObjects; // updated namespace
 
 namespace CryptoSpot.Domain.Entities
 {

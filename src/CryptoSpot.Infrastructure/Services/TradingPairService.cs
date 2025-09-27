@@ -1,8 +1,7 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Interfaces.Caching;
-using CryptoSpot.Core.Extensions;
+using CryptoSpot.Application.Abstractions.Trading; // migrated from Core.Interfaces.Trading
+using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
+using CryptoSpot.Application.Abstractions.Caching; // migrated from Core.Interfaces.Caching
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 

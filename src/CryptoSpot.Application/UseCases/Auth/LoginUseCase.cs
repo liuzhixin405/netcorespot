@@ -1,5 +1,5 @@
-using CryptoSpot.Core.Interfaces.Auth;
-using CryptoSpot.Core.Commands.Auth;
+using CryptoSpot.Application.Abstractions.Auth; // replaced Core.Interfaces.Auth
+using CryptoSpot.Domain.Commands.Auth; // replaced CryptoSpot.Core.Commands.Auth
 using CryptoSpot.Application.DTOs.Auth;
 using Microsoft.Extensions.Logging;
 
@@ -43,7 +43,7 @@ namespace CryptoSpot.Application.UseCases.Auth
 
                 // 3. 调用Core层服务
                 var result = await _authService.LoginAsync(command);
-                if (result == null)
+                if (result is null)
                 {
                     return null;
                 }

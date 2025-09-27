@@ -1,5 +1,5 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 新命名空间
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.Trading;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Domain.Entities; // 添加引用枚举

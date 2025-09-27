@@ -1,6 +1,6 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Caching;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Application.Abstractions.Caching; // migrated from CryptoSpot.Core.Interfaces.Caching
+using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using System.Collections.Concurrent;
@@ -287,7 +287,7 @@ namespace CryptoSpot.Infrastructure.Services
             _logger.LogInformation("开始刷新用户资产缓存");
             
             using var scope = _serviceScopeFactory.CreateScope();
-            var assetRepository = scope.ServiceProvider.GetRequiredService<IRepository<Asset>>();
+            var assetRepository = scope.ServiceProvider.GetRequiredService<IAssetRepository>();
             var assets = await assetRepository.GetAllAsync();
             
             // 清除现有资产缓存

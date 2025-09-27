@@ -1,5 +1,5 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Repositories; // TODO move to Application.Abstractions later
+using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,5 +23,5 @@ public class UserRepository : BaseRepository<User>, IUserRepository
         _dbSet.Update(user);
         return true;
     }
-    public async Task<UserStatistics> GetUserStatisticsAsync(int userId) => new();
+    public Task<UserStatistics> GetUserStatisticsAsync(int userId) => Task.FromResult(new UserStatistics());
 }

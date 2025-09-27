@@ -1,6 +1,6 @@
 using CryptoSpot.Bus.Core;
 
-namespace CryptoSpot.Core.Commands.Trading
+namespace CryptoSpot.Domain.Commands.Trading
 {
     /// <summary>
     /// 更新价格命令 - 用于高频价格更新

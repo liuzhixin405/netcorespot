@@ -1,9 +1,9 @@
-using CryptoSpot.Application.DomainCommands.Trading; // 引入所有命令
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.DomainCommands.Trading; // revert: application command definitions used by handlers
+using CryptoSpot.Application.Abstractions.Trading;
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
-using CryptoSpot.Core.Interfaces.Users; // 新增 引入资产服务接口
+using CryptoSpot.Application.Abstractions.Users; // 引入资产服务接口
 
 namespace CryptoSpot.Application.Services
 {
@@ -215,8 +215,8 @@ namespace CryptoSpot.Application.Services
             return new OrderBookDepth
             {
                 Symbol = depthData.Symbol,
-                Bids = depthData.Bids.Select(b => new OrderBookLevel { Price = b.Price, Quantity = b.Quantity, OrderCount = b.OrderCount, Total = b.Total }).ToList(),
-                Asks = depthData.Asks.Select(a => new OrderBookLevel { Price = a.Price, Quantity = a.Quantity, OrderCount = a.OrderCount, Total = a.Total }).ToList()
+                Bids = depthData.Bids.Select(b => new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel { Price = b.Price, Quantity = b.Quantity, OrderCount = b.OrderCount, Total = b.Total }).ToList(),
+                Asks = depthData.Asks.Select(a => new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel { Price = a.Price, Quantity = a.Quantity, OrderCount = a.OrderCount, Total = a.Total }).ToList()
             };
         }
 

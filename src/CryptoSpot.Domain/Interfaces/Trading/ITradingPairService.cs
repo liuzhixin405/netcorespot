@@ -1,14 +1,3 @@
-using CryptoSpot.Domain.Entities;
-
-namespace CryptoSpot.Core.Interfaces.Trading
-{
-    public interface ITradingPairService
-    {
-        Task<TradingPair?> GetTradingPairAsync(string symbol);
-        Task<TradingPair?> GetTradingPairByIdAsync(int tradingPairId);
-        Task<int> GetTradingPairIdAsync(string symbol);
-        Task<IEnumerable<TradingPair>> GetActiveTradingPairsAsync();
-        Task<IEnumerable<TradingPair>> GetTopTradingPairsAsync(int count = 10);
-        Task UpdatePriceAsync(string symbol, decimal price, decimal change24h, decimal volume24h, decimal high24h, decimal low24h);
-    }
-}
+// DEPRECATED FILE
+// Replaced by CryptoSpot.Application.Abstractions.Trading.ITradingPairService
+// Intentionally left blank.

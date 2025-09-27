@@ -1,5 +1,5 @@
-using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Trading;
 using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.Logging;
 

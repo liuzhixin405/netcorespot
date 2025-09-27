@@ -1,5 +1,6 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Repositories; // TODO migrate later
+using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Trading; // added for OrderBookDepth/OrderBookLevel
 using CryptoSpot.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
-using CryptoSpot.Core.Interfaces.Trading;
+// removed: using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.Trading;
 // using CryptoSpot.Core.Interfaces.Repositories; // 不在此注册具体仓储
 using CryptoSpot.Application.Services;
 using CryptoSpot.Application.CommandHandlers.Trading;

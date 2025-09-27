@@ -1,8 +1,7 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Auth;
-using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Core.Commands.Auth;
-using CryptoSpot.Core.Extensions;
+using CryptoSpot.Application.Abstractions.Auth; // replaced CryptoSpot.Core.Interfaces.Auth
+using CryptoSpot.Application.Abstractions.Users; // replaced CryptoSpot.Core.Interfaces.Users
+using CryptoSpot.Domain.Commands.Auth; // replaced CryptoSpot.Core.Commands.Auth
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -50,7 +49,7 @@ namespace CryptoSpot.Infrastructure.Services
                 }
 
                 // Update last login time
-                user.LastLoginAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
+                user.LastLoginAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 await _userService.UpdateUserAsync(user);
 
                 var token = GenerateJwtToken(user);

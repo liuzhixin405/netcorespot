@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace CryptoSpot.Core.ValueObjects
+namespace CryptoSpot.Domain.ValueObjects
 {
     /// <summary>
     /// 数量值对象 - 确保数量的有效性和一致性

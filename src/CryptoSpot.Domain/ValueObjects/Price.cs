@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace CryptoSpot.Core.ValueObjects
+namespace CryptoSpot.Domain.ValueObjects
 {
     /// <summary>
     /// 价格值对象 - 确保价格的有效性和一致性

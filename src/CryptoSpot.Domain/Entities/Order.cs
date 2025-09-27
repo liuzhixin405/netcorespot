@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using CryptoSpot.Core.ValueObjects;
+using CryptoSpot.Domain.ValueObjects;
 
 namespace CryptoSpot.Domain.Entities
 {

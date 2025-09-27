@@ -1,6 +1,6 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Trading;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Application.Services

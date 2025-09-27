@@ -1,9 +1,8 @@
 using System.Collections.Concurrent;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces;
-using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Core.Interfaces.Trading; // added for IOrderBookSnapshotCache
+using CryptoSpot.Application.Abstractions.RealTime; // migrated
+using CryptoSpot.Application.Abstractions.MarketData; // migrated
+using CryptoSpot.Application.Abstractions.Trading; // migrated for IOrderBookSnapshotCache & OrderBookLevel
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -22,17 +21,12 @@ namespace CryptoSpot.API.Services
         private readonly string[] _klineIntervals = new[] { "1m" }; // MVP 只推 1m
 
         private readonly ConcurrentDictionary<string, int> _symbolIdCache = new();
-        // 新增: 订单簿状态缓存 (Hash + 上次推送时间戳ms)
         private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _orderBookState = new();
-        private const int OrderBookMinPushIntervalMs = 250; // 最小推送间隔
-
-        // Ticker 去重/节流缓存
+        private const int OrderBookMinPushIntervalMs = 250;
         private readonly ConcurrentDictionary<string, (decimal Price, decimal Change, decimal Vol, decimal High, decimal Low, long LastPushMs, string Hash)> _lastTickerState = new();
-        private const int TickerMinPushIntervalMs = 1000; // 1s 最小推送间隔
-
-        // K线（当前未收线bar）去重缓存 key = symbol|interval|openTime
+        private const int TickerMinPushIntervalMs = 1000;
         private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _lastKLineState = new();
-        private const int KLineMinPushIntervalMs = 1500; // 未收线K线最小推送间隔
+        private const int KLineMinPushIntervalMs = 1500;
 
         public MarketDataStreamRelayService(
             ILogger<MarketDataStreamRelayService> logger,
@@ -52,7 +46,6 @@ namespace CryptoSpot.API.Services
                 return;
             }
 
-            // 启动前预热 (Redis -> 内存) 订单簿快照，减少首次 books 推送前前端的空白期
             await PreloadOrderBookSnapshotsAsync(stoppingToken);
 
             foreach (var provider in _streamProviders)
@@ -68,7 +61,6 @@ namespace CryptoSpot.API.Services
                         await provider.SubscribeTradesAsync(symbol, stoppingToken);
                         foreach (var itv in _klineIntervals)
                         {
-                            // 统一调用 SubscribeKLineAsync（内部现已直接使用 mark-price-candleX 频道）
                             await provider.SubscribeKLineAsync(symbol, itv, stoppingToken);
                         }
                     }
@@ -80,7 +72,6 @@ namespace CryptoSpot.API.Services
                 }
             }
 
-            // 保持后台运行
             while (!stoppingToken.IsCancellationRequested)
             {
                 await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
@@ -125,7 +116,7 @@ namespace CryptoSpot.API.Services
             provider.OnTicker += ticker => _ = Task.Run(() => RelayTickerAsync(ticker, ct), ct);
             provider.OnOrderBook += ob => _ = Task.Run(() => RelayOrderBookAsync(ob, ct), ct);
             provider.OnKLine += k => _ = Task.Run(() => RelayKLineAsync(k, ct), ct);
-            provider.OnTrade += trade => { /* 目前未单独推逐笔，可后续扩展 */ };
+            provider.OnTrade += trade => { };
         }
 
         private async Task RelayTickerAsync(MarketTicker t, CancellationToken ct)
@@ -135,7 +126,6 @@ namespace CryptoSpot.API.Services
                 var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 var hash = string.Concat(t.Last,'|',t.ChangePercent,'|',t.Volume24h,'|',t.High24h,'|',t.Low24h);
                 var state = _lastTickerState.GetOrAdd(t.Symbol, _ => (0m,0m,0m,0m,0m,0L,string.Empty));
-                // 若内容完全相同且在最小间隔内 -> 忽略
                 if (state.Hash == hash && (nowMs - state.LastPushMs) < TickerMinPushIntervalMs)
                 {
                     return;
@@ -158,8 +148,6 @@ namespace CryptoSpot.API.Services
 
                 if (priceService != null)
                 {
-                    // 原逻辑: 复用当前 scope 的 priceService 并 ContinueWith -> scope 可能已在任务执行时被释放
-                    // 新逻辑: fire-and-forget 任务内部创建独立作用域, 只捕获原始值, 不捕获 scoped 实例
                     var symbol = t.Symbol;
                     var last = t.Last;
                     var change = t.ChangePercent;
@@ -195,18 +183,15 @@ namespace CryptoSpot.API.Services
         {
             try
             {
-                // 计算当前订单簿哈希（简单拼接价格与数量）
                 var hash = ComputeOrderBookHash(delta.Bids, delta.Asks);
                 var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 var state = _orderBookState.GetOrAdd(delta.Symbol, _ => ("", 0));
 
-                // 去重: 哈希相同则直接忽略
                 if (state.Hash == hash)
                 {
                     return;
                 }
 
-                // 节流: 距离上次推送不足阈值则暂不推送，只更新缓存哈希（等待下一窗口）
                 if (nowMs - state.LastPushMs < OrderBookMinPushIntervalMs)
                 {
                     _orderBookState[delta.Symbol] = (hash, state.LastPushMs);
@@ -217,7 +202,6 @@ namespace CryptoSpot.API.Services
                 var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
                 var snapshotCache = scope.ServiceProvider.GetService<IOrderBookSnapshotCache>();
 
-                // 首次推送 或 距离上次推送时间较长(>3s) 发送快照，否则发送增量 (当前 books5 直接作为快照)
                 bool pushAsSnapshot = state.LastPushMs == 0 || (nowMs - state.LastPushMs) > 3000 || delta.IsSnapshot;
                 if (pushAsSnapshot)
                 {
@@ -229,7 +213,6 @@ namespace CryptoSpot.API.Services
                     await push.PushOrderBookDeltaAsync(delta.Symbol, delta.Bids.ToList(), delta.Asks.ToList());
                 }
 
-                // 更新状态
                 _orderBookState[delta.Symbol] = (hash, nowMs);
             }
             catch (Exception ex)
@@ -248,7 +231,6 @@ namespace CryptoSpot.API.Services
                 var hash = string.Concat(k.Open,'|',k.High,'|',k.Low,'|',k.Close,'|',k.Volume,'|',k.IsClosed);
                 var state = _lastKLineState.GetOrAdd(key, _ => (string.Empty, 0L));
 
-                // 未收线K线：内容未变且未达到节流窗口 -> 跳过
                 if (!k.IsClosed && state.Hash == hash && (nowMs - state.LastPushMs) < KLineMinPushIntervalMs)
                 {
                     return;
@@ -344,9 +326,8 @@ namespace CryptoSpot.API.Services
             };
         }
 
-        private string ComputeOrderBookHash(IReadOnlyList<CryptoSpot.Core.Interfaces.Trading.OrderBookLevel> bids, IReadOnlyList<CryptoSpot.Core.Interfaces.Trading.OrderBookLevel> asks)
+        private string ComputeOrderBookHash(IReadOnlyList<OrderBookLevel> bids, IReadOnlyList<OrderBookLevel> asks)
         {
-            // 只针对传入档位生成一个稳定字符串，用于快速比较；books5 数据量小，直接拼接即可
             var sb = new System.Text.StringBuilder();
             sb.Append('B');
             foreach (var b in bids)

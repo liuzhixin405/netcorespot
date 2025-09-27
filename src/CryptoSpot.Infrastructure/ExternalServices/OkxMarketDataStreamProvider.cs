@@ -3,8 +3,8 @@ using System.Text;
 using System.Text.Json;
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
-using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.MarketData; // migrated from CryptoSpot.Core.Interfaces.MarketData
+using CryptoSpot.Application.Abstractions.Trading;   // migrated from CryptoSpot.Core.Interfaces.Trading
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 

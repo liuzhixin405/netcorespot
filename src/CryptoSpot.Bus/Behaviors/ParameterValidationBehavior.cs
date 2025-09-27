@@ -30,7 +30,7 @@ namespace CryptoSpot.Bus.Behaviors
             // 使用反射进行数据注解验证
             var validationContext = new ValidationContext(command!);
             var validationResults = new List<ValidationResult>();
-            
+            if(command is TCommand) 
             if (!Validator.TryValidateObject(command, validationContext, validationResults, true))
             {
                 var errors = string.Join(", ", validationResults.Select(r => r.ErrorMessage));

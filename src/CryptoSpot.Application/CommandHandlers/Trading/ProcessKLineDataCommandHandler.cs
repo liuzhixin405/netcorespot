@@ -1,5 +1,5 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 替换 Core.Commands.Trading
-using CryptoSpot.Core.Interfaces.MarketData;
+using CryptoSpot.Application.Abstractions.MarketData; // migrated from Core.Interfaces.MarketData
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
 

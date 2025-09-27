@@ -1,4 +1,4 @@
-namespace CryptoSpot.Core.Commands.Trading
+namespace CryptoSpot.Domain.Commands.Trading
 {
     /// <summary>
     /// 更新价格命令结果

@@ -1,5 +1,5 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Application.Abstractions.Repositories; // replaced CryptoSpot.Core.Interfaces.Repositories
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Application.Common

@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Interfaces.MarketData;
+using CryptoSpot.Application.Abstractions.Trading; // migrated from Core.Interfaces.Trading
+using CryptoSpot.Application.Abstractions.MarketData; // migrated from Core.Interfaces.MarketData
 using CryptoSpot.Domain.Entities;
 using System.Security.Claims;
 

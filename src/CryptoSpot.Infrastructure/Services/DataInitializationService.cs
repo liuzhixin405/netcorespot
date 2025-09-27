@@ -1,6 +1,5 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Extensions;
+using CryptoSpot.Application.Abstractions.Repositories;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
@@ -10,15 +9,15 @@ namespace CryptoSpot.Infrastructure.Services
     /// </summary>
     public class DataInitializationService
     {
-        private readonly IRepository<TradingPair> _tradingPairRepository;
-        private readonly IRepository<User> _userRepository;
-        private readonly IRepository<Asset> _assetRepository;
+        private readonly ITradingPairRepository _tradingPairRepository;
+        private readonly IUserRepository _userRepository;
+        private readonly IAssetRepository _assetRepository;
         private readonly ILogger<DataInitializationService> _logger;
 
         public DataInitializationService(
-            IRepository<TradingPair> tradingPairRepository,
-            IRepository<User> userRepository,
-            IRepository<Asset> assetRepository,
+           ITradingPairRepository tradingPairRepository,
+           IUserRepository userRepository,
+           IAssetRepository assetRepository,
             ILogger<DataInitializationService> logger)
         {
             _tradingPairRepository = tradingPairRepository;
@@ -66,7 +65,7 @@ namespace CryptoSpot.Infrastructure.Services
                     PricePrecision = 2,
                     QuantityPrecision = 5,
                     IsActive = true,
-                    LastUpdated = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
+                    LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 },
                 new TradingPair
                 {
@@ -78,7 +77,7 @@ namespace CryptoSpot.Infrastructure.Services
                     PricePrecision = 2,
                     QuantityPrecision = 3,
                     IsActive = true,
-                    LastUpdated = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
+                    LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 },
                 new TradingPair
                 {
@@ -90,7 +89,7 @@ namespace CryptoSpot.Infrastructure.Services
                     PricePrecision = 3,
                     QuantityPrecision = 2,
                     IsActive = true,
-                    LastUpdated = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
+                    LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 }
             };
 

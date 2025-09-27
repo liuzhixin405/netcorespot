@@ -7,6 +7,7 @@
   <ItemGroup>
     <!-- 物理目录已重命名为 CryptoSpot.Domain -->
     <ProjectReference Include="..\CryptoSpot.Domain\CryptoSpot.Domain.csproj" />
+    <ProjectReference Include="..\CryptoSpot.Application\CryptoSpot.Application.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />

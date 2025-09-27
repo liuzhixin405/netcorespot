@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.Trading; // migrated from Core.Interfaces.Trading
 using System.Threading;
 using System.Threading.Tasks;
 using System.Linq;

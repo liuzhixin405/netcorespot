@@ -61,22 +61,22 @@ namespace CryptoSpot.Bus.Behaviors
             }
         }
         
-        private static TResult GetDefaultResult<TResult>()
+        private static TR GetDefaultResult<TR>()
         {
-            if (typeof(TResult) == typeof(string))
+            if (typeof(TR) == typeof(string))
             {
-                return (TResult)(object)"处理失败";
+                return (TR)(object)"处理失败";
             }
             else if (typeof(TResult) == typeof(int))
             {
-                return (TResult)(object)(-1);
+                return (TR)(object)(-1);
             }
             else if (typeof(TResult) == typeof(bool))
             {
-                return (TResult)(object)false;
+                return (TR)(object)false;
             }
             
-            return default(TResult)!;
+            return default(TR)!;
         }
     }
 }

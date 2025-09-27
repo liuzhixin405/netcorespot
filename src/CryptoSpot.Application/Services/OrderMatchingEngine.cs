@@ -1,13 +1,11 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Interfaces;
-using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Core.Interfaces.Repositories; // 引入IUnitOfWork等接口
+using CryptoSpot.Application.Abstractions.Trading;
+using CryptoSpot.Application.Abstractions.MarketData;
+using CryptoSpot.Application.Abstractions.Users;
+using CryptoSpot.Application.Abstractions.Repositories; // 引入IUnitOfWork等接口
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
-using RepoOrderBookDepth = CryptoSpot.Core.Interfaces.Repositories.OrderBookDepth; // alias if needed
-using RepoOrderBookLevel = CryptoSpot.Core.Interfaces.Repositories.OrderBookLevel; // alias if needed
+using CryptoSpot.Application.Abstractions.RealTime;
 
 namespace CryptoSpot.Application.Services
 {
@@ -220,9 +218,9 @@ namespace CryptoSpot.Application.Services
             return trades;
         }
 
-        public async Task<CryptoSpot.Core.Interfaces.Trading.OrderBookDepth> GetOrderBookDepthAsync(string symbol, int depth = 20)
+        public async Task<CryptoSpot.Application.Abstractions.Trading.OrderBookDepth> GetOrderBookDepthAsync(string symbol, int depth = 20)
         {
-            var orderBookDepth = new CryptoSpot.Core.Interfaces.Trading.OrderBookDepth { Symbol = symbol };
+            var orderBookDepth = new CryptoSpot.Application.Abstractions.Trading.OrderBookDepth { Symbol = symbol };
 
             try
             {
@@ -235,7 +233,7 @@ namespace CryptoSpot.Application.Services
                 var buyOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Buy && o.Type == OrderType.Limit)
                     .GroupBy(o => o.Price)
-                    .Select(g => new CryptoSpot.Core.Interfaces.Trading.OrderBookLevel
+                    .Select(g => new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
@@ -250,7 +248,7 @@ namespace CryptoSpot.Application.Services
                 var sellOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Sell && o.Type == OrderType.Limit)
                     .GroupBy(o => o.Price)
-                    .Select(g => new CryptoSpot.Core.Interfaces.Trading.OrderBookLevel
+                    .Select(g => new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),

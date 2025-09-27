@@ -1,5 +1,5 @@
-using CryptoSpot.Core.Interfaces.Auth;
-using CryptoSpot.Core.Commands.Auth;
+using CryptoSpot.Application.Abstractions.Auth;
+using CryptoSpot.Domain.Commands.Auth; // updated to new namespace
 using CryptoSpot.Application.DTOs.Auth;
 using Microsoft.Extensions.Logging;
 
@@ -23,7 +23,6 @@ namespace CryptoSpot.Application.UseCases.Auth
         {
             try
             {
-                // 业务验证
                 if (string.IsNullOrWhiteSpace(request.Email?.Trim()) ||
                     string.IsNullOrWhiteSpace(request.Username?.Trim()) ||
                     string.IsNullOrWhiteSpace(request.Password))
@@ -31,7 +30,6 @@ namespace CryptoSpot.Application.UseCases.Auth
                     return null;
                 }
 
-                // 转换 DTO → Command
                 var command = new RegisterCommand
                 {
                     Email = request.Email.Trim().ToLowerInvariant(),
@@ -39,14 +37,12 @@ namespace CryptoSpot.Application.UseCases.Auth
                     Password = request.Password
                 };
 
-                // 调用Core层服务
                 var result = await _authService.RegisterAsync(command);
-                if (result == null)
+                if (result is null)
                 {
                     return null;
                 }
 
-                // 转换 Core Result → Application DTO
                 return new AuthResponse
                 {
                     Token = result.Token,

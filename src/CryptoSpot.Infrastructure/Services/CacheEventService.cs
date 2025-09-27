@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Interfaces.Caching;
+using CryptoSpot.Application.Abstractions.Caching; // migrated from CryptoSpot.Core.Interfaces.Caching
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services

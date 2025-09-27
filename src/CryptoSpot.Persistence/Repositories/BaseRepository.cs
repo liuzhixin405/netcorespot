@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
-using CryptoSpot.Core.Interfaces.Repositories;
+using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Persistence.Data;
 
 namespace CryptoSpot.Persistence.Repositories;

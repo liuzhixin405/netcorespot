@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Interfaces;
+using CryptoSpot.Application.Abstractions.Repositories; // migrated from CryptoSpot.Core.Interfaces
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 

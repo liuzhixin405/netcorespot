@@ -1,6 +1,6 @@
 using CryptoSpot.Bus.Core;
 
-namespace CryptoSpot.Core.Commands.Trading
+namespace CryptoSpot.Domain.Commands.Trading
 {
     /// <summary>
     /// 取消订单命令

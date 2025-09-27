@@ -1,11 +1,12 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Core.Interfaces.MarketData;
-using CryptoSpot.Core.Interfaces.Trading;
-using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Core.Interfaces.Auth;
-using CryptoSpot.Core.Interfaces.Repositories;
-using CryptoSpot.Core.Interfaces;
-using CryptoSpot.Core.Interfaces.Caching;
+// removed old Core interface usings
+using CryptoSpot.Application.Abstractions.MarketData; // IKLineDataService, IPriceDataService
+using CryptoSpot.Application.Abstractions.Trading;   // trading abstractions
+using CryptoSpot.Application.Abstractions.Users;
+using CryptoSpot.Application.Abstractions.Auth;
+using CryptoSpot.Application.Abstractions.Repositories; // IDatabaseCoordinator
+using CryptoSpot.Application.Abstractions.Caching; // ICacheService, ICacheEventService
+using CryptoSpot.Application.Abstractions.RealTime; // IRealTimeDataPushService
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.Application.Services;
@@ -19,8 +20,8 @@ using CryptoSpot.Application.DependencyInjection;
 using CryptoSpot.Redis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using CryptoSpot.Persistence.DependencyInjection;
 using CryptoSpot.Persistence.Data;
+using CryptoSpot.Persistence.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 

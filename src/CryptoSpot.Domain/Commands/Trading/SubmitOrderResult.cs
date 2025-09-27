@@ -1,6 +1,6 @@
 using CryptoSpot.Domain.Entities;
 
-namespace CryptoSpot.Core.Commands.Trading
+namespace CryptoSpot.Domain.Commands.Trading
 {
     /// <summary>
     /// 提交订单命令结果

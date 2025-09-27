@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using CryptoSpot.Application.UseCases.Auth;
 using CryptoSpot.Application.DTOs.Auth;
-using CryptoSpot.Core.Interfaces.Auth;
+using CryptoSpot.Application.Abstractions.Auth;
 using System.Security.Claims;
 
 namespace CryptoSpot.API.Controllers

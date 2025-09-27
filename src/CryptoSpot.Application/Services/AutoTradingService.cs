@@ -1,4 +1,4 @@
-using CryptoSpot.Core.Interfaces.Trading;
+using CryptoSpot.Application.Abstractions.Trading;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
