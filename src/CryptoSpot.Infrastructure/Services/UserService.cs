@@ -1,65 +1,71 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Users; // migrated from Core.Interfaces.Users
-using CryptoSpot.Application.Abstractions.Caching; // migrated from Core.Interfaces.Caching
 using CryptoSpot.Application.Abstractions.Repositories;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
-    /// 用户服务实现
+    /// 用户服务实现 - 使用Redis缓存
     /// </summary>
     public class UserService : IUserService
     {
         private readonly IUserRepository _userRepository;
-        private readonly ICacheService _cacheService;
-        private readonly ICacheEventService _cacheEventService;
+        private readonly RedisCacheService _cacheService;
         private readonly ILogger<UserService> _logger;
 
         public UserService(
             IUserRepository userRepository,
-            ICacheService cacheService,
-            ICacheEventService cacheEventService,
+            RedisCacheService cacheService,
             ILogger<UserService> logger)
         {
             _userRepository = userRepository;
             _cacheService = cacheService;
-            _cacheEventService = cacheEventService;
             _logger = logger;
         }
 
         public async Task<User?> GetUserByIdAsync(int userId)
         {
-            return await _cacheService.GetCachedUserByIdAsync(userId);
+            try
+            {
+                // 先从Redis缓存获取
+                var cachedUser = await _cacheService.GetUserAsync(userId);
+                if (cachedUser != null)
+                {
+                    return cachedUser;
+                }
+
+                // 缓存中没有，从数据库获取
+                var user = await _userRepository.GetByIdAsync(userId);
+                if (user != null)
+                {
+                    // 缓存到Redis
+                    await _cacheService.SetUserAsync(user);
+                }
+
+                return user;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取用户失败: UserId={UserId}", userId);
+                return null;
+            }
         }
 
         public async Task<User?> GetUserByUsernameAsync(string username)
         {
             try
             {
-                // 先从缓存查找
-                var users = await _cacheService.GetCachedUsersAsync();
-                var cachedUser = users.FirstOrDefault(u => u.Username == username);
+                // 直接从数据库查找（用户名查找频率较低，不必复杂化缓存逻辑）
+                var user = (await _userRepository.FindAsync(u => u.Username == username)).FirstOrDefault();
                 
-                if (cachedUser != null)
+                if (user != null)
                 {
-                    return cachedUser;
+                    // 缓存到Redis
+                    await _cacheService.SetUserAsync(user);
                 }
                 
-                // 如果缓存中没有找到，直接从数据库查找以确保数据一致性
-                _logger.LogDebug("缓存中未找到用户，从数据库查找: Username={Username}", username);
-                var dbUser = (await _userRepository.FindAsync(u => u.Username == username)).FirstOrDefault();
-                
-                if (dbUser != null)
-                {
-                    _logger.LogWarning("⚠️ 用户存在于数据库但缓存中不存在: Username={Username}, UserId={UserId}", 
-                        username, dbUser.Id);
-                    
-                    // 更新缓存
-                    await _cacheEventService.NotifyUserChangedAsync(dbUser.Id);
-                }
-                
-                return dbUser;
+                return user;
             }
             catch (Exception ex)
             {
@@ -72,29 +78,16 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                // 先从缓存查找
-                var users = await _cacheService.GetCachedUsersAsync();
-                var cachedUser = users.FirstOrDefault(u => u.Email == email);
+                // 直接从数据库查找（邮箱查找频率较低，不必复杂化缓存逻辑）
+                var user = (await _userRepository.FindAsync(u => u.Email == email)).FirstOrDefault();
                 
-                if (cachedUser != null)
+                if (user != null)
                 {
-                    return cachedUser;
+                    // 缓存到Redis
+                    await _cacheService.SetUserAsync(user);
                 }
                 
-                // 如果缓存中没有找到，直接从数据库查找以确保数据一致性
-                _logger.LogDebug("缓存中未找到用户，从数据库查找: Email={Email}", email);
-                var dbUser = (await _userRepository.FindAsync(u => u.Email == email)).FirstOrDefault();
-                
-                if (dbUser != null)
-                {
-                    _logger.LogWarning("⚠️ 用户存在于数据库但缓存中不存在: Email={Email}, UserId={UserId}", 
-                        email, dbUser.Id);
-                    
-                    // 更新缓存
-                    await _cacheEventService.NotifyUserChangedAsync(dbUser.Id);
-                }
-                
-                return dbUser;
+                return user;
             }
             catch (Exception ex)
             {
@@ -105,14 +98,30 @@ namespace CryptoSpot.Infrastructure.Services
 
         public async Task<IEnumerable<User>> GetSystemUsersAsync()
         {
-            var users = await _cacheService.GetCachedUsersAsync();
-            return users.Where(u => u.Type != UserType.Regular);
+            try
+            {
+                // 系统用户查询直接从数据库获取
+                return await _userRepository.FindAsync(u => u.Type != UserType.Regular);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取系统用户失败");
+                return Enumerable.Empty<User>();
+            }
         }
 
         public async Task<IEnumerable<User>> GetActiveSystemUsersAsync()
         {
-            var users = await _cacheService.GetCachedUsersAsync();
-            return users.Where(u => u.Type != UserType.Regular && u.IsActive);
+            try
+            {
+                // 活跃系统用户查询直接从数据库获取
+                return await _userRepository.FindAsync(u => u.Type != UserType.Regular && u.IsActive);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取活跃系统用户失败");
+                return Enumerable.Empty<User>();
+            }
         }
 
         public async Task<User> CreateUserAsync(User user)
@@ -122,8 +131,8 @@ namespace CryptoSpot.Infrastructure.Services
                 user.Touch(); // 设置创建和更新时间
                 var createdUser = await _userRepository.AddAsync(user);
                 
-                // 通知缓存服务用户数据已变更
-                await _cacheEventService.NotifyUserChangedAsync(createdUser.Id);
+                // 缓存到Redis
+                await _cacheService.SetUserAsync(createdUser);
                 
                 _logger.LogInformation("用户创建成功: UserId={UserId}, Username={Username}", 
                     createdUser.Id, createdUser.Username);
@@ -142,10 +151,10 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 user.Touch(); // 更新时间戳
-                 await _userRepository.UpdateAsync(user);
+                await _userRepository.UpdateAsync(user);
                 
-                // 通知缓存服务用户数据已变更
-                await _cacheEventService.NotifyUserChangedAsync(user.Id);
+                // 更新Redis缓存
+                await _cacheService.SetUserAsync(user);
                 
                 _logger.LogInformation("用户更新成功: UserId={UserId}, Username={Username}", 
                     user.Id, user.Username);
@@ -166,8 +175,8 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     await _userRepository.DeleteAsync(user);
                     
-                    // 通知缓存服务用户数据已变更
-                    await _cacheEventService.NotifyUserChangedAsync(userId);
+                    // 从Redis缓存中移除
+                    await _cacheService.RemoveUserAsync(userId);
                     
                     _logger.LogInformation("用户删除成功: UserId={UserId}, Username={Username}", 
                         userId, user.Username);

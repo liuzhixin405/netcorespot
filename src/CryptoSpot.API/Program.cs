@@ -5,7 +5,6 @@ using CryptoSpot.Application.Abstractions.Trading;   // trading abstractions
 using CryptoSpot.Application.Abstractions.Users;
 using CryptoSpot.Application.Abstractions.Auth;
 using CryptoSpot.Application.Abstractions.Repositories; // IDatabaseCoordinator
-using CryptoSpot.Application.Abstractions.Caching; // ICacheService, ICacheEventService
 using CryptoSpot.Application.Abstractions.RealTime; // IRealTimeDataPushService
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Services;
@@ -20,6 +19,7 @@ using CryptoSpot.Application.DependencyInjection;
 using CryptoSpot.Redis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using StackExchange.Redis;
 using CryptoSpot.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -56,9 +56,23 @@ builder.Services.AddCleanArchitecture();
 // Database Coordinator (Singleton for thread safety)
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 
-// Cache Services (Singleton for global cache management)
-builder.Services.AddSingleton<ICacheEventService, CacheEventService>();
-builder.Services.AddSingleton<ICacheService, CacheService>();
+// Redis Cache Service (Singleton for Redis connection sharing)
+builder.Services.AddSingleton<IRedisCache>(provider =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("Redis") ?? "localhost:6379";
+    var logger = provider.GetRequiredService<ILogger<RedisCache>>();
+    var serializer = new CryptoSpot.Redis.Serializer.JsonSerializer(null);
+    var redisConfig = new CryptoSpot.Redis.Configuration.RedisConfiguration
+    {
+        Hosts = connectionString.Split(',').Select(c => c.Split(':')).Where(c => c.Length == 2)
+            .Select(c => new CryptoSpot.Redis.Configuration.RedisHost { Host = c[0], Port = int.Parse(c[1]) }).ToArray()
+    };
+    var connection = ConnectionMultiplexer.Connect(redisConfig.ConfigurationOptions);
+    return new CryptoSpot.Redis.RedisCache(logger, connection, redisConfig, serializer);
+});
+
+builder.Services.AddSingleton<RedisCacheService>();
 
 // Infrastructure Services (Data Access & External Services)
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -94,7 +108,6 @@ builder.Services.AddSingleton<IMarketDataStreamProvider, OkxMarketDataStreamProv
 builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 
 // Background Services
-builder.Services.AddHostedService<CacheInitializationService>();
 builder.Services.AddHostedService<AutoTradingService>();
 builder.Services.AddHostedService<AssetFlushBackgroundService>();
 //builder.Services.AddHostedService<OrderBookPushService>(); // 已由外部流式+增量推送接管, 关闭周期性全量快照避免前端闪烁

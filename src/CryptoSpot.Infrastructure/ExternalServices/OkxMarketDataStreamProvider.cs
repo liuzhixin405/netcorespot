@@ -244,21 +244,17 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             {
                 _logger.LogError(ex, "重连失败，将继续重试");
             }
-        }
-
-        private async Task PingLoop(ClientWebSocket? socket, CancellationToken ct)
+        }        private async Task PingLoop(ClientWebSocket? socket, CancellationToken ct)
         {
-            while (!ct.IsCancellationRequested && socket != null)
+            // OKX WebSocket API 不支持自定义 ping 消息格式 {"op":"ping"}
+            // 依赖 ClientWebSocket 内置的心跳机制即可
+            // 这个方法现在只是保持活跃的占位符，不发送任何消息
+            while (!ct.IsCancellationRequested && socket != null && socket.State == WebSocketState.Open)
             {
                 try
                 {
                     await Task.Delay(_pingInterval, ct);
-                    if (socket.State == WebSocketState.Open)
-                    {
-                        var payload = new { op = "ping" };
-                        var buf = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload));
-                        await socket.SendAsync(buf, WebSocketMessageType.Text, true, ct);
-                    }
+                    _logger.LogTrace("OKX WebSocket 连接检查 - 状态: {State}", socket.State);
                 }
                 catch (OperationCanceledException) { }
                 catch (Exception ex)
