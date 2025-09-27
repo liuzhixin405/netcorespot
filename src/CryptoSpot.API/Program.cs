@@ -216,5 +216,5 @@ app.MapHub<CryptoSpot.API.Hubs.TradingHub>("/tradingHub");
 await app.Services.InitDbContext();
 
 
-app.RunAsync();
+await app.RunAsync();
 

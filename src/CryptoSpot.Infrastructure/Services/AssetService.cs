@@ -9,20 +9,18 @@ namespace CryptoSpot.Infrastructure.Services
     public class AssetService : IAssetService
     {
         private readonly IAssetRepository _assetRepository;
-        private readonly IUserRepository _userRepository;
         private readonly ICacheService _cacheService;
         private readonly ILogger<AssetService> _logger;
         private readonly IUnitOfWork _unitOfWork; // 新增
 
         public AssetService(
             IAssetRepository assetRepository,
-            IUserRepository userRepository,
             ICacheService cacheService,
             ILogger<AssetService> logger,
             IUnitOfWork unitOfWork) // 注入
         {
             _assetRepository = assetRepository;
-            _userRepository = userRepository;
+
             _cacheService = cacheService;
             _logger = logger;
             _unitOfWork = unitOfWork;
