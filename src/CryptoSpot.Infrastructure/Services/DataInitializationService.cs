@@ -2,7 +2,6 @@ using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options; // 读取 MarketMakerOptions
-using CryptoSpot.Application.Abstractions.Users; // IMarketMakerRegistry 可选
 
 namespace CryptoSpot.Infrastructure.Services
 {

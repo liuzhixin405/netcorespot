@@ -1,7 +1,7 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 替换 Core.Commands.Trading
-using CryptoSpot.Application.Abstractions.Trading;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Application.Abstractions.Services.Trading;
 
 namespace CryptoSpot.Application.CommandHandlers.Trading
 {

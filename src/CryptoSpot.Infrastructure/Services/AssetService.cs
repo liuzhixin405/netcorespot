@@ -1,10 +1,10 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.Users; // migrated from Core.Interfaces.Users
 using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Redis;
 using StackExchange.Redis;
 using System.Globalization;
+using CryptoSpot.Application.Abstractions.Services.Users;
 
 namespace CryptoSpot.Infrastructure.Services
 {

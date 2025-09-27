@@ -1,7 +1,7 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
-using CryptoSpot.Application.Abstractions.Trading;
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Application.Abstractions.Services.Trading;
 
 namespace CryptoSpot.Infrastructure.Services
 {

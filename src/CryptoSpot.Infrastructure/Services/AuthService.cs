@@ -1,153 +1,148 @@
-using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.Auth; // replaced CryptoSpot.Core.Interfaces.Auth
-using CryptoSpot.Application.Abstractions.Users; // replaced CryptoSpot.Core.Interfaces.Users
-using CryptoSpot.Domain.Commands.Auth; // replaced CryptoSpot.Core.Commands.Auth
+using CryptoSpot.Application.Abstractions.Services.Auth;
+using CryptoSpot.Application.Abstractions.Services.Users;
+using CryptoSpot.Application.DTOs.Auth;
+using CryptoSpot.Application.DTOs.Common;
+using CryptoSpot.Application.DTOs.Users;
+using CryptoSpot.Application.Mapping;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     public class AuthService : IAuthService
     {
-        private readonly IUserService _userService;
+        private readonly IUserService _userService; // 修改: 依赖领域用户服务
         private readonly IAssetService _assetService;
         private readonly IConfiguration _configuration;
         private readonly ILogger<AuthService> _logger;
+        private readonly IDtoMappingService _mappingService;
 
         public AuthService(
             IUserService userService,
             IAssetService assetService,
             IConfiguration configuration,
-            ILogger<AuthService> logger)
+            ILogger<AuthService> logger,
+            IDtoMappingService mappingService)
         {
             _userService = userService;
             _assetService = assetService;
             _configuration = configuration;
             _logger = logger;
+            _mappingService = mappingService;
         }
 
-        public async Task<AuthResult?> LoginAsync(LoginCommand command)
+        public async Task<ApiResponseDto<AuthResultDto?>> LoginAsync(LoginRequest request)
         {
             try
             {
-                var user = await _userService.GetUserByUsernameAsync(command.Username);
-                if (user == null)
+                var user = await _userService.GetUserByUsernameAsync(request.Username);
+                if (user == null || string.IsNullOrWhiteSpace(user.PasswordHash))
                 {
-                    _logger.LogWarning("Login attempt with non-existent username: {Username}", command.Username);
-                    return null;
+                    _logger.LogWarning("登录失败: {Username}", request.Username);
+                    return ApiResponseDto<AuthResultDto?>.CreateError("用户名或密码错误");
                 }
 
-                if (!VerifyPassword(command.Password, user.PasswordHash))
+                var verifyResult = VerifyPassword(request.Password, user.PasswordHash);
+                if (!verifyResult.IsValid)
                 {
-                    _logger.LogWarning("Login attempt with invalid password for user: {Username}", command.Username);
-                    return null;
+                    _logger.LogWarning("登录失败: {Username}", request.Username);
+                    return ApiResponseDto<AuthResultDto?>.CreateError("用户名或密码错误");
                 }
 
-                // Update last login time
+                // 惰性升级旧格式
+                if (verifyResult.NeedsUpgrade && verifyResult.UpgradedHash != null)
+                {
+                    user.PasswordHash = verifyResult.UpgradedHash;
+                }
+
                 user.LastLoginAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 await _userService.UpdateUserAsync(user);
 
                 var token = GenerateJwtToken(user);
-
-                return new AuthResult
+                var dto = new AuthResultDto
                 {
                     Token = token,
-                    Username = user.Username,
-                    Email = user.Email,
-                    ExpiresAt = DateTime.UtcNow.AddDays(7) // 7天
+                    ExpiresAt = DateTime.UtcNow.AddDays(7),
+                    User = _mappingService.MapToDto(user)
                 };
+                return ApiResponseDto<AuthResultDto?>.CreateSuccess(dto, "登录成功");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during login for user: {Username}", command.Username);
-                return null;
+                _logger.LogError(ex, "登录异常: {Username}", request.Username);
+                return ApiResponseDto<AuthResultDto?>.CreateError("登录失败");
             }
         }
 
-        public async Task<AuthResult?> RegisterAsync(RegisterCommand command)
+        public async Task<ApiResponseDto<AuthResultDto?>> RegisterAsync(RegisterRequest request)
         {
             try
             {
-                // Check if username already exists
-                var existingUserByUsername = await _userService.GetUserByUsernameAsync(command.Username);
-                if (existingUserByUsername != null)
-                {
-                    _logger.LogWarning("Registration attempt with existing username: {Username}", command.Username);
-                    return null;
-                }
+                if (await _userService.GetUserByUsernameAsync(request.Username) != null)
+                    return ApiResponseDto<AuthResultDto?>.CreateError("用户名已存在");
+                if (await _userService.GetUserByEmailAsync(request.Email) != null)
+                    return ApiResponseDto<AuthResultDto?>.CreateError("邮箱已存在");
 
-                // Check if email already exists
-                var existingUserByEmail = await _userService.GetUserByEmailAsync(command.Email);
-                if (existingUserByEmail != null)
+                var user = new Domain.Entities.User
                 {
-                    _logger.LogWarning("Registration attempt with existing email: {Email}", command.Email);
-                    return null;
-                }
-
-                var user = new User
-                {
-                    Username = command.Username,
-                    Email = command.Email,
-                    PasswordHash = HashPassword(command.Password),
+                    Username = request.Username.Trim().ToLowerInvariant(),
+                    Email = request.Email.Trim().ToLowerInvariant(),
+                    PasswordHash = HashPassword(request.Password),
                     IsActive = true
                 };
+                var created = await _userService.CreateUserAsync(user);
 
-                var createdUser = await _userService.CreateUserAsync(user);
-
-                // Initialize user assets
+                // 初始化资产
                 var initialBalances = new Dictionary<string, decimal>
                 {
-                    { "USDT", 10000m }, // Give new users 10,000 USDT for testing
+                    { "USDT", 10000m },
                     { "BTC", 0m },
                     { "ETH", 0m },
                     { "SOL", 0m }
                 };
-                
-                await _assetService.InitializeUserAssetsAsync(createdUser.Id, initialBalances);
-                _logger.LogInformation("Initialized assets for new user {UserId}", createdUser.Id);
+                await _assetService.InitializeUserAssetsAsync(created.Id, initialBalances);
 
-                var token = GenerateJwtToken(createdUser);
-
-                return new AuthResult
+                var token = GenerateJwtToken(created);
+                var dto = new AuthResultDto
                 {
                     Token = token,
-                    Username = createdUser.Username,
-                    Email = createdUser.Email,
-                    ExpiresAt = DateTime.UtcNow.AddDays(7)// 7天
+                    ExpiresAt = DateTime.UtcNow.AddDays(7),
+                    User = _mappingService.MapToDto(created)
                 };
+                return ApiResponseDto<AuthResultDto?>.CreateSuccess(dto, "注册成功");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during registration for user: {Username}", command.Username);
-                return null;
+                _logger.LogError(ex, "注册异常: {Username}", request.Username);
+                return ApiResponseDto<AuthResultDto?>.CreateError("注册失败");
             }
         }
 
-        public async Task<User?> GetCurrentUserAsync(int userId)
+        public async Task<ApiResponseDto<UserDto?>> GetCurrentUserAsync(int userId)
         {
             try
             {
-                return await _userService.GetUserByIdAsync(userId);
+                var user = await _userService.GetUserByIdAsync(userId);
+                return ApiResponseDto<UserDto?>.CreateSuccess(user != null ? _mappingService.MapToDto(user) : null);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting current user: {UserId}", userId);
-                return null;
+                _logger.LogError(ex, "获取当前用户异常 {UserId}", userId);
+                return ApiResponseDto<UserDto?>.CreateError("获取用户失败");
             }
         }
 
-        public async Task<bool> ValidateTokenAsync(string token)
+        public Task<ApiResponseDto<bool>> ValidateTokenAsync(string token)
         {
             try
             {
                 var tokenHandler = new JwtSecurityTokenHandler();
-                var key = Encoding.ASCII.GetBytes(_configuration["Jwt:SecretKey"] ?? "default-secret-key");
-
+                var key = Encoding.ASCII.GetBytes(_configuration["Jwt:SecretKey"] ?? _configuration["JwtSettings:SecretKey"] ?? "default-secret-key-32-length-!@#");
                 tokenHandler.ValidateToken(token, new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
@@ -155,92 +150,113 @@ namespace CryptoSpot.Infrastructure.Services
                     ValidateIssuer = false,
                     ValidateAudience = false,
                     ClockSkew = TimeSpan.Zero
-                }, out SecurityToken validatedToken);
-
-                return validatedToken != null;
+                }, out _);
+                return Task.FromResult(ApiResponseDto<bool>.CreateSuccess(true));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Token validation failed");
-                return false;
+                _logger.LogWarning(ex, "Token校验失败");
+                return Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "Token无效"));
             }
         }
 
-        public async Task LogoutAsync(int userId)
+        public Task<ApiResponseDto<bool>> LogoutAsync(int userId)
         {
-            // In a real application, you might want to blacklist the token
-            // For now, we'll just log the logout
-            _logger.LogInformation("User {UserId} logged out", userId);
+            _logger.LogInformation("用户退出: {UserId}", userId);
+            return Task.FromResult(ApiResponseDto<bool>.CreateSuccess(true, "已退出"));
         }
+
+        #region 密码 & Token
+        private const string PasswordAlgo = "PBKDF2-SHA256";
+        private const int PasswordIterations = 600000; // 与现有策略保持
+        private const int SaltSize = 16;
+        private const int KeySize = 32;
 
         private string HashPassword(string password)
         {
-            using var rng = RandomNumberGenerator.Create();
-            var saltBytes = new byte[16];
-            rng.GetBytes(saltBytes);
-
-            using var pbkdf2 = new Rfc2898DeriveBytes(password, saltBytes, 10000);
-            var hashBytes = pbkdf2.GetBytes(32);
-
-            var hashWithSalt = new byte[48];
-            Array.Copy(saltBytes, 0, hashWithSalt, 0, 16);
-            Array.Copy(hashBytes, 0, hashWithSalt, 16, 32);
-
-            return Convert.ToBase64String(hashWithSalt);
+            var saltBytes = new byte[SaltSize];
+            RandomNumberGenerator.Fill(saltBytes);
+            var keyBytes = Rfc2898DeriveBytes.Pbkdf2(password, saltBytes, PasswordIterations, HashAlgorithmName.SHA256, KeySize);
+            var saltB64 = Convert.ToBase64String(saltBytes);
+            var keyB64 = Convert.ToBase64String(keyBytes);
+            return string.Join('$', PasswordAlgo, PasswordIterations.ToString(), saltB64, keyB64);
         }
 
-        private bool VerifyPassword(string password, string storedHash)
+        private (bool IsValid, bool NeedsUpgrade, string? UpgradedHash) VerifyPassword(string password, string stored)
         {
+            if (string.IsNullOrWhiteSpace(stored)) return (false, false, null);
             try
             {
-                var hashWithSalt = Convert.FromBase64String(storedHash);
-                var saltBytes = new byte[16];
-                Array.Copy(hashWithSalt, 0, saltBytes, 0, 16);
-
-                using var pbkdf2 = new Rfc2898DeriveBytes(password, saltBytes, 10000);
-                var hashBytes = pbkdf2.GetBytes(32);
-
-                for (int i = 0; i < 32; i++)
+                // 新格式: algo$iter$salt$hash
+                if (stored.Contains('$'))
                 {
-                    if (hashWithSalt[i + 16] != hashBytes[i])
-                        return false;
+                    var parts = stored.Split('$');
+                    if (parts.Length != 4) return (false, false, null);
+                    var algo = parts[0];
+                    if (!string.Equals(algo, PasswordAlgo, StringComparison.Ordinal)) return (false, false, null); // 只支持当前算法
+                    if (!int.TryParse(parts[1], out var iter) || iter <= 0) return (false, false, null);
+                    var saltBytes = Convert.FromBase64String(parts[2]);
+                    var storedKey = Convert.FromBase64String(parts[3]);
+                    var derived = Rfc2898DeriveBytes.Pbkdf2(password, saltBytes, iter, HashAlgorithmName.SHA256, storedKey.Length);
+                    var isValid = CryptographicOperations.FixedTimeEquals(derived, storedKey);
+                    // 若参数需升级（比如未来调整迭代次数）可在此判断 iter != PasswordIterations
+                    var needsUpgrade = isValid && iter != PasswordIterations; // 预留未来策略
+                    string? upgraded = null;
+                    if (needsUpgrade)
+                    {
+                        var newKey = Rfc2898DeriveBytes.Pbkdf2(password, saltBytes, PasswordIterations, HashAlgorithmName.SHA256, KeySize);
+                        upgraded = string.Join('$', PasswordAlgo, PasswordIterations.ToString(), Convert.ToBase64String(saltBytes), Convert.ToBase64String(newKey));
+                    }
+                    return (isValid, needsUpgrade, upgraded);
                 }
-
-                return true;
+                else
+                {
+                    // 旧格式: Base64( salt(16) + hash(32) )
+                    byte[] raw;
+                    try { raw = Convert.FromBase64String(stored); } catch { return (false, false, null); }
+                    if (raw.Length != SaltSize + KeySize) return (false, false, null);
+                    var salt = new byte[SaltSize];
+                    Buffer.BlockCopy(raw, 0, salt, 0, SaltSize);
+                    var oldHash = new byte[KeySize];
+                    Buffer.BlockCopy(raw, SaltSize, oldHash, 0, KeySize);
+                    var derived = Rfc2898DeriveBytes.Pbkdf2(password, salt, PasswordIterations, HashAlgorithmName.SHA256, KeySize);
+                    var isValid = CryptographicOperations.FixedTimeEquals(derived, oldHash);
+                    if (!isValid) return (false, false, null);
+                    // 需要升级到新格式
+                    var upgraded = string.Join('$', PasswordAlgo, PasswordIterations.ToString(), Convert.ToBase64String(salt), Convert.ToBase64String(oldHash));
+                    return (true, true, upgraded);
+                }
             }
             catch
             {
-                return false;
+                return (false, false, null);
             }
         }
 
-        private string GenerateJwtToken(User user)
+        private string GenerateJwtToken(Domain.Entities.User user)
         {
             var tokenHandler = new JwtSecurityTokenHandler();
             var jwtSettings = _configuration.GetSection("JwtSettings");
-            var secretKeyString = jwtSettings["SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
+            var secretKeyString = jwtSettings["SecretKey"] ?? _configuration["Jwt:SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
             var issuer = jwtSettings["Issuer"] ?? "CryptoSpot";
             var audience = jwtSettings["Audience"] ?? "CryptoSpotUsers";
             var key = Encoding.UTF8.GetBytes(secretKeyString);
-            
-            _logger.LogInformation("JWT Key length: {KeyLength} bytes ({BitLength} bits)", key.Length, key.Length * 8);
-
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(new[]
                 {
                     new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                    new Claim(ClaimTypes.Name, user.Username),
-                    new Claim(ClaimTypes.Email, user.Email)
+                    new Claim(ClaimTypes.Name, user.Username ?? string.Empty),
+                    new Claim(ClaimTypes.Email, user.Email ?? string.Empty)
                 }),
-                Expires = DateTime.UtcNow.AddDays(7), // 7天
+                Expires = DateTime.UtcNow.AddDays(7),
                 Issuer = issuer,
                 Audience = audience,
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
             };
-
             var token = tokenHandler.CreateToken(tokenDescriptor);
             return tokenHandler.WriteToken(token);
         }
+        #endregion
     }
 }

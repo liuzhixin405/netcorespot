@@ -1,7 +1,7 @@
-using CryptoSpot.Application.Abstractions.Users;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection; // 添加以启用 CreateScope 扩展
+using Microsoft.Extensions.DependencyInjection;
+using CryptoSpot.Application.Abstractions.Services.Users; // 添加以启用 CreateScope 扩展
 
 namespace CryptoSpot.Infrastructure.Services
 {

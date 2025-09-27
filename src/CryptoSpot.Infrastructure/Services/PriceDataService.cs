@@ -1,8 +1,10 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.MarketData; // migrated from Core.Interfaces.MarketData
 using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
-using CryptoSpot.Application.Abstractions.Trading; // migrated from Core.Interfaces.Trading
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.DTOs.Trading;
+using CryptoSpot.Application.Mapping;
 
 namespace CryptoSpot.Infrastructure.Services
 {
@@ -10,20 +12,24 @@ namespace CryptoSpot.Infrastructure.Services
     {
         private readonly ITradingPairService _tradingPairService;
         private readonly ILogger<PriceDataService> _logger;
+        private readonly IDtoMappingService _mapping;
 
         public PriceDataService(
             ITradingPairService tradingPairService,
-            ILogger<PriceDataService> logger)
+            ILogger<PriceDataService> logger,
+            IDtoMappingService mapping)
         {
             _tradingPairService = tradingPairService;
             _logger = logger;
+            _mapping = mapping;
         }
 
-        public async Task<TradingPair?> GetCurrentPriceAsync(string symbol)
+        public async Task<TradingPairDto?> GetCurrentPriceAsync(string symbol)
         {
             try
             {
-                return await _tradingPairService.GetTradingPairAsync(symbol);
+                var entity = await _tradingPairService.GetTradingPairAsync(symbol);
+                return entity == null ? null : _mapping.MapToDto(entity);
             }
             catch (Exception ex)
             {
@@ -32,38 +38,39 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<IEnumerable<TradingPair>> GetCurrentPricesAsync(string[] symbols)
+        public async Task<IEnumerable<TradingPairDto>> GetCurrentPricesAsync(string[] symbols)
         {
             try
             {
-                var results = new List<TradingPair>();
+                var list = new List<TradingPairDto>();
                 foreach (var symbol in symbols)
                 {
-                    var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
-                    if (tradingPair != null)
+                    var entity = await _tradingPairService.GetTradingPairAsync(symbol);
+                    if (entity != null)
                     {
-                        results.Add(tradingPair);
+                        list.Add(_mapping.MapToDto(entity));
                     }
                 }
-                return results;
+                return list;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting current prices for symbols: {Symbols}", string.Join(", ", symbols));
-                return new List<TradingPair>();
+                return Enumerable.Empty<TradingPairDto>();
             }
         }
 
-        public async Task<IEnumerable<TradingPair>> GetTopTradingPairsAsync(int count = 10)
+        public async Task<IEnumerable<TradingPairDto>> GetTopTradingPairsAsync(int count = 10)
         {
             try
             {
-                return await _tradingPairService.GetTopTradingPairsAsync(count);
+                var entities = await _tradingPairService.GetTopTradingPairsAsync(count);
+                return entities.Select(_mapping.MapToDto);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting top trading pairs");
-                return new List<TradingPair>();
+                return Enumerable.Empty<TradingPairDto>();
             }
         }
 
@@ -80,19 +87,19 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task BatchUpdateTradingPairPricesAsync(IEnumerable<TradingPair> tradingPairs)
+        public async Task BatchUpdateTradingPairPricesAsync(IEnumerable<TradingPairDto> tradingPairs)
         {
             try
             {
-                foreach (var tradingPair in tradingPairs)
+                foreach (var dto in tradingPairs)
                 {
                     await UpdateTradingPairPriceAsync(
-                        tradingPair.Symbol,
-                        tradingPair.Price,
-                        tradingPair.Change24h,
-                        tradingPair.Volume24h,
-                        tradingPair.High24h,
-                        tradingPair.Low24h);
+                        dto.Symbol,
+                        dto.Price,
+                        dto.Change24h,
+                        dto.Volume24h,
+                        dto.High24h,
+                        dto.Low24h);
                 }
                 
                 _logger.LogInformation("Batch updated prices for {Count} trading pairs", tradingPairs.Count());

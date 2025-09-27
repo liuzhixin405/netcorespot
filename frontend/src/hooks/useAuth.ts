@@ -38,19 +38,9 @@ export const useAuth = (): UseAuthReturn => {
     setLoading(true);
     try {
       const result = await authService.login(credentials);
-      
-      if (result.success && result.user) {
-        setUser(result.user);
-        return true;
-      } else {
-        return false;
-      }
-    } catch (error) {
-      console.error('登录异常:', error);
+      if (result.success && result.user) { setUser(result.user); return true; }
       return false;
-    } finally {
-      setLoading(false);
-    }
+    } catch { return false; } finally { setLoading(false); }
   }, []);
 
   // 注册
@@ -58,17 +48,9 @@ export const useAuth = (): UseAuthReturn => {
     setLoading(true);
     try {
       const result = await authService.register(userData);
-      if (result.success && result.user) {
-        setUser(result.user);
-        return true;
-      }
+      if (result.success && result.user) { setUser(result.user); return true; }
       return false;
-    } catch (error) {
-      console.error('注册失败:', error);
-      return false;
-    } finally {
-      setLoading(false);
-    }
+    } catch { return false; } finally { setLoading(false); }
   }, []);
 
   // 登出

@@ -1,37 +1,35 @@
 import { BaseApi } from './base';
-import { User, LoginRequest, RegisterRequest, AuthResponse } from '../types';
+import { User, LoginRequest, RegisterRequest, AuthResponse, ApiResponseDto } from '../types';
 
 export class AuthApi extends BaseApi {
-  // 用户登录
-  async login(credentials: LoginRequest): Promise<AuthResponse> {
-    return this.post<AuthResponse>('/auth/login', credentials);
+  // 用户登录（需返回完整包装，不能让 BaseApi.post 解包）
+  async login(credentials: LoginRequest): Promise<ApiResponseDto<AuthResponse | null>> {
+    const resp = await this.client.post<ApiResponseDto<AuthResponse | null>>('/auth/login', credentials);
+    return resp.data; // 保留 success/data/message 结构
   }
 
   // 用户注册
-  async register(userData: RegisterRequest): Promise<AuthResponse> {
-    return this.post<AuthResponse>('/auth/register', userData);
+  async register(userData: RegisterRequest): Promise<ApiResponseDto<AuthResponse | null>> {
+    const resp = await this.client.post<ApiResponseDto<AuthResponse | null>>('/auth/register', userData);
+    return resp.data;
   }
 
-  // 获取当前用户信息
-  async getCurrentUser(): Promise<User> {
-    return this.get<User>('/auth/me');
+  // 获取当前用户信息（保持解包兼容 UserDto 简化使用）
+  async getCurrentUser(): Promise<ApiResponseDto<{ id: number; username: string; email: string; createdAt: string; lastLoginAt?: string } | null>> {
+    const resp = await this.client.get<ApiResponseDto<{ id: number; username: string; email: string; createdAt: string; lastLoginAt?: string } | null>>('/auth/me');
+    return resp.data; // 返回实际数据体
   }
 
   // 用户登出
-  async logout(): Promise<void> {
-    return this.post<void>('/auth/logout');
+  async logout(): Promise<ApiResponseDto<boolean>> {
+    const resp = await this.client.post<ApiResponseDto<boolean>>('/auth/logout');
+    return resp.data;
   }
 
-  // 刷新Token
-  async refreshToken(): Promise<AuthResponse> {
-    return this.post<AuthResponse>('/auth/refresh');
-  }
-
-  // 验证Token是否有效
   async validateToken(): Promise<boolean> {
     try {
-      await this.getCurrentUser();
-      return true;
+      const me = await this.getCurrentUser();
+      return !!(me.success && me.data);
     } catch {
       return false;
     }

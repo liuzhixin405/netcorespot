@@ -1,11 +1,13 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.Trading;
-using CryptoSpot.Application.Abstractions.MarketData;
-using CryptoSpot.Application.Abstractions.Users;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Repositories; // 引入IUnitOfWork等接口
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
-using CryptoSpot.Application.Abstractions.RealTime;
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.Abstractions.Services.Users;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
+using CryptoSpot.Application.DTOs.Trading;
+using CryptoSpot.Application.Mapping;
 
 namespace CryptoSpot.Application.Services
 {
@@ -20,6 +22,7 @@ namespace CryptoSpot.Application.Services
         private readonly ITradingPairService _tradingPairService;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<OrderMatchingEngine> _logger;
+        private readonly IDtoMappingService _mapping;
 
         // 用于防止并发匹配的锁
         private readonly Dictionary<string, SemaphoreSlim> _symbolLocks = new();
@@ -30,7 +33,8 @@ namespace CryptoSpot.Application.Services
             IAssetService assetService,
             ITradingPairService tradingPairService,
             IServiceProvider serviceProvider,
-            ILogger<OrderMatchingEngine> logger)
+            ILogger<OrderMatchingEngine> logger,
+            IDtoMappingService mapping)
         {
             _orderService = orderService;
             _tradeService = tradeService;
@@ -38,6 +42,7 @@ namespace CryptoSpot.Application.Services
             _tradingPairService = tradingPairService;
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _mapping = mapping;
         }
 
         public async Task<OrderMatchResult> ProcessOrderAsync(Order order)
@@ -48,8 +53,8 @@ namespace CryptoSpot.Application.Services
             // 新增: 记录增量受影响价位集合
             var impactedBidPrices = new HashSet<decimal>();
             var impactedAskPrices = new HashSet<decimal>();
-            List<CryptoSpot.Application.Abstractions.Trading.OrderBookLevel> bidDeltaLevels = new();
-            List<CryptoSpot.Application.Abstractions.Trading.OrderBookLevel> askDeltaLevels = new();
+            List<OrderBookLevel> bidDeltaLevels = new();
+            List<OrderBookLevel> askDeltaLevels = new();
 
             try
             {
@@ -119,11 +124,14 @@ namespace CryptoSpot.Application.Services
                     var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
                     if (bidDeltaLevels.Count > 0 || askDeltaLevels.Count > 0)
                     {
-                        await realTimeDataPushService.PushOrderBookDeltaAsync(symbol, bidDeltaLevels, askDeltaLevels);
+                        var (bidDto, askDto) = _mapping.MapOrderBookLevels(bidDeltaLevels, askDeltaLevels);
+                        await realTimeDataPushService.PushOrderBookDeltaAsync(symbol, bidDto.ToList(), askDto.ToList());
                     }
                     else
                     {
-                        await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                        var depthSnapshot = await GetOrderBookDepthAsync(symbol, 20);
+                        var depthDto = _mapping.MapToDto(depthSnapshot);
+                        await realTimeDataPushService.PushOrderBookDataAsync(symbol, depthDto);
                     }
 
                     // 计算并推送最新成交价与中间价
@@ -133,9 +141,9 @@ namespace CryptoSpot.Application.Services
                     // 仅在订单簿变化或有成交时读取当前顶级价
                     if (bidDeltaLevels.Count > 0 || askDeltaLevels.Count > 0 || lastPrice.HasValue)
                     {
-                        var depth = await GetOrderBookDepthAsync(symbol, 1); // 只取顶层
-                        decimal? bestBid = depth.Bids.FirstOrDefault()?.Price;
-                        decimal? bestAsk = depth.Asks.FirstOrDefault()?.Price;
+                        var depthTop = await GetOrderBookDepthAsync(symbol, 1); // 只取顶层
+                        decimal? bestBid = depthTop.Bids.FirstOrDefault()?.Price;
+                        decimal? bestAsk = depthTop.Asks.FirstOrDefault()?.Price;
                         decimal? mid = (bestBid.HasValue && bestAsk.HasValue && bestBid > 0 && bestAsk > 0) ? (bestBid + bestAsk) / 2m : null;
                         await realTimeDataPushService.PushLastTradeAndMidPriceAsync(symbol, lastPrice, lastQty, bestBid, bestAsk, mid, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                     }
@@ -232,7 +240,9 @@ namespace CryptoSpot.Application.Services
                         try
                         {
                             var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
-                            await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                            var depthSnapshot = await GetOrderBookDepthAsync(symbol, 20);
+                            var depthDto = _mapping.MapToDto(depthSnapshot);
+                            await realTimeDataPushService.PushOrderBookDataAsync(symbol, depthDto);
                         }
                         catch (Exception ex)
                         {
@@ -253,9 +263,9 @@ namespace CryptoSpot.Application.Services
             return trades;
         }
 
-        public async Task<CryptoSpot.Application.Abstractions.Trading.OrderBookDepth> GetOrderBookDepthAsync(string symbol, int depth = 20)
+        public async Task<OrderBookDepth> GetOrderBookDepthAsync(string symbol, int depth = 20)
         {
-            var orderBookDepth = new CryptoSpot.Application.Abstractions.Trading.OrderBookDepth { Symbol = symbol };
+            var orderBookDepth = new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookDepth { Symbol = symbol };
 
             try
             {
@@ -268,7 +278,7 @@ namespace CryptoSpot.Application.Services
                 var buyOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Buy && o.Type == OrderType.Limit)
                     .GroupBy(o => o.Price)
-                    .Select(g => new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel
+                    .Select(g => new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookLevel
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
@@ -283,7 +293,7 @@ namespace CryptoSpot.Application.Services
                 var sellOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Sell && o.Type == OrderType.Limit)
                     .GroupBy(o => o.Price)
-                    .Select(g => new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel
+                    .Select(g => new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookLevel
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
@@ -596,15 +606,15 @@ namespace CryptoSpot.Application.Services
         }
 
         // 新增: 汇总指定价位集合对应的订单簿层
-        private List<CryptoSpot.Application.Abstractions.Trading.OrderBookLevel> AggregateLevels(IEnumerable<Order> activeOrders, HashSet<decimal> prices, OrderSide side)
+        private List<OrderBookLevel> AggregateLevels(IEnumerable<Order> activeOrders, HashSet<decimal> prices, OrderSide side)
         {
-            var list = new List<CryptoSpot.Application.Abstractions.Trading.OrderBookLevel>();
+            var list = new List<OrderBookLevel>();
             foreach (var price in prices)
             {
                 var sideOrders = activeOrders.Where(o => o.Side == side && o.Type == OrderType.Limit && o.Price == price).ToList();
                 if (!sideOrders.Any())
                 {
-                    list.Add(new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel
+                    list.Add(new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookLevel
                     {
                         Price = price,
                         Quantity = 0,
@@ -615,7 +625,7 @@ namespace CryptoSpot.Application.Services
                 else
                 {
                     var qty = sideOrders.Sum(o => o.RemainingQuantity);
-                    list.Add(new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel
+                    list.Add(new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookLevel
                     {
                         Price = price,
                         Quantity = qty,

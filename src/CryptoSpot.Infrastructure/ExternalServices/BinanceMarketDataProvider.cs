@@ -1,13 +1,13 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.MarketData; // migrated from Core.Interfaces.MarketData
-using CryptoSpot.Application.Abstractions.RealTime;  // for IRealTimeDataPushService retrieval
-using CryptoSpot.Application.Abstractions.Trading;   // for OrderBookLevel if needed
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System.Collections.Concurrent;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
+using CryptoSpot.Application.DTOs.MarketData;
 
 namespace CryptoSpot.Infrastructure.ExternalServices
 {
@@ -205,10 +205,11 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             _timer.Change(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
         }
 
-        public async Task StopRealTimeDataSyncAsync()
+        public Task StopRealTimeDataSyncAsync()
         {
             _logger.LogInformation("Stopping Binance data sync");
             _timer.Change(Timeout.Infinite, Timeout.Infinite);
+            return Task.CompletedTask;
         }
 
         public void Dispose()
@@ -418,7 +419,22 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                                     {
                                         // 判断是否为新K线（基于时间戳）
                                         bool isNewKLine = IsNewKLineTime(latestKline.OpenTime, interval);
-                                        await realTimeDataPush.PushKLineDataAsync(symbol, interval, latestKline, isNewKLine);
+                                        var dto = new KLineDataDto
+                                        {
+                                            Id = latestKline.Id,
+                                            Symbol = symbol,
+                                            TimeFrame = interval,
+                                            OpenTime = latestKline.OpenTime,
+                                            CloseTime = latestKline.CloseTime,
+                                            Open = latestKline.Open,
+                                            High = latestKline.High,
+                                            Low = latestKline.Low,
+                                            Close = latestKline.Close,
+                                            Volume = latestKline.Volume,
+                                            OpenDateTime = latestKline.OpenDateTime,
+                                            CloseDateTime = latestKline.CloseDateTime
+                                        };
+                                        await realTimeDataPush.PushKLineDataAsync(symbol, interval, dto, isNewKLine);
                                     }
                                     
                                     // 2. 缓存K线数据（使用symbol+interval作为key）

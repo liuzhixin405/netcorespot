@@ -1,8 +1,8 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 新命名空间
-using CryptoSpot.Application.Abstractions.Trading;
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
-using CryptoSpot.Domain.Entities; // 添加引用枚举
+using CryptoSpot.Domain.Entities;
+using CryptoSpot.Application.Abstractions.Services.Trading; // 添加引用枚举
 
 namespace CryptoSpot.Application.CommandHandlers.Trading
 {

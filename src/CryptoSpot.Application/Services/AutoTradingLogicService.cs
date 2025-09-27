@@ -3,12 +3,13 @@ using CryptoSpot.Domain.Entities;
 // removed: using CryptoSpot.Core.Interfaces.MarketData;
 // removed: using CryptoSpot.Core.Interfaces;
 // removed: using CryptoSpot.Core.Interfaces.Users;
-using CryptoSpot.Application.Abstractions.Trading;
-using CryptoSpot.Application.Abstractions.MarketData;
-using CryptoSpot.Application.Abstractions.RealTime;
-using CryptoSpot.Application.Abstractions.Users;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Services.Users;
+using CryptoSpot.Application.DTOs.Trading; // 引入 DTO 枚举与请求类型
 
 namespace CryptoSpot.Application.Services
 {
@@ -29,9 +30,7 @@ namespace CryptoSpot.Application.Services
         {
             _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
-        }
-
-        public async Task StartAutoTradingAsync()
+        }        public Task StartAutoTradingAsync()
         {
             _logger.LogInformation("自动交易服务启动");
             
@@ -55,6 +54,8 @@ namespace CryptoSpot.Application.Services
                     }
                 }
             }, _cancellationTokenSource.Token);
+            
+            return Task.CompletedTask;
         }
 
         public async Task StopAutoTradingAsync()
@@ -101,7 +102,7 @@ namespace CryptoSpot.Application.Services
 
                 using var scope = _serviceScopeFactory.CreateScope();
                 var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
-                var tradingService = scope.ServiceProvider.GetRequiredService<ITradingService>();
+                var tradingService = scope.ServiceProvider.GetRequiredService<ITradingServiceV2>();
 
                 // 获取当前价格
                 var currentPrice = await priceDataService.GetCurrentPriceAsync(symbol);
@@ -117,21 +118,21 @@ namespace CryptoSpot.Application.Services
                 var quantity = (decimal)(_random.NextDouble() * 0.1 + 0.01); // 随机数量
 
                 // 使用交易服务创建订单（会触发撮合引擎）
-                var buyRequest = new SubmitOrderRequest
+                var buyRequest = new CreateOrderRequestDto
                 {
                     Symbol = symbol,
-                    Side = OrderSide.Buy,
-                    Type = OrderType.Limit,
+                    Side = OrderSideDto.Buy,
+                    Type = OrderTypeDto.Limit,
                     Quantity = quantity,
                     Price = buyPrice,
                     ClientOrderId = $"MM_BUY_{DateTime.UtcNow.Ticks}"
                 };
 
-                var sellRequest = new SubmitOrderRequest
+                var sellRequest = new CreateOrderRequestDto
                 {
                     Symbol = symbol,
-                    Side = OrderSide.Sell,
-                    Type = OrderType.Limit,
+                    Side = OrderSideDto.Sell,
+                    Type = OrderTypeDto.Limit,
                     Quantity = quantity,
                     Price = sellPrice,
                     ClientOrderId = $"MM_SELL_{DateTime.UtcNow.Ticks}"
@@ -141,14 +142,14 @@ namespace CryptoSpot.Application.Services
                 var buyOrder = await tradingService.SubmitOrderAsync(systemUserId, buyRequest);
                 if (buyOrder != null)
                 {
-                    _logger.LogDebug("买单创建成功: {OrderId}", buyOrder.OrderId);
+                    _logger.LogDebug("买单创建成功: {OrderId}", buyOrder.Data?.OrderId);
                 }
 
                 // 再创建卖单，应该能匹配到买单
                 var sellOrder = await tradingService.SubmitOrderAsync(systemUserId, sellRequest);
                 if (sellOrder != null)
                 {
-                    _logger.LogDebug("卖单创建成功: {OrderId}", sellOrder.OrderId);
+                    _logger.LogDebug("卖单创建成功: {OrderId}", sellOrder.Data?.OrderId);
                 }
 
                 _logger.LogDebug("为 {Symbol} 创建做市订单完成", symbol);

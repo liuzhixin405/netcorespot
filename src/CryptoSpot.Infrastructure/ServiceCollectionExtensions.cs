@@ -11,7 +11,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using CryptoSpot.Domain.Entities; // MarketMakerOptions
-using CryptoSpot.Application.Abstractions.Users; // IMarketMakerRegistry
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.Abstractions.Services.Users; // IMarketMakerRegistry
 
 namespace CryptoSpot.Infrastructure
 {
@@ -40,8 +41,9 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<IUnitOfWork, UnitOfWork>();
 
             // 注册基础设施服务实现 (应用层只保留接口)
-            services.AddScoped<CryptoSpot.Application.Abstractions.Trading.IOrderService, OrderService>();
-            services.AddScoped<CryptoSpot.Application.Abstractions.Trading.ITradeService, TradeService>();
+            services.AddScoped<IOrderService, OrderService>();
+            services.AddScoped<ITradeService, TradeService>();
+            services.AddScoped<IUserService, UserService>(); // 新增：注册领域用户服务
 
             services.AddScoped<DataInitializationService>();
             // 注册多做市配置与注册表

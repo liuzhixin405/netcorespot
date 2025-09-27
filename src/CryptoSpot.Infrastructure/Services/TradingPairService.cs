@@ -1,7 +1,7 @@
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.Trading; // migrated from Core.Interfaces.Trading
 using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Application.Abstractions.Services.Trading;
 
 namespace CryptoSpot.Infrastructure.Services
 {

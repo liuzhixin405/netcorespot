@@ -20,9 +20,8 @@ export interface RegisterRequest {
 
 export interface AuthResponse {
   token: string;
-  username: string;
-  email: string;
   expiresAt: string;
+  user: User; // 新结构：包含用户对象
 }
 
 // 加密货币相关类型
@@ -116,6 +115,16 @@ export interface ApiResponse<T> {
   data: T;
   message?: string;
   error?: string;
+}
+
+export interface ApiResponseDto<T> {
+  success: boolean;
+  data: T | null;
+  message?: string;
+  error?: string;
+  errorCode?: string;
+  timestamp?: string;
+  requestId?: string;
 }
 
 // 表单相关类型

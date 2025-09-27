@@ -1,6 +1,7 @@
-using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.Users; // migrated from Core.Interfaces.Users
 using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Services.Users;
+using CryptoSpot.Domain.Entities;
+using CryptoSpot.Persistence.Repositories;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
@@ -13,15 +14,18 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IUserRepository _userRepository;
         private readonly RedisCacheService _cacheService;
         private readonly ILogger<UserService> _logger;
-
+        private readonly IUnitOfWork _unitOfWork;
         public UserService(
             IUserRepository userRepository,
             RedisCacheService cacheService,
-            ILogger<UserService> logger)
+            ILogger<UserService> logger,
+            IUnitOfWork unitOfWork
+            )
         {
             _userRepository = userRepository;
             _cacheService = cacheService;
             _logger = logger;
+            _unitOfWork = unitOfWork;
         }
 
         public async Task<User?> GetUserByIdAsync(int userId)
@@ -130,7 +134,8 @@ namespace CryptoSpot.Infrastructure.Services
             {
                 user.Touch(); // 设置创建和更新时间
                 var createdUser = await _userRepository.AddAsync(user);
-                
+
+               await _unitOfWork.SaveChangesAsync();
                 // 缓存到Redis
                 await _cacheService.SetUserAsync(createdUser);
                 

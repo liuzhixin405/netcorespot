@@ -1,11 +1,6 @@
 using CryptoSpot.Domain.Entities;
 // removed old Core interface usings
-using CryptoSpot.Application.Abstractions.MarketData; // IKLineDataService, IPriceDataService
-using CryptoSpot.Application.Abstractions.Trading;   // trading abstractions
-using CryptoSpot.Application.Abstractions.Users;
-using CryptoSpot.Application.Abstractions.Auth;
 using CryptoSpot.Application.Abstractions.Repositories; // IDatabaseCoordinator
-using CryptoSpot.Application.Abstractions.RealTime; // IRealTimeDataPushService
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.Application.Services;
@@ -14,13 +9,18 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Net;
 using System.Text;
-using CryptoSpot.API.Services;
 using CryptoSpot.Application.DependencyInjection;
 using CryptoSpot.Redis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using StackExchange.Redis;
 using CryptoSpot.Infrastructure;
+using CryptoSpot.Infrastructure.BgServices;
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Services.Auth;
+using CryptoSpot.Application.Abstractions.Services.Users;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,9 +33,12 @@ builder.Logging.AddDebug();
 builder.Services.AddControllers(options => { })
     .AddJsonOptions(o =>
     {
+        // 统一输出/输入字段为 camelCase，便于前端直接使用 data.token / data.user.username
+        o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
         // 允许前端传递小写/驼峰枚举 (buy/sell, limit/market)
         o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
-        // 兼容旧格式: 额外开启大小写不敏感
+        // 兼容旧格式: 额外开启大小写不敏感读取（仅影响反序列化）
         o.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
     });
 builder.Services.AddEndpointsApiExplorer();
@@ -76,14 +79,16 @@ builder.Services.AddSingleton<RedisCacheService>();
 
 // Infrastructure Services (Data Access & External Services)
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IUserService, UserService>();
+builder.Services.AddScoped<IUserService, UserService>(); // 领域用户服务
+// 移除: IUserServiceV2 / IAssetServiceV2 / IKLineDataServiceV2 / ITradingServiceV2 的重复注册 (集中在 AddCleanArchitecture)
+// builder.Services.AddScoped<IUserServiceV2, UserServiceV2>();
 builder.Services.AddScoped<IPriceDataService, PriceDataService>();
 builder.Services.AddScoped<IKLineDataService, KLineDataService>();
+// builder.Services.AddScoped<IKLineDataServiceV2, KLineDataServiceV2>();
 builder.Services.AddScoped<ITradingPairService, TradingPairService>();
+// builder.Services.AddScoped<ITradingServiceV2, TradingServiceV2>();
 // builder.Services.AddScoped<IOrderService, OrderService>(); // 已由 AddCleanArchitecture 注册 RefactoredOrderService
 builder.Services.AddScoped<IAssetService, AssetService>();
-// 移除对 ITradeService 的覆盖注册, 以使用 CleanArchitecture 中的 RefactoredTradeService
-// builder.Services.AddScoped<ITradeService, TradeService>();
 
 // Data Initialization Service
 builder.Services.AddScoped<DataInitializationService>();
@@ -93,8 +98,8 @@ builder.Services.AddScoped<DataInitializationService>();
 builder.Services.AddScoped<IOrderMatchingEngine, OrderMatchingEngine>();
 
 // Use Cases
-builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.LoginUseCase>();
-builder.Services.AddScoped<CryptoSpot.Application.UseCases.Auth.RegisterUseCase>();
+// 移除已废弃用例注册（LoginUseCase, RegisterUseCase）
+// 原注释行已删除，统一直接使用 IAuthService。
 
 // SignalR Data Push Service
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
@@ -112,7 +117,7 @@ builder.Services.AddHostedService<AutoTradingService>();
 builder.Services.AddHostedService<AssetFlushBackgroundService>();
 //builder.Services.AddHostedService<OrderBookPushService>(); // 已由外部流式+增量推送接管, 关闭周期性全量快照避免前端闪烁
 //builder.Services.AddHostedService<MarketDataSyncService>();
-builder.Services.AddHostedService<MarketDataStreamRelayService>();
+builder.Services.AddHostedService<MarketDataStreamRelayService>(); // 依赖 IDtoMappingService 已在核心注册
 
 builder.Services.AddMemoryCache();
 
@@ -224,7 +229,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 // Map SignalR Hub
-app.MapHub<CryptoSpot.API.Hubs.TradingHub>("/tradingHub");
+app.MapHub<CryptoSpot.Infrastructure.Hubs.TradingHub>("/tradingHub");
 
 //Db and DataInit
 await app.Services.InitDbContext();

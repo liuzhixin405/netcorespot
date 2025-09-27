@@ -1,7 +1,7 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 替换 Core.Commands.Trading
-using CryptoSpot.Application.Abstractions.MarketData; // migrated from Core.Interfaces.MarketData
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
 
 namespace CryptoSpot.Application.CommandHandlers.Trading
 {
@@ -10,12 +10,12 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
     /// </summary>
     public class ProcessKLineDataCommandHandler : ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>
     {
-        private readonly IKLineDataService _klineDataService;
+        private readonly IKLineDataService _klineDataService; // 修改: 使用域服务接口
         private readonly ICommandBus _commandBus;
         private readonly ILogger<ProcessKLineDataCommandHandler> _logger;
 
         public ProcessKLineDataCommandHandler(
-            IKLineDataService klineDataService,
+            IKLineDataService klineDataService, // 修改: 注入域服务
             ICommandBus commandBus,
             ILogger<ProcessKLineDataCommandHandler> logger)
         {
@@ -57,7 +57,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 }
 
                 // 保存K线数据
-                await _klineDataService.SaveKLineDataAsync(command.KLineData);
+                await _klineDataService.SaveKLineDataAsync(command.KLineData); // 修改: 调用域服务
 
                 // 发布K线更新事件 - 使用CommandBus发送相关命令
                 // 如果需要发布事件，可以创建相应的事件命令并通过CommandBus发送

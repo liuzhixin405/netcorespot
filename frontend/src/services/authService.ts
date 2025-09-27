@@ -17,113 +17,54 @@ export class AuthService {
   // 登录
   async login(credentials: LoginRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
-      const authResponse = await authApi.login(credentials);
-      
-      // 检查token是否存在
-      if (!authResponse.token) {
-        return { success: false, error: '登录响应格式错误：缺少token' };
+      const resp = await authApi.login(credentials);
+      if (!resp.success || !resp.data) {
+        return { success: false, error: resp.error || '登录失败' };
       }
-      
-      // 保存token
-      localStorage.setItem('token', authResponse.token);
-      
-      // 获取完整用户信息
-      try {
-        const user = await authApi.getCurrentUser();
-        this.currentUser = user;
-        return { success: true, user };
-      } catch (getUserError: any) {
-        // 即使获取用户信息失败，也可以从登录响应中构造用户对象
-        const user: User = {
-          id: 0, // 临时ID，实际应该从后端获取
-          username: authResponse.username,
-          email: authResponse.email,
-          createdAt: new Date().toISOString(),
-        };
-        
-        this.currentUser = user;
-        return { success: true, user };
+      const authData = resp.data;
+      if (!authData.token) return { success: false, error: '缺少token' };
+      localStorage.setItem('token', authData.token);
+      const userObj = authData.user;
+      if (userObj) {
+        this.currentUser = { id: userObj.id, username: userObj.username, email: userObj.email, createdAt: userObj.createdAt, lastLoginAt: userObj.lastLoginAt };
+        return { success: true, user: this.currentUser };
       }
+      // 兜底：再调 /auth/me
+      const me = await authApi.getCurrentUser();
+      if (me.success && me.data) {
+        const u = me.data; this.currentUser = { id: u.id, username: u.username, email: u.email, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
+        return { success: true, user: this.currentUser };
+      }
+      return { success: true, user: { id: 0, username: 'Unknown', email: '', createdAt: new Date().toISOString() } };
     } catch (error: any) {
-      
-      // 检查是否是超时或网络连接问题
-      if (error.code === 'ECONNABORTED' || 
-          error.message?.includes('timeout') || 
-          error.message?.includes('Network Error') ||
-          error.message?.includes('ERR_NETWORK') ||
-          error.message?.includes('ERR_CONNECTION_REFUSED') ||
-          error.message?.includes('ERR_SSL_PROTOCOL_ERROR')) {
-        return { success: false, error: '连接超时，请检查网络连接或稍后重试' };
-      }
-      
-      // 检查是否是服务器错误
-      if (error.response?.status >= 500) {
-        return { success: false, error: '服务器暂时不可用，请稍后重试' };
-      }
-      
-      // 检查是否是连接问题导致的401错误
-      if (error.response?.status === 401) {
-        // 如果后端返回401，可能是连接问题而不是认证问题
-        // 检查是否有具体的错误信息
-        const backendError = error.response?.data?.message || error.response?.data?.error;
-        if (backendError) {
-          return { success: false, error: backendError };
-        } else {
-          // 没有具体错误信息，可能是连接问题
-          return { success: false, error: '无法连接到服务器，请检查网络连接' };
-        }
-      }
-      
-      // 其他错误（包括账号密码错误）
-      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message || '登录失败';
-      return { success: false, error: errorMessage };
+      const msg = error.response?.data?.error || error.response?.data?.message || error.message || '登录失败';
+      return { success: false, error: msg };
     }
   }
 
   // 注册
   async register(userData: RegisterRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
-      const authResponse = await authApi.register(userData);
-      
-      // 保存token
-      localStorage.setItem('token', authResponse.token);
-      
-      // 获取完整用户信息
-      const user = await authApi.getCurrentUser();
-      this.currentUser = user;
-      
-      return { success: true, user };
+      const resp = await authApi.register(userData);
+      if (!resp.success || !resp.data) {
+        return { success: false, error: resp.error || '注册失败' };
+      }
+      const authData = resp.data;
+      localStorage.setItem('token', authData.token);
+      const userObj = authData.user;
+      if (userObj) {
+        this.currentUser = { id: userObj.id, username: userObj.username, email: userObj.email, createdAt: userObj.createdAt, lastLoginAt: userObj.lastLoginAt };
+        return { success: true, user: this.currentUser };
+      }
+      const me = await authApi.getCurrentUser();
+      if (me.success && me.data) {
+        const u = me.data; this.currentUser = { id: u.id, username: u.username, email: u.email, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
+        return { success: true, user: this.currentUser };
+      }
+      return { success: true, user: { id: 0, username: userData.username, email: userData.email, createdAt: new Date().toISOString() } };
     } catch (error: any) {
-      console.error('注册过程出错:', error);
-      
-      // 检查是否是超时或网络连接问题
-      if (error.code === 'ECONNABORTED' || 
-          error.message?.includes('timeout') || 
-          error.message?.includes('Network Error') ||
-          error.message?.includes('ERR_NETWORK') ||
-          error.message?.includes('ERR_CONNECTION_REFUSED') ||
-          error.message?.includes('ERR_SSL_PROTOCOL_ERROR')) {
-        return { success: false, error: '连接超时，请检查网络连接或稍后重试' };
-      }
-      
-      // 检查是否是服务器错误
-      if (error.response?.status >= 500) {
-        return { success: false, error: '服务器暂时不可用，请稍后重试' };
-      }
-      
-      // 检查是否是连接问题导致的401错误
-      if (error.response?.status === 401) {
-        const backendError = error.response?.data?.message || error.response?.data?.error;
-        if (backendError) {
-          return { success: false, error: backendError };
-        } else {
-          return { success: false, error: '无法连接到服务器，请检查网络连接' };
-        }
-      }
-      
-      // 其他错误
-      const errorMessage = error.response?.data?.message || error.response?.data?.error || error.message || '注册失败';
-      return { success: false, error: errorMessage };
+      const msg = error.response?.data?.error || error.response?.data?.message || error.message || '注册失败';
+      return { success: false, error: msg };
     }
   }
 
@@ -171,29 +112,15 @@ export class AuthService {
   // 初始化用户状态（从token恢复）
   async initializeUser(): Promise<User | null> {
     const token = localStorage.getItem('token');
-    
-    if (!token) {
-      return null;
-    }
-
-    // 临时直接从token解析用户信息，跳过API调用
+    if (!token) return null;
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const user: User = {
-        id: parseInt(payload.nameid) || 0,
-        username: payload.unique_name || 'Unknown',
-        email: payload.email || '',
-        createdAt: new Date().toISOString(),
-      };
-      
-      this.currentUser = user;
-      return user;
-    } catch (tokenError) {
-      console.error('token解析失败:', tokenError);
-      localStorage.removeItem('token');
-      this.currentUser = null;
+      const me = await authApi.getCurrentUser();
+      if (me.success && me.data) {
+        const u = me.data; this.currentUser = { id: u.id, username: u.username, email: u.email, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
+        return this.currentUser;
+      }
       return null;
-    }
+    } catch { return null; }
   }
 
   // 验证表单

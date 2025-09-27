@@ -1,5 +1,5 @@
 // filepath: g:\\github\\netcorespot\\src\\CryptoSpot.Infrastructure\\Services\\MarketMakerRegistry.cs
-using CryptoSpot.Application.Abstractions.Users;
+using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
