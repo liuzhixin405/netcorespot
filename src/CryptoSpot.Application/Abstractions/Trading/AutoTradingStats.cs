@@ -1,7 +1,11 @@
-using CryptoSpot.Domain.Entities;
-using CryptoSpot.Domain.Extensions; // migrated from CryptoSpot.Core.Extensions
+﻿using CryptoSpot.Domain.Extensions;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 
-namespace CryptoSpot.Application.Abstractions.Trading // migrated from CryptoSpot.Core.Interfaces.Trading
+namespace CryptoSpot.Application.Abstractions.Trading
 {
     /// <summary>
     /// 自动交易统计
