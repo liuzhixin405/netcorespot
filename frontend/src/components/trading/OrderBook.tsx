@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { useSignalRPriceData } from '../../hooks/useSignalRPriceData';
 import { useSignalROrderBook, OrderBookLevel } from '../../hooks/useSignalROrderBook';
+import { useSignalRTicker } from '../../hooks/useSignalRTicker';
 
 const Container = styled.div`
   height: 100%;
@@ -124,13 +125,44 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
   const { priceData, isConnected: priceConnected, error: priceError } = useSignalRPriceData([symbol]);
   // 使用SignalR实时订单簿数据
   const { orderBookData, loading, error: orderBookError, isConnected: orderBookConnected, reconnect } = useSignalROrderBook(symbol);
+  // 使用SignalR实时成交价数据
+  const { tickerData, isConnected: tickerConnected } = useSignalRTicker(symbol);
   
   const currentPriceData = priceData[symbol];
-  const currentPrice = currentPriceData?.price || 0;
+  const basePrice = currentPriceData?.price || 0;
   
   // 从订单簿数据中提取买卖订单，限制为5条
   const buyOrders = (orderBookData?.bids || []).slice(0, 5);
   const sellOrders = (orderBookData?.asks || []).slice(0, 5);
+
+  // 获取实时成交价，优先使用ticker数据，然后是价格数据，最后是订单簿中间价
+  const currentPrice = React.useMemo(() => {
+    // 1. 优先使用实时成交价
+    if (tickerData?.lastPrice && tickerData.lastPrice > 0) {
+      return tickerData.lastPrice;
+    }
+    
+    // 2. 使用中间价
+    if (tickerData?.midPrice && tickerData.midPrice > 0) {
+      return tickerData.midPrice;
+    }
+    
+    // 3. 使用价格数据
+    if (basePrice > 0) {
+      return basePrice;
+    }
+    
+    // 4. 从订单簿计算中间价
+    if (buyOrders.length > 0 && sellOrders.length > 0) {
+      return (buyOrders[0].price + sellOrders[0].price) / 2;
+    }
+    
+    // 5. 使用买一或卖一价格
+    if (buyOrders.length > 0) return buyOrders[0].price;
+    if (sellOrders.length > 0) return sellOrders[0].price;
+    
+    return 0;
+  }, [tickerData, basePrice, buyOrders, sellOrders]);
   
 
   return (
@@ -146,8 +178,7 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
       <Content>
         {/* 显示订单簿数据 */}
         {orderBookData ? (
-          <>
-            {/* 卖单（从高到低） */}
+          <>            {/* 卖单（从高到低） */}
             {sellOrders.slice().reverse().map((order: OrderBookLevel, index: number) => (
               <PriceRow key={`sell-${order.price}`} isBuy={false}>
                 <DepthBar isBuy={false} percentage={Math.min((order.total / Math.max(...sellOrders.map(o => o.total))) * 100, 100)} />

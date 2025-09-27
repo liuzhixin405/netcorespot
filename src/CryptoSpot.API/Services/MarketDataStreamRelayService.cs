@@ -200,9 +200,8 @@ namespace CryptoSpot.API.Services
 
                 using var scope = _scopeFactory.CreateScope();
                 var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
-                var snapshotCache = scope.ServiceProvider.GetService<IOrderBookSnapshotCache>();
-
-                bool pushAsSnapshot = state.LastPushMs == 0 || (nowMs - state.LastPushMs) > 3000 || delta.IsSnapshot;
+                var snapshotCache = scope.ServiceProvider.GetService<IOrderBookSnapshotCache>();                // 只在真正的快照或首次推送时发送快照，移除定时强制快照
+                bool pushAsSnapshot = state.LastPushMs == 0 || delta.IsSnapshot;
                 if (pushAsSnapshot)
                 {
                     await push.PushExternalOrderBookSnapshotAsync(delta.Symbol, delta.Bids.ToList(), delta.Asks.ToList(), nowMs);

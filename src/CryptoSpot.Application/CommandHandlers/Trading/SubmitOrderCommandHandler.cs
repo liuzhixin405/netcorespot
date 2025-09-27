@@ -19,6 +19,8 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         private readonly IOrderMatchingEngine _orderMatchingEngine;
         private readonly ICommandBus _commandBus;
         private readonly ILogger<SubmitOrderCommandHandler> _logger;
+        private readonly IAssetService _assetService; // 新增: 资产服务用于冻结
+        private readonly IMarketMakerRegistry _marketMakerRegistry; // 多做市支持
 
         public SubmitOrderCommandHandler(
             ITradingPairService tradingPairService,
@@ -26,7 +28,9 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             IOrderService orderService,
             IOrderMatchingEngine orderMatchingEngine,
             ICommandBus commandBus,
-            ILogger<SubmitOrderCommandHandler> logger)
+            ILogger<SubmitOrderCommandHandler> logger,
+            IAssetService assetService,
+            IMarketMakerRegistry marketMakerRegistry) // 注入注册表
         {
             _tradingPairService = tradingPairService;
             _userRepository = userRepository;
@@ -34,6 +38,8 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             _orderMatchingEngine = orderMatchingEngine;
             _commandBus = commandBus;
             _logger = logger;
+            _assetService = assetService;
+            _marketMakerRegistry = marketMakerRegistry;
         }
 
         public async Task<SubmitOrderResult> HandleAsync(SubmitOrderCommand command, CancellationToken cancellationToken = default)
@@ -68,15 +74,50 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     };
                 }
 
-                // 验证订单参数
+                // 统一精度 (向下截断防止超额消费)
+                command.Quantity = RoundDown(command.Quantity, tradingPair.QuantityPrecision);
+                if (command.Type == OrderType.Limit && command.Price.HasValue)
+                    command.Price = RoundDown(command.Price.Value, tradingPair.PricePrecision);
+
+                if (command.Quantity <= 0 || (command.Type == OrderType.Limit && command.Price.HasValue && command.Price.Value <= 0))
+                {
+                    return new SubmitOrderResult { Success = false, ErrorMessage = "数量或价格精度归一后无效" };
+                }
+
+                // 先验证订单参数（在精度归一后）
                 var validationResult = ValidateOrderCommand(command);
                 if (!validationResult.IsValid)
                 {
                     return new SubmitOrderResult
                     {
                         Success = false,
-                        ErrorMessage = validationResult.ErrorMessage
+                        ErrorMessage = validationResult.ErrorMessage ?? "参数无效"
                     };
+                }
+
+                // 非做市账户执行资金冻结 (做市商跳过)
+                if (!_marketMakerRegistry.IsMaker(command.UserId))
+                {
+                    bool freezeOk = true;
+                    if (command.Type == OrderType.Limit)
+                    {
+                        if (command.Side == OrderSide.Buy)
+                        {
+                            var notional = RoundDown(command.Quantity * (command.Price ?? 0), tradingPair.PricePrecision);
+                            if (notional <= 0)
+                                return new SubmitOrderResult { Success = false, ErrorMessage = "冻结金额为0" };
+                            freezeOk = await _assetService.FreezeAssetAsync(command.UserId, tradingPair.QuoteAsset, notional);
+                        }
+                        else if (command.Side == OrderSide.Sell)
+                        {
+                            freezeOk = await _assetService.FreezeAssetAsync(command.UserId, tradingPair.BaseAsset, command.Quantity);
+                        }
+                    }
+
+                    if (!freezeOk)
+                    {
+                        return new SubmitOrderResult { Success = false, ErrorMessage = "余额不足或冻结失败" };
+                    }
                 }
 
                 // 创建订单
@@ -138,6 +179,13 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 return (false, "交易对符号不能为空");
 
             return (true, null);
+        }
+
+        private static decimal RoundDown(decimal value, int precision)
+        {
+            if (precision < 0) precision = 0;
+            var factor = (decimal)Math.Pow(10, precision);
+            return Math.Truncate(value * factor) / factor; // 向下截断
         }
     }
 }

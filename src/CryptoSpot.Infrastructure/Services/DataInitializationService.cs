@@ -1,6 +1,8 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options; // 读取 MarketMakerOptions
+using CryptoSpot.Application.Abstractions.Users; // IMarketMakerRegistry 可选
 
 namespace CryptoSpot.Infrastructure.Services
 {
@@ -13,17 +15,20 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IUserRepository _userRepository;
         private readonly IAssetRepository _assetRepository;
         private readonly ILogger<DataInitializationService> _logger;
+        private readonly IOptions<MarketMakerOptions>? _mmOptions; // 可为空以兼容旧构造
 
         public DataInitializationService(
            ITradingPairRepository tradingPairRepository,
            IUserRepository userRepository,
            IAssetRepository assetRepository,
-            ILogger<DataInitializationService> logger)
+            ILogger<DataInitializationService> logger,
+            IOptions<MarketMakerOptions>? mmOptions = null)
         {
             _tradingPairRepository = tradingPairRepository;
             _userRepository = userRepository;
             _assetRepository = assetRepository;
             _logger = logger;
+            _mmOptions = mmOptions;
         }
 
         /// <summary>
@@ -151,65 +156,46 @@ namespace CryptoSpot.Infrastructure.Services
         /// </summary>
         private async Task InitializeSystemAssetsAsync()
         {
-            // 获取系统做市商用户
-            var marketMaker = (await _userRepository.FindAsync(u => u.Username == "SystemMarketMaker" && u.Type == UserType.MarketMaker)).FirstOrDefault();
-            if (marketMaker == null)
+            // 支持多做市账号
+            var makerIds = _mmOptions?.Value?.UserIds?.Distinct().ToList() ?? new List<int>();
+            if (makerIds.Count == 0)
             {
-                _logger.LogWarning("未找到系统做市商用户，跳过资产初始化");
+                // 兼容旧逻辑：按用户名查找单一做市账号
+                var single = (await _userRepository.FindAsync(u => u.Username == "SystemMarketMaker" && u.Type == UserType.MarketMaker)).FirstOrDefault();
+                if (single != null) makerIds.Add(single.Id);
+            }
+
+            if (makerIds.Count == 0)
+            {
+                _logger.LogWarning("未找到任何做市商用户，跳过系统资产初始化");
                 return;
             }
 
-            var systemAssets = new[]
+            foreach (var makerId in makerIds)
             {
-                new Asset
+                var user = await _userRepository.GetByIdAsync(makerId);
+                if (user == null)
                 {
-                    UserId = marketMaker.Id,
-                    Symbol = "USDT",
-                    Available = 1000000m, // 100万USDT
-                    Frozen = 0m,
-                    MinReserve = 100000m, // 保留10万USDT
-                    TargetBalance = 1000000m,
-                    AutoRefillEnabled = true
-                },
-                new Asset
-                {
-                    UserId = marketMaker.Id,
-                    Symbol = "BTC",
-                    Available = 100m, // 100 BTC
-                    Frozen = 0m,
-                    MinReserve = 10m, // 保留10 BTC
-                    TargetBalance = 100m,
-                    AutoRefillEnabled = true
-                },
-                new Asset
-                {
-                    UserId = marketMaker.Id,
-                    Symbol = "ETH",
-                    Available = 5000m, // 5000 ETH
-                    Frozen = 0m,
-                    MinReserve = 500m, // 保留500 ETH
-                    TargetBalance = 5000m,
-                    AutoRefillEnabled = true
-                },
-                new Asset
-                {
-                    UserId = marketMaker.Id,
-                    Symbol = "SOL",
-                    Available = 50000m, // 50000 SOL
-                    Frozen = 0m,
-                    MinReserve = 5000m, // 保留5000 SOL
-                    TargetBalance = 50000m,
-                    AutoRefillEnabled = true
+                    _logger.LogWarning("配置的做市商用户 {MakerId} 不存在，跳过", makerId);
+                    continue;
                 }
-            };
 
-            foreach (var asset in systemAssets)
-            {
-                var existing = await _assetRepository.FindAsync(a => a.UserId == asset.UserId && a.Symbol == asset.Symbol);
-                if (!existing.Any())
+                var systemAssets = new[]
                 {
-                    await _assetRepository.AddAsync(asset);
-                    _logger.LogInformation("创建系统资产: {Symbol} - {Amount}", asset.Symbol, asset.Available);
+                    new Asset { UserId = makerId, Symbol = "USDT", Available = 1000000m, Frozen = 0m, MinReserve = 100000m, TargetBalance = 1000000m, AutoRefillEnabled = true },
+                    new Asset { UserId = makerId, Symbol = "BTC",  Available = 100m,     Frozen = 0m, MinReserve = 10m,     TargetBalance = 100m,     AutoRefillEnabled = true },
+                    new Asset { UserId = makerId, Symbol = "ETH",  Available = 5000m,    Frozen = 0m, MinReserve = 500m,    TargetBalance = 5000m,    AutoRefillEnabled = true },
+                    new Asset { UserId = makerId, Symbol = "SOL",  Available = 50000m,   Frozen = 0m, MinReserve = 5000m,   TargetBalance = 50000m,   AutoRefillEnabled = true }
+                };
+
+                foreach (var asset in systemAssets)
+                {
+                    var existing = await _assetRepository.FindAsync(a => a.UserId == asset.UserId && a.Symbol == asset.Symbol);
+                    if (!existing.Any())
+                    {
+                        await _assetRepository.AddAsync(asset);
+                        _logger.LogInformation("创建做市商 {MakerId} 系统资产: {Symbol} - {Amount}", makerId, asset.Symbol, asset.Available);
+                    }
                 }
             }
         }

@@ -181,5 +181,28 @@ namespace CryptoSpot.API.Services
                 _logger.LogError(ex, "Failed to push external order book snapshot for {Symbol}", symbol);
             }
         }
+
+        // 新增
+        public async Task PushLastTradeAndMidPriceAsync(string symbol, decimal? lastPrice, decimal? lastQuantity, decimal? bestBid, decimal? bestAsk, decimal? midPrice, long timestamp)
+        {
+            try
+            {
+                var groupName = $"ticker_{symbol}"; // 单独分组，前端可选择订阅
+                var data = new {
+                    symbol,
+                    lastPrice,
+                    lastQuantity,
+                    bestBid,
+                    bestAsk,
+                    midPrice,
+                    timestamp
+                };
+                await _hubContext.Clients.Group(groupName).SendAsync("LastTradeAndMid", data);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to push last trade & mid price for {Symbol}", symbol);
+            }
+        }
     }
 }

@@ -246,7 +246,6 @@ export class SignalRClient {
       return () => {};
     }
   }
-
   // 订阅订单簿数据
   async subscribeOrderBook(
     symbol: string,
@@ -298,6 +297,53 @@ export class SignalRClient {
           // 取消订阅失败，忽略错误
         }
         this.subscribedOrderBooks = this.subscribedOrderBooks.filter(o => o.symbol !== symbol);
+      };
+
+    } catch (error) {
+      if (onError) onError(error);
+      return () => {};
+    }
+  }
+
+  // 订阅实时成交价和中间价
+  async subscribeTicker(
+    symbol: string,
+    onTickerData: (tickerData: any) => void,
+    onError?: (error: any) => void
+  ): Promise<() => void> {
+    try {
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+        const connected = await this.connect();
+        if (!connected || !this.connection) {
+          throw new Error('SignalR连接失败');
+        }
+      }
+
+      // 确保连接存在且已连接
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+        throw new Error('SignalR连接状态异常');
+      }
+
+      // 设置ticker数据接收处理器
+      this.connection.off('LastTradeAndMid');
+      
+      this.connection.on('LastTradeAndMid', (response: any) => {
+        if ((window as any).__SR_DEBUG) console.log('[SignalR] LastTradeAndMid', response);
+        onTickerData(response);
+      });
+
+      // 发送订阅请求
+      await this.connection.invoke('SubscribeTicker', symbol);
+
+      // 返回取消订阅函数
+      return async () => {
+        try {
+          if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
+            await this.connection.invoke('UnsubscribeTicker', symbol);
+          }
+        } catch {
+          // 取消订阅失败，忽略错误
+        }
       };
 
     } catch (error) {

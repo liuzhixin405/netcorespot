@@ -161,6 +161,21 @@ namespace CryptoSpot.API.Hubs
             await Clients.Caller.SendAsync("OrderBookUnsubscribed", symbol);
         }
 
+        // 新增: 订阅最新成交与中间价
+        public async Task SubscribeTicker(string symbol)
+        {
+            var group = $"ticker_{symbol}";
+            await Groups.AddToGroupAsync(Context.ConnectionId, group);
+            await Clients.Caller.SendAsync("TickerSubscribed", symbol);
+        }
+
+        public async Task UnsubscribeTicker(string symbol)
+        {
+            var group = $"ticker_{symbol}";
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, group);
+            await Clients.Caller.SendAsync("TickerUnsubscribed", symbol);
+        }
+
         public override async Task OnConnectedAsync()
         {
             await Clients.Caller.SendAsync("Connected", Context.ConnectionId);

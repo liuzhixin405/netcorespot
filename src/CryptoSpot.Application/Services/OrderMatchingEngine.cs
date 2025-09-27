@@ -45,6 +45,12 @@ namespace CryptoSpot.Application.Services
             var result = new OrderMatchResult { Order = order };
             string symbol = string.Empty;
 
+            // 新增: 记录增量受影响价位集合
+            var impactedBidPrices = new HashSet<decimal>();
+            var impactedAskPrices = new HashSet<decimal>();
+            List<CryptoSpot.Application.Abstractions.Trading.OrderBookLevel> bidDeltaLevels = new();
+            List<CryptoSpot.Application.Abstractions.Trading.OrderBookLevel> askDeltaLevels = new();
+
             try
             {
                 // 获取交易对符号
@@ -67,16 +73,24 @@ namespace CryptoSpot.Application.Services
                     // 如果是市价单，立即匹配
                     if (order.Type == OrderType.Market)
                     {
-                        result.Trades = await MatchMarketOrderAsync(order);
+                        result.Trades = await MatchMarketOrderAsync(order, impactedBidPrices, impactedAskPrices);
                     }
                     else
                     {
                         // 限价单先尝试匹配，未匹配部分进入订单簿
-                        result.Trades = await MatchLimitOrderAsync(order);
+                        result.Trades = await MatchLimitOrderAsync(order, impactedBidPrices, impactedAskPrices);
                     }
 
                     // 更新订单状态
                     await UpdateOrderStatusAfterMatch(order, result.Trades);
+
+                    // 在锁内构建增量层级，保证一致性
+                    if (impactedBidPrices.Count > 0 || impactedAskPrices.Count > 0)
+                    {
+                        var activeOrders = await _orderService.GetActiveOrdersAsync(symbol);
+                        bidDeltaLevels = AggregateLevels(activeOrders, impactedBidPrices, OrderSide.Buy);
+                        askDeltaLevels = AggregateLevels(activeOrders, impactedAskPrices, OrderSide.Sell);
+                    }
                 }
                 finally
                 {
@@ -97,17 +111,38 @@ namespace CryptoSpot.Application.Services
                 }
             }
 
-            // 推送订单簿更新
+            // 推送增量订单簿 (替换原先每次全量推送)
             if (!string.IsNullOrEmpty(symbol))
             {
                 try
                 {
                     var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
-                    await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                    if (bidDeltaLevels.Count > 0 || askDeltaLevels.Count > 0)
+                    {
+                        await realTimeDataPushService.PushOrderBookDeltaAsync(symbol, bidDeltaLevels, askDeltaLevels);
+                    }
+                    else
+                    {
+                        await realTimeDataPushService.PushOrderBookDataAsync(symbol, 20);
+                    }
+
+                    // 计算并推送最新成交价与中间价
+                    decimal? lastPrice = result.Trades?.LastOrDefault()?.Price;
+                    decimal? lastQty = result.Trades?.LastOrDefault()?.Quantity;
+
+                    // 仅在订单簿变化或有成交时读取当前顶级价
+                    if (bidDeltaLevels.Count > 0 || askDeltaLevels.Count > 0 || lastPrice.HasValue)
+                    {
+                        var depth = await GetOrderBookDepthAsync(symbol, 1); // 只取顶层
+                        decimal? bestBid = depth.Bids.FirstOrDefault()?.Price;
+                        decimal? bestAsk = depth.Asks.FirstOrDefault()?.Price;
+                        decimal? mid = (bestBid.HasValue && bestAsk.HasValue && bestBid > 0 && bestAsk > 0) ? (bestBid + bestAsk) / 2m : null;
+                        await realTimeDataPushService.PushLastTradeAndMidPriceAsync(symbol, lastPrice, lastQty, bestBid, bestAsk, mid, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "推送订单簿数据失败: Symbol={Symbol}", symbol);
+                    _logger.LogWarning(ex, "推送订单簿/价格数据失败: Symbol={Symbol}", symbol);
                 }
             }
 
@@ -320,7 +355,7 @@ namespace CryptoSpot.Application.Services
             return _symbolLocks[symbol];
         }
 
-        private async Task<List<Trade>> MatchMarketOrderAsync(Order marketOrder)
+        private async Task<List<Trade>> MatchMarketOrderAsync(Order marketOrder, HashSet<decimal>? impactedBidPrices = null, HashSet<decimal>? impactedAskPrices = null)
         {
             var trades = new List<Trade>();
             
@@ -368,6 +403,8 @@ namespace CryptoSpot.Application.Services
                         await _orderService.UpdateOrderStatusAsync(marketOrder.Id, marketOrder.Status, matchQuantity, matchPrice);
                     }
 
+                    // 记录受影响价位（对手方价位）
+                    RegisterImpacted(oppositeOrder, impactedBidPrices, impactedAskPrices);
                     remainingQuantity -= matchQuantity;
                 }
             }
@@ -382,7 +419,7 @@ namespace CryptoSpot.Application.Services
             return trades;
         }
 
-        private async Task<List<Trade>> MatchLimitOrderAsync(Order limitOrder)
+        private async Task<List<Trade>> MatchLimitOrderAsync(Order limitOrder, HashSet<decimal>? impactedBidPrices = null, HashSet<decimal>? impactedAskPrices = null)
         {
             var trades = new List<Trade>();
             
@@ -434,8 +471,17 @@ namespace CryptoSpot.Application.Services
                         await _orderService.UpdateOrderStatusAsync(limitOrder.Id, limitOrder.Status, matchQuantity, matchPrice);
                     }
 
+                    // 记录双方价位
+                    RegisterImpacted(limitOrder, impactedBidPrices, impactedAskPrices);
+                    RegisterImpacted(oppositeOrder, impactedBidPrices, impactedAskPrices);
                     remainingQuantity -= matchQuantity;
                 }
+            }
+
+            // 如果剩余部分进入订单簿（新增价位或更新价格层汇总）
+            if (limitOrder.RemainingQuantity > 0)
+            {
+                RegisterImpacted(limitOrder, impactedBidPrices, impactedAskPrices);
             }
 
             // 限价单剩余部分保持 Active (由前面 CreateOrder 已设 Active)；若完全成交由增量更新内部已自动变为 Filled
@@ -547,6 +593,52 @@ namespace CryptoSpot.Application.Services
                     await _assetService.UnfreezeAssetAsync(order.UserId.Value, baseAsset, remainingQuantity);
                 }
             }
+        }
+
+        // 新增: 汇总指定价位集合对应的订单簿层
+        private List<CryptoSpot.Application.Abstractions.Trading.OrderBookLevel> AggregateLevels(IEnumerable<Order> activeOrders, HashSet<decimal> prices, OrderSide side)
+        {
+            var list = new List<CryptoSpot.Application.Abstractions.Trading.OrderBookLevel>();
+            foreach (var price in prices)
+            {
+                var sideOrders = activeOrders.Where(o => o.Side == side && o.Type == OrderType.Limit && o.Price == price).ToList();
+                if (!sideOrders.Any())
+                {
+                    list.Add(new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel
+                    {
+                        Price = price,
+                        Quantity = 0,
+                        OrderCount = 0,
+                        Total = 0
+                    });
+                }
+                else
+                {
+                    var qty = sideOrders.Sum(o => o.RemainingQuantity);
+                    list.Add(new CryptoSpot.Application.Abstractions.Trading.OrderBookLevel
+                    {
+                        Price = price,
+                        Quantity = qty,
+                        OrderCount = sideOrders.Count,
+                        Total = qty
+                    });
+                }
+            }
+            // 买单按价格降序, 卖单按升序
+            if (side == OrderSide.Buy)
+                return list.OrderByDescending(l => l.Price).ToList();
+            return list.OrderBy(l => l.Price).ToList();
+        }
+
+        // 新增: 记录受影响价位
+        private static void RegisterImpacted(Order order, HashSet<decimal>? bidSet, HashSet<decimal>? askSet)
+        {
+            if (order.Type != OrderType.Limit) return;
+            if (!order.Price.HasValue) return;
+            if (order.Side == OrderSide.Buy)
+                bidSet?.Add(order.Price.Value);
+            else
+                askSet?.Add(order.Price.Value);
         }
 
         #endregion

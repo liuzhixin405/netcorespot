@@ -21,7 +21,8 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
 
     public async Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null)
     {
-        IQueryable<Order> query = _dbSet.Include(o => o.TradingPair).Where(o => o.Status == OrderStatus.Active);
+        IQueryable<Order> query = _dbSet.Include(o => o.TradingPair)
+            .Where(o => o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled);
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -63,15 +64,20 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
         return await query.OrderByDescending(o => o.CreatedAt).ToListAsync();
     }
 
-    public async Task<IEnumerable<Order>> GetActiveOrdersByTradingPairIdAsync(int tradingPairId) => await _dbSet.Where(o => o.TradingPairId == tradingPairId && o.Status == OrderStatus.Active)
+    public async Task<IEnumerable<Order>> GetActiveOrdersByTradingPairIdAsync(int tradingPairId) => await _dbSet
+        .Where(o => o.TradingPairId == tradingPairId && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled))
         .OrderBy(o => o.Side == OrderSide.Buy ? o.Price : -o.Price).ToListAsync();
 
     public async Task<OrderBookDepth> GetOrderBookDepthAsync(int tradingPairId, int depth = 20)
     {
-        var orders = await _dbSet.Where(o => o.TradingPairId == tradingPairId && o.Status == OrderStatus.Active)
+        var orders = await _dbSet.Where(o => o.TradingPairId == tradingPairId && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled))
             .OrderBy(o => o.Side == OrderSide.Buy ? o.Price : -o.Price).Take(depth * 2).ToListAsync();
-        var bids = orders.Where(o => o.Side == OrderSide.Buy).GroupBy(o => o.Price).Select(g => new OrderBookLevel { Price = g.Key ?? 0, Quantity = g.Sum(o => o.Quantity), Total = g.Sum(o => o.Quantity) }).OrderByDescending(l => l.Price).Take(depth).ToList();
-        var asks = orders.Where(o => o.Side == OrderSide.Sell).GroupBy(o => o.Price).Select(g => new OrderBookLevel { Price = g.Key ?? 0, Quantity = g.Sum(o => o.Quantity), Total = g.Sum(o => o.Quantity) }).OrderBy(l => l.Price).Take(depth).ToList();
+        var bids = orders.Where(o => o.Side == OrderSide.Buy).GroupBy(o => o.Price)
+            .Select(g => new OrderBookLevel { Price = g.Key ?? 0, Quantity = g.Sum(o => o.Quantity - o.FilledQuantity), Total = g.Sum(o => o.Quantity - o.FilledQuantity) })
+            .OrderByDescending(l => l.Price).Take(depth).ToList();
+        var asks = orders.Where(o => o.Side == OrderSide.Sell).GroupBy(o => o.Price)
+            .Select(g => new OrderBookLevel { Price = g.Key ?? 0, Quantity = g.Sum(o => o.Quantity - o.FilledQuantity), Total = g.Sum(o => o.Quantity - o.FilledQuantity) })
+            .OrderBy(l => l.Price).Take(depth).ToList();
         return new OrderBookDepth { Bids = bids, Asks = asks };
     }
 

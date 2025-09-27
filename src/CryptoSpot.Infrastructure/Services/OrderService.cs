@@ -35,6 +35,13 @@ namespace CryptoSpot.Infrastructure.Services
                 if (quantity <= 0) throw new ArgumentException("数量必须大于0", nameof(quantity));
                 if (type == OrderType.Limit && (!price.HasValue || price.Value <= 0)) throw new ArgumentException("限价单必须提供正价格", nameof(price));
 
+                // 防御性精度统一（向下截断确保不超出可支付金额）
+                quantity = RoundDown(quantity, tradingPair.QuantityPrecision);
+                if (type == OrderType.Limit && price.HasValue)
+                    price = RoundDown(price.Value, tradingPair.PricePrecision);
+                if (quantity <= 0 || (type == OrderType.Limit && price.HasValue && price.Value <= 0))
+                    throw new ArgumentException("精度归一后数量或价格无效");
+
                 var initialStatus = type == OrderType.Limit ? OrderStatus.Active : OrderStatus.Pending;
 
                 var order = new Order
@@ -141,5 +148,12 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         private string GenerateOrderId() => $"ORD_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Random.Shared.Next(1000, 9999)}";
+
+        private static decimal RoundDown(decimal value, int precision)
+        {
+            if (precision < 0) precision = 0;
+            var factor = (decimal)Math.Pow(10, precision);
+            return Math.Truncate(value * factor) / factor;
+        }
     }
 }

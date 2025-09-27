@@ -69,7 +69,10 @@ return 1");
 local amount = tonumber(@amount)
 local now = @now
 if redis.call('EXISTS', @key) == 0 then
-  redis.call('HSET', @key, 'available', 0, 'frozen', 0, 'createdAt', now, 'updatedAt', now)
+  redis.call('HSET', @key, 'available', 0)
+  redis.call('HSET', @key, 'frozen', 0)
+  redis.call('HSET', @key, 'createdAt', now)
+  redis.call('HSET', @key, 'updatedAt', now)
 end
 redis.call('HINCRBYFLOAT', @key, 'available', amount)
 redis.call('HSET', @key, 'updatedAt', now)

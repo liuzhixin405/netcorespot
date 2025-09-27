@@ -96,7 +96,6 @@ export const useSignalROrderBook = (
     setIsConnected(true);
     setLoading(false);
   }, []); // 移除 orderBookData 依赖
-
   // 增量更新订单簿
   const updateOrderBookIncremental = useCallback((data: any) => {
     const { bids, asks } = data;
@@ -118,15 +117,22 @@ export const useSignalROrderBook = (
       return;
     }
 
+    // 记录是否有任何变化
+    let hasChanges = false;
+
     // 仅更新发生变化的档位 (差异合并)
     if (bids) {
       bids.forEach((bid: OrderBookLevel) => {
         if (bid.amount === 0) {
-          localOrderBookRef.current.bids.delete(bid.price);
+          if (localOrderBookRef.current.bids.has(bid.price)) {
+            localOrderBookRef.current.bids.delete(bid.price);
+            hasChanges = true;
+          }
         } else {
           const existing = localOrderBookRef.current.bids.get(bid.price);
           if (!existing || existing.amount !== bid.amount) {
             localOrderBookRef.current.bids.set(bid.price, bid);
+            hasChanges = true;
           }
         }
       });
@@ -134,15 +140,22 @@ export const useSignalROrderBook = (
     if (asks) {
       asks.forEach((ask: OrderBookLevel) => {
         if (ask.amount === 0) {
-          localOrderBookRef.current.asks.delete(ask.price);
+          if (localOrderBookRef.current.asks.has(ask.price)) {
+            localOrderBookRef.current.asks.delete(ask.price);
+            hasChanges = true;
+          }
         } else {
           const existing = localOrderBookRef.current.asks.get(ask.price);
           if (!existing || existing.amount !== ask.amount) {
             localOrderBookRef.current.asks.set(ask.price, ask);
+            hasChanges = true;
           }
         }
       });
     }
+
+    // 只有在有变化时才更新状态
+    if (!hasChanges) return;
 
     // 转换 & 排序 (保持最少重建)
     const sortedBidEntries = Array.from(localOrderBookRef.current.bids.entries()).sort((a,b) => b[0]-a[0]).slice(0, depth);
@@ -159,14 +172,12 @@ export const useSignalROrderBook = (
       return { ...lvl, total: askTotal };
     });
 
-    // 仅在数组内容真正变化时 setState，减少 React 重渲染
-    setOrderBookData(prev => {
-      if (!prev) return { symbol: data.symbol, bids: bidsWithTotal, asks: asksWithTotal, timestamp: data.timestamp };
-      const same = prev.bids.length === bidsWithTotal.length && prev.asks.length === asksWithTotal.length &&
-        prev.bids.every((b,i) => b.price===bidsWithTotal[i].price && b.amount===bidsWithTotal[i].amount) &&
-        prev.asks.every((a,i) => a.price===asksWithTotal[i].price && a.amount===asksWithTotal[i].amount);
-      if (same) return prev;
-      return { symbol: data.symbol, bids: bidsWithTotal, asks: asksWithTotal, timestamp: data.timestamp };
+    // 直接更新状态，因为我们已经知道有变化
+    setOrderBookData({ 
+      symbol: data.symbol, 
+      bids: bidsWithTotal, 
+      asks: asksWithTotal, 
+      timestamp: data.timestamp 
     });
   }, [depth, orderBookData]);
 
