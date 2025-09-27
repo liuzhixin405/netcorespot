@@ -20,8 +20,7 @@ using CryptoSpot.Application.DependencyInjection;
 using CryptoSpot.Redis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using CryptoSpot.Persistence.Data;
-using CryptoSpot.Persistence.DependencyInjection;
+using CryptoSpot.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -213,49 +212,9 @@ app.MapControllers();
 // Map SignalR Hub
 app.MapHub<CryptoSpot.API.Hubs.TradingHub>("/tradingHub");
 
-// Ensure database is created and up-to-date
-using (var scope = app.Services.CreateScope())
-{
-    var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    try
-    {
-        // First try to create database if it doesn't exist
-        context.Database.EnsureCreated();
-        Console.WriteLine("✅ Database schema created/verified successfully");
-        
-        // Test connection by querying a simple table
-        var userCount = await context.Users.CountAsync();
-        Console.WriteLine($"📊 Current user count: {userCount}");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"❌ Database setup failed: {ex.Message}");
-        // Don't throw - let the app continue and fail gracefully on first DB operation
-    }
-}
+//Db and DataInit
+app.Services.InitDbContext();
 
-// Initialize data
-try
-{
-    using (var scope = app.Services.CreateScope())
-    {
-        var dataInitService = scope.ServiceProvider.GetRequiredService<DataInitializationService>();
-        if (await dataInitService.NeedsInitializationAsync())
-        {
-            await dataInitService.InitializeDataAsync();
-            Console.WriteLine("✅ Data initialization completed");
-        }
-        else
-        {
-            Console.WriteLine("✅ Data already initialized");
-        }
-    }
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"❌ Data initialization failed: {ex.Message}");
-    // Don't throw - let the app continue
-}
 
 app.Run();
 
