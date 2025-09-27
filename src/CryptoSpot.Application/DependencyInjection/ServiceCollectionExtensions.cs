@@ -29,32 +29,12 @@ namespace CryptoSpot.Application.DependencyInjection
             services.AddTransient<ICommandHandler<UpdatePriceCommand, UpdatePriceResult>, UpdatePriceCommandHandler>();
             services.AddTransient<ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>, ProcessKLineDataCommandHandler>();
 
-            // 注册重构后的服务
+            // 仅应用层编排服务 (不再注册 IOrderService / ITradeService 具体实现)
             services.AddTransient<ITradingService, RefactoredTradingService>();
-            services.AddTransient<IOrderService, RefactoredOrderService>();
-            services.AddTransient<ITradeService, RefactoredTradeService>();
 
-            // 注册应用服务（协调用例）- Transient，无状态
-            services.AddTransient<TradingApplicationService>();
-            services.AddTransient<UserApplicationService>();
-            services.AddTransient<MarketDataApplicationService>();
-            
             // 注册领域服务（核心业务逻辑）- Transient，无状态
             services.AddTransient<OrderMatchingEngine>();
             
-            // 注册基础设施服务（数据访问、外部服务）
-            // DatabaseCoordinator 和 CacheService 在 Infrastructure 层注册
-
-            // 移除仓储具体注册，改由 Infrastructure 层提供扩展 AddInfrastructurePersistence
-            // services.AddScoped<IUnitOfWork, UnitOfWork>();
-            // services.AddScoped(typeof(IRepository<>), typeof(BaseRepository<>));
-            // services.AddScoped<IOrderRepository, OrderRepository>();
-            // services.AddScoped<ITradeRepository, TradeRepository>();
-            // services.AddScoped<ITradingPairRepository, TradingPairRepository>();
-            // services.AddScoped<IUserRepository, UserRepository>();
-            // services.AddScoped<IAssetRepository, AssetRepository>();
-            // services.AddScoped<IKLineDataRepository, KLineDataRepository>();
-
             return services;
         }
 

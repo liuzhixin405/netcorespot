@@ -1,298 +1,332 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Users; // migrated from Core.Interfaces.Users
 using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
-using CryptoSpot.Application.Abstractions.Caching; // migrated from Core.Interfaces.Caching
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Redis;
+using StackExchange.Redis;
+using System.Globalization;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     public class AssetService : IAssetService
     {
         private readonly IAssetRepository _assetRepository;
-        private readonly ICacheService _cacheService;
         private readonly ILogger<AssetService> _logger;
-        private readonly IUnitOfWork _unitOfWork; // 新增
+        private readonly IUnitOfWork _unitOfWork; // 仅用于后台flush
+        private readonly IRedisCache _redis;
+
+        private static readonly TimeSpan AssetKeyTtl = TimeSpan.FromDays(30); // 可选：保持活跃
+        private const string DirtyListKey = "assets:dirty"; // Redis 列表，写后写入此列表
+
+        // 预编译 Lua 脚本 (使用占位符而不是在脚本中直接访问 KEYS/ARGV，避免参数映射错误)
+        private static readonly LuaScript FreezeScript = LuaScript.Prepare(@"
+local amount = tonumber(@amount)
+local now = @now
+local avail = redis.call('HGET', @key, 'available')
+if not avail then return 0 end
+avail = tonumber(avail)
+if avail < amount then return 0 end
+redis.call('HINCRBYFLOAT', @key, 'available', -amount)
+redis.call('HINCRBYFLOAT', @key, 'frozen', amount)
+redis.call('HSET', @key, 'updatedAt', now)
+return 1");
+
+        private static readonly LuaScript UnfreezeScript = LuaScript.Prepare(@"
+local amount = tonumber(@amount)
+local now = @now
+local frozen = redis.call('HGET', @key, 'frozen')
+if not frozen then return 0 end
+frozen = tonumber(frozen)
+if frozen < amount then return 0 end
+redis.call('HINCRBYFLOAT', @key, 'frozen', -amount)
+redis.call('HINCRBYFLOAT', @key, 'available', amount)
+redis.call('HSET', @key, 'updatedAt', now)
+return 1");
+
+        private static readonly LuaScript DeductAvailableScript = LuaScript.Prepare(@"
+local amount = tonumber(@amount)
+local now = @now
+local avail = redis.call('HGET', @key, 'available')
+if not avail then return 0 end
+avail = tonumber(avail)
+if avail < amount then return 0 end
+redis.call('HINCRBYFLOAT', @key, 'available', -amount)
+redis.call('HSET', @key, 'updatedAt', now)
+return 1");
+
+        private static readonly LuaScript DeductFrozenScript = LuaScript.Prepare(@"
+local amount = tonumber(@amount)
+local now = @now
+local frozen = redis.call('HGET', @key, 'frozen')
+if not frozen then return 0 end
+frozen = tonumber(frozen)
+if frozen < amount then return 0 end
+redis.call('HINCRBYFLOAT', @key, 'frozen', -amount)
+redis.call('HSET', @key, 'updatedAt', now)
+return 1");
+
+        private static readonly LuaScript AddAvailableScript = LuaScript.Prepare(@"
+local amount = tonumber(@amount)
+local now = @now
+if redis.call('EXISTS', @key) == 0 then
+  redis.call('HSET', @key, 'available', 0, 'frozen', 0, 'createdAt', now, 'updatedAt', now)
+end
+redis.call('HINCRBYFLOAT', @key, 'available', amount)
+redis.call('HSET', @key, 'updatedAt', now)
+return 1");
 
         public AssetService(
             IAssetRepository assetRepository,
-            ICacheService cacheService,
             ILogger<AssetService> logger,
-            IUnitOfWork unitOfWork) // 注入
+            IUnitOfWork unitOfWork,
+            IRedisCache redis)
         {
             _assetRepository = assetRepository;
-
-            _cacheService = cacheService;
             _logger = logger;
             _unitOfWork = unitOfWork;
+            _redis = redis;
+        }
+
+        private static string GetAssetKey(int userId, string symbol) => $"asset:{userId}:{symbol}";
+
+        private async Task<Asset?> GetFromRedisAsync(int userId, string symbol, bool allowDbFallback = true)
+        {
+            var key = GetAssetKey(userId, symbol);
+            var map = await _redis.HGetAllAsync(key);
+            if (map != null && map.Count > 0)
+            {
+                return MapToAsset(userId, symbol, map);
+            }
+
+            if (!allowDbFallback) return null;
+
+            // 懒加载 DB -> Redis
+            var dbAsset = await _assetRepository.GetUserAssetAsync(userId, symbol);
+            if (dbAsset != null)
+            {
+                await WriteRedisAsync(dbAsset);
+                return dbAsset;
+            }
+            return null;
+        }
+
+        private Asset MapToAsset(int userId, string symbol, Dictionary<string, string> map)
+        {
+            var asset = new Asset
+            {
+                UserId = userId,
+                Symbol = symbol,
+                Available = map.TryGetValue("available", out var a) && decimal.TryParse(a, NumberStyles.Any, CultureInfo.InvariantCulture, out var av) ? av : 0m,
+                Frozen = map.TryGetValue("frozen", out var f) && decimal.TryParse(f, NumberStyles.Any, CultureInfo.InvariantCulture, out var fr) ? fr : 0m,
+            };
+            if (map.TryGetValue("updatedAt", out var u) && long.TryParse(u, out var up)) asset.UpdatedAt = up;
+            if (map.TryGetValue("createdAt", out var c) && long.TryParse(c, out var cp)) asset.CreatedAt = cp;
+            return asset;
+        }
+
+        private async Task WriteRedisAsync(Asset asset)
+        {
+            var key = GetAssetKey(asset.UserId!.Value, asset.Symbol);
+            var now = asset.UpdatedAt == 0 ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : asset.UpdatedAt;
+            await _redis.HMSetAsync(key, new HashEntry[]
+            {
+                new HashEntry("available", asset.Available.ToString(CultureInfo.InvariantCulture)),
+                new HashEntry("frozen", asset.Frozen.ToString(CultureInfo.InvariantCulture)),
+                new HashEntry("createdAt", (asset.CreatedAt==0?now:asset.CreatedAt).ToString()),
+                new HashEntry("updatedAt", now.ToString())
+            });
+            // 可选设置TTL (如果实现需要，可忽略失败)
+            try { await _redis.KeyExpireAsync(key, AssetKeyTtl); } catch {}
+        }
+
+        private async Task EnqueueDirtyAsync(string key)
+        {
+            try { await _redis.ListLeftPushAsync(DirtyListKey, key); } catch (Exception ex) { _logger.LogWarning(ex, "Enqueue dirty key failed {Key}", key); }
         }
 
         public async Task<IEnumerable<Asset>> GetUserAssetsAsync(int userId)
         {
-            try
+            // 从数据库加载该用户资产并写入Redis（首次/批量）
+            var dbAssets = await _assetRepository.GetAssetsByUserIdAsync(userId);
+            var list = dbAssets.ToList();
+            foreach (var a in list)
             {
-                // 优先从缓存获取
-                var cachedAssets = await _cacheService.GetCachedUserAssetsAsync(userId);
-                if (cachedAssets.Any())
-                {
-                    return cachedAssets.Values;
-                }
-                
-                // 缓存中没有，从数据库获取
-                var assets = await _assetRepository.FindAsync(a => a.UserId == userId);
-                return assets;
+                await WriteRedisAsync(a);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting assets for user {UserId}", userId);
-                return new List<Asset>();
-            }
+            return list;
         }
 
         public async Task<Asset?> GetUserAssetAsync(int userId, string symbol)
-        {
-            try
-            {
-                // 优先从缓存获取
-                var cachedAsset = await _cacheService.GetCachedUserAssetAsync(userId, symbol);
-                if (cachedAsset != null)
-                {
-                    return cachedAsset;
-                }
-                
-                // 缓存中没有，从数据库获取
-                var assets = await _assetRepository.FindAsync(a => a.UserId == userId && a.Symbol == symbol);
-                return assets.FirstOrDefault();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting asset {Symbol} for user {UserId}", symbol, userId);
-                return null;
-            }
-        }
+            => await GetFromRedisAsync(userId, symbol);
 
         public async Task<Asset> CreateUserAssetAsync(int userId, string symbol, decimal available = 0, decimal frozen = 0)
         {
-            try
+            var existing = await GetFromRedisAsync(userId, symbol, allowDbFallback: true);
+            if (existing != null)
             {
-                var existingAsset = await GetUserAssetAsync(userId, symbol);
-                
-                if (existingAsset != null)
-                {
-                    existingAsset.Available = available;
-                    existingAsset.Frozen = frozen;
-                    existingAsset.Touch();
-                    await _assetRepository.UpdateAsync(existingAsset);
-                    await _unitOfWork.SaveChangesAsync();
-                    return existingAsset;
-                }
-                else
-                {
-                    var newAsset = new Asset
-                    {
-                        UserId = userId,
-                        Symbol = symbol,
-                        Available = available,
-                        Frozen = frozen,
-                    };
-                    var added = await _assetRepository.AddAsync(newAsset);
-                    await _unitOfWork.SaveChangesAsync();
-                    return added;
-                }
+                existing.Available = available;
+                existing.Frozen = frozen;
+                existing.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                await WriteRedisAsync(existing);
+                await EnqueueDirtyAsync(GetAssetKey(userId, symbol));
+                return existing;
             }
-            catch (Exception ex)
+            var asset = new Asset
             {
-                _logger.LogError(ex, "Error creating/updating asset {Symbol} for user {UserId}", symbol, userId);
-                throw;
-            }
+                UserId = userId,
+                Symbol = symbol,
+                Available = available,
+                Frozen = frozen,
+                CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+            await WriteRedisAsync(asset);
+            await EnqueueDirtyAsync(GetAssetKey(userId, symbol));
+            return asset;
         }
 
         public async Task<Asset> UpdateAssetBalanceAsync(int userId, string symbol, decimal available, decimal frozen)
         {
-            try
-            {
-                var asset = await GetUserAssetAsync(userId, symbol);
-                if (asset == null)
-                {
-                    return await CreateUserAssetAsync(userId, symbol, available, frozen);
-                }
-
-                asset.Available = available;
-                asset.Frozen = frozen;
-                asset.Touch();
-                await _assetRepository.UpdateAsync(asset);
-                await _unitOfWork.SaveChangesAsync();
-                
-                return asset;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating asset balance {Symbol} for user {UserId}", symbol, userId);
-                throw;
-            }
+            var asset = await CreateUserAssetAsync(userId, symbol, available, frozen);
+            return asset;
         }
 
         public async Task<bool> HasSufficientBalanceAsync(int userId, string symbol, decimal amount, bool includeFrozen = false)
         {
-            try
-            {
-                var asset = await GetUserAssetAsync(userId, symbol);
-                if (asset == null) return false;
-                
-                var totalBalance = includeFrozen ? asset.Available + asset.Frozen : asset.Available;
-                return totalBalance >= amount;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error checking balance for user {UserId}, symbol {Symbol}", userId, symbol);
-                return false;
-            }
+            var asset = await GetFromRedisAsync(userId, symbol);
+            if (asset == null) return false;
+            var total = includeFrozen ? asset.Available + asset.Frozen : asset.Available;
+            return total >= amount;
         }
 
         public async Task<bool> FreezeAssetAsync(int userId, string symbol, decimal amount)
         {
-            try
-            {
-                var asset = await GetUserAssetAsync(userId, symbol);
-                if (asset == null || asset.Available < amount)
-                {
-                    _logger.LogWarning("Insufficient balance to freeze {Amount} {Symbol} for user {UserId}", amount, symbol, userId);
-                    return false;
-                }
-
-                asset.Available -= amount;
-                asset.Frozen += amount;
-                asset.Touch();
-                
-                await _assetRepository.UpdateAsync(asset);
-                await _unitOfWork.SaveChangesAsync();
-                
-                _logger.LogInformation("Froze {Amount} {Symbol} for user {UserId}", amount, symbol, userId);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error freezing asset {Symbol} for user {UserId}", symbol, userId);
-                return false;
-            }
+            var key = GetAssetKey(userId, symbol);
+            await EnsureExistsAsync(userId, symbol);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var result = await _redis.ScriptEvaluateAsync(FreezeScript, new { key = (RedisKey)key, amount = amount.ToString(CultureInfo.InvariantCulture), now });
+            var success = (long)result == 1;
+            if (success) await EnqueueDirtyAsync(key);
+            if (!success) _logger.LogWarning("Freeze failed insufficient balance user {UserId} {Symbol} {Amount}", userId, symbol, amount);
+            return success;
         }
 
         public async Task<bool> UnfreezeAssetAsync(int userId, string symbol, decimal amount)
         {
-            try
-            {
-                var asset = await GetUserAssetAsync(userId, symbol);
-                if (asset == null || asset.Frozen < amount)
-                {
-                    _logger.LogWarning("Insufficient frozen balance to unfreeze {Amount} {Symbol} for user {UserId}", amount, symbol, userId);
-                    return false;
-                }
-
-                asset.Frozen -= amount;
-                asset.Available += amount;
-                asset.Touch();
-                
-                await _assetRepository.UpdateAsync(asset);
-                await _unitOfWork.SaveChangesAsync();
-                
-                _logger.LogInformation("Unfroze {Amount} {Symbol} for user {UserId}", amount, symbol, userId);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error unfreezing asset {Symbol} for user {UserId}", symbol, userId);
-                return false;
-            }
+            var key = GetAssetKey(userId, symbol);
+            await EnsureExistsAsync(userId, symbol);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var result = await _redis.ScriptEvaluateAsync(UnfreezeScript, new { key = (RedisKey)key, amount = amount.ToString(CultureInfo.InvariantCulture), now });
+            var success = (long)result == 1;
+            if (success) await EnqueueDirtyAsync(key);
+            return success;
         }
 
         public async Task<bool> DeductAssetAsync(int userId, string symbol, decimal amount, bool fromFrozen = false)
         {
-            try
-            {
-                var asset = await GetUserAssetAsync(userId, symbol);
-                if (asset == null)
-                {
-                    _logger.LogWarning("Asset {Symbol} not found for user {UserId}", symbol, userId);
-                    return false;
-                }
-
-                if (fromFrozen)
-                {
-                    if (asset.Frozen < amount)
-                    {
-                        _logger.LogWarning("Insufficient frozen balance to deduct {Amount} {Symbol} for user {UserId}", amount, symbol, userId);
-                        return false;
-                    }
-                    asset.Frozen -= amount;
-                }
-                else
-                {
-                    if (asset.Available < amount)
-                    {
-                        _logger.LogWarning("Insufficient available balance to deduct {Amount} {Symbol} for user {UserId}", amount, symbol, userId);
-                        return false;
-                    }
-                    asset.Available -= amount;
-                }
-
-                asset.Touch();
-                await _assetRepository.UpdateAsync(asset);
-                await _unitOfWork.SaveChangesAsync();
-                
-                _logger.LogInformation("Deducted {Amount} {Symbol} from user {UserId} ({Source})", 
-                    amount, symbol, userId, fromFrozen ? "frozen" : "available");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error deducting asset {Symbol} for user {UserId}", symbol, userId);
-                return false;
-            }
+            var key = GetAssetKey(userId, symbol);
+            await EnsureExistsAsync(userId, symbol);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var script = fromFrozen ? DeductFrozenScript : DeductAvailableScript;
+            var result = await _redis.ScriptEvaluateAsync(script, new { key = (RedisKey)key, amount = amount.ToString(CultureInfo.InvariantCulture), now });
+            var success = (long)result == 1;
+            if (success) await EnqueueDirtyAsync(key);
+            if (!success) _logger.LogWarning("Deduct failed user {UserId} {Symbol} {Amount} fromFrozen={FromFrozen}", userId, symbol, amount, fromFrozen);
+            return success;
         }
 
         public async Task<bool> AddAssetAsync(int userId, string symbol, decimal amount)
         {
-            try
-            {
-                var asset = await GetUserAssetAsync(userId, symbol);
-                if (asset == null)
-                {
-                    // 创建新资产
-                    var created = await CreateUserAssetAsync(userId, symbol, amount, 0);
-                    await _unitOfWork.SaveChangesAsync();
-                }
-                else
-                {
-                    asset.Available += amount;
-                    asset.Touch();
-                    await _assetRepository.UpdateAsync(asset);
-                    await _unitOfWork.SaveChangesAsync();
-                }
-                
-                _logger.LogInformation("Added {Amount} {Symbol} to user {UserId}", amount, symbol, userId);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error adding asset {Symbol} for user {UserId}", symbol, userId);
-                return false;
-            }
+            var key = GetAssetKey(userId, symbol);
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var result = await _redis.ScriptEvaluateAsync(AddAvailableScript, new { key = (RedisKey)key, amount = amount.ToString(CultureInfo.InvariantCulture), now });
+            var success = (long)result == 1;
+            if (success) await EnqueueDirtyAsync(key);
+            return success;
         }
 
         public async Task InitializeUserAssetsAsync(int userId, Dictionary<string, decimal> initialBalances)
         {
+            foreach (var kv in initialBalances)
+            {
+                await CreateUserAssetAsync(userId, kv.Key, kv.Value, 0);
+            }
+        }
+
+        private async Task EnsureExistsAsync(int userId, string symbol)
+        {
+            var key = GetAssetKey(userId, symbol);
+            var exists = await _redis.ExistsAsync(key);
+            if (!exists)
+            {
+                var db = await _assetRepository.GetUserAssetAsync(userId, symbol);
+                if (db != null)
+                {
+                    await WriteRedisAsync(db);
+                }
+                else
+                {
+                    await CreateUserAssetAsync(userId, symbol, 0, 0);
+                }
+            }
+        }
+
+        // 后台flush调用（不在 IAssetService 接口中）
+        public async Task FlushDirtyAssetsAsync(CancellationToken ct = default)
+        {
             try
             {
-                foreach (var balance in initialBalances)
+                var uniqueKeys = new HashSet<string>();
+                // 逐条弹出（当前 IRedisCache 没有泛型批量获取简单字符串列表的方法，只能循环）
+                while (!ct.IsCancellationRequested)
                 {
-                    await CreateUserAssetAsync(userId, balance.Key, balance.Value, 0);
+                    var popped = await _redis.ListRightPopAsync(DirtyListKey);
+                    if (string.IsNullOrEmpty(popped)) break;
+                    uniqueKeys.Add(popped);
+                    if (uniqueKeys.Count >= 1000) break; // 批次上限
                 }
-                
-                _logger.LogInformation("Initialized assets for user {UserId} with {Count} assets", userId, initialBalances.Count);
+
+                if (uniqueKeys.Count == 0) return;
+
+                _logger.LogInformation("Flushing {Count} dirty asset keys to DB", uniqueKeys.Count);
+                foreach (var key in uniqueKeys)
+                {
+                    var parts = key.Split(':'); // asset:{userId}:{symbol}
+                    if (parts.Length != 3) continue;
+                    if (!int.TryParse(parts[1], out var userId)) continue;
+                    var symbol = parts[2];
+                    var map = await _redis.HGetAllAsync(key);
+                    if (map == null || map.Count == 0) continue;
+                    var asset = await _assetRepository.GetUserAssetAsync(userId, symbol);
+                    var available = map.TryGetValue("available", out var avs) && decimal.TryParse(avs, NumberStyles.Any, CultureInfo.InvariantCulture, out var av) ? av : 0m;
+                    var frozen = map.TryGetValue("frozen", out var frs) && decimal.TryParse(frs, NumberStyles.Any, CultureInfo.InvariantCulture, out var fr) ? fr : 0m;
+                    var updatedAt = map.TryGetValue("updatedAt", out var ups) && long.TryParse(ups, out var up) ? up : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    if (asset == null)
+                    {
+                        asset = new Asset
+                        {
+                            UserId = userId,
+                            Symbol = symbol,
+                            Available = available,
+                            Frozen = frozen,
+                            CreatedAt = updatedAt,
+                            UpdatedAt = updatedAt
+                        };
+                        await _assetRepository.AddAsync(asset);
+                    }
+                    else
+                    {
+                        asset.Available = available;
+                        asset.Frozen = frozen;
+                        asset.UpdatedAt = updatedAt;
+                        await _assetRepository.UpdateAsync(asset);
+                    }
+                }
+                await _unitOfWork.SaveChangesAsync();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error initializing assets for user {UserId}", userId);
-                throw;
+                _logger.LogError(ex, "Error flushing dirty assets to database");
             }
         }
     }

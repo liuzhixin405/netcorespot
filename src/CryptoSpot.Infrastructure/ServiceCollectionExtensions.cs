@@ -37,6 +37,10 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<IKLineDataRepository, KLineDataRepository>();
             services.AddScoped<IUnitOfWork, UnitOfWork>();
 
+            // 注册基础设施服务实现 (应用层只保留接口)
+            services.AddScoped<CryptoSpot.Application.Abstractions.Trading.IOrderService, OrderService>();
+            services.AddScoped<CryptoSpot.Application.Abstractions.Trading.ITradeService, TradeService>();
+
             return services;
         }
 

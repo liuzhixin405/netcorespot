@@ -96,6 +96,7 @@ builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 // Background Services
 builder.Services.AddHostedService<CacheInitializationService>();
 builder.Services.AddHostedService<AutoTradingService>();
+builder.Services.AddHostedService<AssetFlushBackgroundService>();
 //builder.Services.AddHostedService<OrderBookPushService>(); // 已由外部流式+增量推送接管, 关闭周期性全量快照避免前端闪烁
 //builder.Services.AddHostedService<MarketDataSyncService>();
 builder.Services.AddHostedService<MarketDataStreamRelayService>();

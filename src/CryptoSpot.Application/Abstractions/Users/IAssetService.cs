@@ -2,6 +2,9 @@ using CryptoSpot.Domain.Entities;
 
 namespace CryptoSpot.Application.Abstractions.Users
 {
+    /// <summary>
+    /// 用户资产服务抽象（已重构为 Redis 单一读取/写入，数据库通过后台写回刷新）
+    /// </summary>
     public interface IAssetService
     {
         Task<IEnumerable<Asset>> GetUserAssetsAsync(int userId);

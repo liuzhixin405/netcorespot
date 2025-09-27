@@ -20,4 +20,10 @@
     <Folder Include="UseCases\" />
     <Folder Include="DomainCommands\" />
   </ItemGroup>
+  <!-- 标记删除占位文件：不再参与编译 -->
+  <ItemGroup>
+    <Compile Remove="Services\RefactoredOrderService.cs" />
+    <Compile Remove="Services\RefactoredTradeService.cs" />
+    <Compile Remove="Services\TradingService.cs" />
+  </ItemGroup>
 </Project>
