@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using OrderSideDto = CryptoSpot.Domain.Entities.OrderSide; // 统一使用 Domain 枚举
 
 namespace CryptoSpot.Application.DTOs.Trading
 {
@@ -79,6 +80,11 @@ namespace CryptoSpot.Application.DTOs.Trading
         /// 交易方向（从用户视角）
         /// </summary>
         public OrderSideDto? Side { get; set; }
+
+        /// <summary>
+        /// 兼容旧引用字段
+        /// </summary>
+        public DateTime ExecutedDateTime => ExecutedAt;
     }
 
     /// <summary>
@@ -115,7 +121,9 @@ namespace CryptoSpot.Application.DTOs.Trading
         /// <summary>
         /// 最近交易时间
         /// </summary>
-        public DateTime? LastTradeTime { get; set; }        /// <summary>
+        public DateTime? LastTradeTime { get; set; }
+
+        /// <summary>
         /// 平均交易金额
         /// </summary>
         public decimal AverageTradeSize { get; set; }

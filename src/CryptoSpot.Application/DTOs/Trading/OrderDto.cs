@@ -1,38 +1,10 @@
 using System.ComponentModel.DataAnnotations;
+using OrderStatusDto = CryptoSpot.Domain.Entities.OrderStatus; // 统一使用 Domain 枚举
+using OrderSideDto = CryptoSpot.Domain.Entities.OrderSide;   // 统一使用 Domain 枚举
+using OrderTypeDto = CryptoSpot.Domain.Entities.OrderType;   // 统一使用 Domain 枚举
 
 namespace CryptoSpot.Application.DTOs.Trading
 {
-    /// <summary>
-    /// 订单状态枚举
-    /// </summary>
-    public enum OrderStatusDto
-    {
-        Pending = 1,
-        Active = 2,
-        PartiallyFilled = 3,
-        Filled = 4,
-        Cancelled = 5,
-        Rejected = 6
-    }
-
-    /// <summary>
-    /// 订单方向枚举
-    /// </summary>
-    public enum OrderSideDto
-    {
-        Buy = 1,
-        Sell = 2
-    }
-
-    /// <summary>
-    /// 订单类型枚举
-    /// </summary>
-    public enum OrderTypeDto
-    {
-        Limit = 1,
-        Market = 2
-    }
-
     /// <summary>
     /// 订单数据传输对象
     /// </summary>
@@ -119,6 +91,11 @@ namespace CryptoSpot.Application.DTOs.Trading
         /// 总价值（限价单）
         /// </summary>
         public decimal TotalValue { get; set; }
+
+        /// <summary>
+        /// 兼容旧引用: 一些调用处使用 CreatedDateTime，这里提供只读映射属性
+        /// </summary>
+        public DateTime CreatedDateTime => CreatedAt;
     }
 
     /// <summary>

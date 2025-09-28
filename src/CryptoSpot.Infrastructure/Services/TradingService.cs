@@ -12,7 +12,7 @@ using CryptoSpot.Bus.Core;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.Users;
 
-namespace CryptoSpot.Application.Services
+namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
     /// 交易服务实现 (原 TradingServiceV2)
@@ -26,8 +26,8 @@ namespace CryptoSpot.Application.Services
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
         private readonly IOrderMatchingEngine _matchingEngine;
-        private readonly IAssetService _assetService;
-        private readonly IKLineDataDomainService _klineDataService; // 更新: 领域接口改名
+        private readonly IAssetDomainService _assetService;
+        private readonly IKLineDataService _klineDataService; // 使用 DTO 层服务接口
 
         public TradingService(
             IDtoMappingService mappingService,
@@ -37,8 +37,8 @@ namespace CryptoSpot.Application.Services
             IOrderService orderService,
             ITradeService tradeService,
             IOrderMatchingEngine matchingEngine,
-            IAssetService assetService,
-            IKLineDataDomainService klineDataService)
+            IAssetDomainService assetService,
+            IKLineDataService klineDataService)
         {
             _mappingService = mappingService;
             _logger = logger;
@@ -57,8 +57,8 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var tradingPairs = await _tradingPairService.GetTopTradingPairsAsync(5);
-                var dtoList = _mappingService.MapToDto(tradingPairs);
+                var tradingPairs = await _tradingPairService.GetTopTradingPairsAsync(5); // Domain 实体集合
+                var dtoList = _mappingService.MapToDto(tradingPairs); // 映射方法接收 Domain
                 return ApiResponseDto<IEnumerable<TradingPairDto>>.CreateSuccess(dtoList);
             }
             catch (Exception ex)
@@ -72,7 +72,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol);
+                var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol); // Domain
                 var dto = tradingPair != null ? _mappingService.MapToDto(tradingPair) : null;
                 return ApiResponseDto<TradingPairDto?>.CreateSuccess(dto);
             }
@@ -87,7 +87,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var tradingPairs = await _tradingPairService.GetTopTradingPairsAsync(20);
+                var tradingPairs = await _tradingPairService.GetTopTradingPairsAsync(20); // Domain
                 var summaries = _mappingService.MapToSummaryDto(tradingPairs);
                 return ApiResponseDto<IEnumerable<TradingPairSummaryDto>>.CreateSuccess(summaries);
             }
@@ -106,9 +106,8 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var klineData = await _klineDataService.GetKLineDataAsync(symbol, timeFrame, limit);
-                var dtoList = _mappingService.MapToDto(klineData, symbol);
-                return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateSuccess(dtoList);
+                var dtoResponse = await _klineDataService.GetKLineDataAsync(symbol, timeFrame, limit); // 已是 DTO 响应
+                return dtoResponse;
             }
             catch (Exception ex)
             {
@@ -121,10 +120,11 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var klineData = await _klineDataService.GetKLineDataAsync(symbol, timeFrame, 1);
-                var latest = klineData.FirstOrDefault();
-                var dto = latest != null ? _mappingService.MapToDto(latest, symbol) : null;
-                return ApiResponseDto<KLineDataDto?>.CreateSuccess(dto);
+                var dtoResponse = await _klineDataService.GetKLineDataAsync(symbol, timeFrame, 1);
+                if (!dtoResponse.Success || dtoResponse.Data == null)
+                    return ApiResponseDto<KLineDataDto?>.CreateError("获取最新K线数据失败");
+                var latest = dtoResponse.Data.FirstOrDefault();
+                return ApiResponseDto<KLineDataDto?>.CreateSuccess(latest);
             }
             catch (Exception ex)
             {
@@ -156,22 +156,16 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var assetsResponse = await _assetService.GetUserAssetsAsync(userId);
-                if (!assetsResponse.Success || assetsResponse.Data == null)
-                {
-                    return ApiResponseDto<AssetSummaryDto>.CreateError(assetsResponse.Message ?? "获取用户资产失败");
-                }
-                var assets = assetsResponse.Data.ToList();
-                var totalValue = assets.Sum(a => a.Total);
-                var availableValue = assets.Sum(a => a.Available);
-                var frozenValue = assets.Sum(a => a.Frozen);
+                // 领域服务直接返回资产实体集合，不再是 ApiResponseDto
+                var assets = await _assetService.GetUserAssetsAsync(userId);
+                var assetList = assets.ToList();
 
                 var summary = new AssetSummaryDto
                 {
-                    TotalValue = totalValue,
-                    AvailableValue = availableValue,
-                    FrozenValue = frozenValue,
-                    AssetTypes = assets.Count(),
+                    TotalValue = assetList.Sum(a => a.Total),
+                    AvailableValue = assetList.Sum(a => a.Available),
+                    FrozenValue = assetList.Sum(a => a.Frozen),
+                    AssetTypes = assetList.Count(a => a.Total > 0),
                     LastUpdated = DateTime.UtcNow
                 };
 
@@ -445,7 +439,7 @@ namespace CryptoSpot.Application.Services
                 {
                     return ApiResponseDto<TestOrderResultDto>.CreateError("数量必须大于0");
                 }
-                if (request.Type == OrderTypeDto.Limit && (!request.Price.HasValue || request.Price <= 0))
+                if (request.Type == OrderType.Limit && (!request.Price.HasValue || request.Price <= 0))
                 {
                     return ApiResponseDto<TestOrderResultDto>.CreateError("限价单需提供有效价格");
                 }
@@ -455,9 +449,9 @@ namespace CryptoSpot.Application.Services
                     return ApiResponseDto<TestOrderResultDto>.CreateError("交易对不存在");
                 }
                 decimal? needQuote = null; decimal? needBase = null;
-                if (request.Side == OrderSideDto.Buy)
+                if (request.Side == OrderSide.Buy)
                 {
-                    if (request.Type == OrderTypeDto.Limit)
+                    if (request.Type == OrderType.Limit)
                         needQuote = request.Quantity * request.Price!.Value;
                 }
                 else

@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using CryptoSpot.Domain.Entities; // MarketMakerOptions
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users; // IMarketMakerRegistry
+using CryptoSpot.Application.Abstractions.Services.MarketData; // K线接口
 
 namespace CryptoSpot.Infrastructure
 {
@@ -40,11 +41,18 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<IKLineDataRepository, KLineDataRepository>();
             services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-            // 注册基础设施服务实现 (应用层只保留接口)
+            // 注册领域服务实现
+            services.AddScoped<ITradingPairService, TradingPairService>();
+            services.AddScoped<IAssetDomainService, AssetDomainService>();
+            services.AddScoped<IKLineDataDomainService, KLineDataDomainService>(); // 新增领域K线
+
+            // 注册 DTO / 应用编排服务
             services.AddScoped<IOrderService, OrderService>();
             services.AddScoped<ITradeService, TradeService>();
-            // 移除旧的领域 IUserService 注册，统一在 Application 中注册新的用户服务
-            // services.AddScoped<IUserService, UserService>();
+            services.AddScoped<IKLineDataService, KLineDataService>(); // DTO K线服务实现
+            services.AddScoped<ITradingService, TradingService>(); // 交易编排服务
+            services.AddScoped<IAssetService, AssetService>(); // 资产 DTO 服务
+            services.AddScoped<IUserService, UserService>(); // 用户 DTO 服务
 
             services.AddScoped<DataInitializationService>();
             // 注册多做市配置与注册表

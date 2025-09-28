@@ -21,6 +21,7 @@ using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.Auth;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
+using CryptoSpot.Infrastructure.BgService;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -44,22 +45,19 @@ builder.Services.AddControllers(options => { })
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// 移除直接 AddDbContextPool<ApplicationDbContext> (旧 Infrastructure) 改为 Persistence 封装
-// Database - 使用连接池以处理高并发 由 AddPersistence 负责
+// Database & Persistence
 builder.Services.AddPersistence(builder.Configuration);
 
-// 添加 Redis (开发环境本地) - 放在数据库之后
+// 添加 Redis
 builder.Services.AddRedis(builder.Configuration.GetSection("Redis"));
 
-// Add Clean Architecture services (必须在数据库配置之后)
+// Clean Architecture (命令总线 / 匹配引擎 / 映射)
 builder.Services.AddCleanArchitecture();
 
-// Repository Layer - 已在Application层注册，这里只注册Infrastructure特有的服务
-
-// Database Coordinator (Singleton for thread safety)
+// Database Coordinator (Singleton)
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 
-// Redis Cache Service (Singleton for Redis connection sharing)
+// Redis Cache Service (Singleton)
 builder.Services.AddSingleton<IRedisCache>(provider =>
 {
     var configuration = provider.GetRequiredService<IConfiguration>();
@@ -77,51 +75,26 @@ builder.Services.AddSingleton<IRedisCache>(provider =>
 
 builder.Services.AddSingleton<RedisCacheService>();
 
-// Infrastructure Services (Data Access & External Services)
+// 已在 AddPersistence 中统一注册的领域 & DTO 服务此处不再重复注册 (ITradingPairService / IAssetDomainService / IKLineDataDomainService / IKLineDataService / ITradingService / IOrderService / ITradeService / IAssetService / IUserService)
+// 仅补充未在 AddPersistence 中的额外服务
 builder.Services.AddScoped<IAuthService, AuthService>();
-// 替换旧领域用户服务注册 -> 统一后的应用用户服务已在 AddCleanArchitecture 中注册, 此处移除
-// builder.Services.AddScoped<IUserService, UserService>();
-// 移除: IUserServiceV2 / IAssetServiceV2 / IKLineDataServiceV2 / ITradingServiceV2 的重复注册 (集中在 AddCleanArchitecture)
-// builder.Services.AddScoped<IUserServiceV2, UserServiceV2>();
-builder.Services.AddScoped<IPriceDataService, PriceDataService>();
-// 更新: 领域服务与 DTO 服务分离
-builder.Services.AddScoped<IKLineDataDomainService, KLineDataDomainService>(); // 领域
-builder.Services.AddScoped<IKLineDataService, KLineDataService>(); // DTO
-// builder.Services.AddScoped<IKLineDataServiceV2, KLineDataServiceV2>(); // 已移除
-builder.Services.AddScoped<ITradingPairService, TradingPairService>();
-// builder.Services.AddScoped<ITradingServiceV2, TradingServiceV2>();
-// builder.Services.AddScoped<IOrderService, OrderService>(); // 已由 AddCleanArchitecture 注册 RefactoredOrderService
-builder.Services.AddScoped<IAssetDomainService, AssetDomainService>(); // 领域
-// builder.Services.AddScoped<IAssetService, AssetService>(); // old infra registration removed (now DTO facade in Application)
+builder.Services.AddScoped<IPriceDataService, PriceDataService>(); // 价格聚合 (依赖 TradingPairService)
 
-// Data Initialization Service
-builder.Services.AddScoped<DataInitializationService>();
-
-// Application Services (Business Logic)
-// ITradingService is registered in ServiceCollectionExtensions.cs
+// 应用层引擎接口包装 (若有)
 builder.Services.AddScoped<IOrderMatchingEngine, OrderMatchingEngine>();
 
-// Use Cases
-// 移除已废弃用例注册（LoginUseCase, RegisterUseCase）
-// 原注释行已删除，统一直接使用 IAuthService。
-
-// SignalR Data Push Service
+// 实时推送与缓存
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
-// 订单簿快照缓存 (内存) 后续可替换为 Redis
 builder.Services.AddSingleton<IOrderBookSnapshotCache, OrderBookSnapshotCache>();
 
-// Business Services
-//builder.Services.AddScoped<IMarketDataProvider, BinanceMarketDataProvider>();
-// 新增 OKX WebSocket 行情流
+// 行情流 Provider & 自动交易
 builder.Services.AddSingleton<IMarketDataStreamProvider, OkxMarketDataStreamProvider>();
 builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 
 // Background Services
 builder.Services.AddHostedService<AutoTradingService>();
 builder.Services.AddHostedService<AssetFlushBackgroundService>();
-//builder.Services.AddHostedService<OrderBookPushService>(); // 已由外部流式+增量推送接管, 关闭周期性全量快照避免前端闪烁
-//builder.Services.AddHostedService<MarketDataSyncService>();
-builder.Services.AddHostedService<MarketDataStreamRelayService>(); // 依赖 IDtoMappingService 已在核心注册
+builder.Services.AddHostedService<MarketDataStreamRelayService>();
 
 builder.Services.AddMemoryCache();
 
@@ -130,41 +103,19 @@ builder.Services.AddHttpClient<BinanceMarketDataProvider>((serviceProvider, clie
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
     var proxyUrl = configuration["Binance:ProxyUrl"];
-    
-    // 设置超时 - 增加到60秒处理慢响应
     client.Timeout = TimeSpan.FromSeconds(60);
-    
-    if (!string.IsNullOrEmpty(proxyUrl))
-    {
-        Console.WriteLine($"Configuring Binance API proxy: {proxyUrl}");
-    }
+    if (!string.IsNullOrEmpty(proxyUrl)) { Console.WriteLine($"Configuring Binance API proxy: {proxyUrl}"); }
 }).ConfigurePrimaryHttpMessageHandler((serviceProvider) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
     var proxyUrl = configuration["Binance:ProxyUrl"];
-    
     var handler = new HttpClientHandler();
-    
     if (!string.IsNullOrEmpty(proxyUrl))
     {
-        try
-        {
-            var proxy = new WebProxy(proxyUrl);
-            handler.Proxy = proxy;
-            handler.UseProxy = true;
-            Console.WriteLine($"✅ Proxy configured successfully: {proxyUrl}");
-        }
-        catch (Exception ex)
-        {
-            // 如果代理配置失败，记录错误但继续使用默认配置
-            Console.WriteLine($"❌ Failed to configure proxy: {ex.Message}");
-        }
+        try { var proxy = new WebProxy(proxyUrl); handler.Proxy = proxy; handler.UseProxy = true; Console.WriteLine($"✅ Proxy configured successfully: {proxyUrl}"); }
+        catch (Exception ex) { Console.WriteLine($"❌ Failed to configure proxy: {ex.Message}"); }
     }
-    else
-    {
-        Console.WriteLine("ℹ️ No proxy configured, using direct connection");
-    }
-    
+    else { Console.WriteLine("ℹ️ No proxy configured, using direct connection"); }
     return handler;
 });
 
@@ -201,43 +152,22 @@ builder.Services.AddCors(options =>
               .AllowAnyMethod()
               .AllowCredentials();
     });
-    
 });
-// Add SignalR
-builder.Services.AddSignalR(options =>
-{
-    options.EnableDetailedErrors = true;
-});
+
+// SignalR
+builder.Services.AddSignalR(options => { options.EnableDetailedErrors = true; });
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
 
-app.UseHttpsRedirection(); // Commented out for HTTP development
-
-// 在开发环境使用 AllowAllWithCredentials 策略，生产环境使用 AllowReactApp 策略
-
-    app.UseCors("AllowReactApp");
-
+app.UseHttpsRedirection();
+app.UseCors("AllowReactApp");
 app.UseRouting();
-
 app.UseAuthentication();
 app.UseAuthorization();
-
-// Map controllers
 app.MapControllers();
-
-// Map SignalR Hub
 app.MapHub<CryptoSpot.Infrastructure.Hubs.TradingHub>("/tradingHub");
-
-//Db and DataInit
 await app.Services.InitDbContext();
-
-
 await app.RunAsync();
 

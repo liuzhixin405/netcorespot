@@ -23,8 +23,6 @@
   <!-- 清理占位/空 V2 文件：防止编译混乱 -->
   <ItemGroup>
     <Compile Remove="Abstractions\MarketData\IKLineDataServiceV2.cs" />
-    <Compile Remove="Services\TradingServiceV2_New.cs" />
-    <Compile Remove="Services\RefactoredTradingService.cs" />
     <Compile Remove="Abstractions\Trading\ITradingServiceV2.cs" />
     <Compile Remove="Abstractions\Users\IUserServiceV2.cs" />
     <Compile Remove="Abstractions\Users\IAssetServiceV2.cs" />
@@ -32,9 +30,7 @@
     <Compile Remove="Abstractions\Services\Users\IUserServiceV2.cs" />
     <Compile Remove="Abstractions\Services\Users\IAssetServiceV2.cs" />
     <!-- 新增：排除仍含重复类定义的旧 TradingServiceV2 文件 -->
-    <Compile Remove="Services\TradingServiceV2.cs" />
     <!-- 新增：排除重复接口及实现文件 -->
     <Compile Remove="Abstractions\Services\MarketData\IKLineDataServiceV2.cs" />
-    <Compile Remove="Services\KLineDataServiceV2.cs" />
   </ItemGroup>
 </Project>

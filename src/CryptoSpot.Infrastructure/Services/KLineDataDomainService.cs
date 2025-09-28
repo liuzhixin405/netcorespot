@@ -1,67 +1,62 @@
-using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
-using Microsoft.Extensions.Logging;
-using CryptoSpot.Application.Abstractions.Services.Trading;
+// filepath: g:\github\netcorespot\src\CryptoSpot.Infrastructure\Services\KLineDataDomainService.cs
+using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Domain.Entities;
+using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
 {
-    public class KLineDataDomainService : IKLineDataDomainService // 原 KLineDataService : IKLineDataService
+    /// <summary>
+    /// 领域 K 线数据服务实现：直接返回 / 操作领域实体，不做 DTO 映射。
+    /// </summary>
+    public class KLineDataDomainService : IKLineDataDomainService
     {
-        private readonly IKLineDataRepository _klineDataRepository;
-        private readonly ILogger<KLineDataDomainService> _logger; // 更新
+        private readonly IKLineDataRepository _klineRepository;
         private readonly ITradingPairService _tradingPairService;
+        private readonly ILogger<KLineDataDomainService> _logger;
 
         public KLineDataDomainService(
-            IKLineDataRepository klineDataRepository,
-            ILogger<KLineDataDomainService> logger, // 更新
-            ITradingPairService tradingPairService)
+            IKLineDataRepository klineRepository,
+            ITradingPairService tradingPairService,
+            ILogger<KLineDataDomainService> logger)
         {
-            _klineDataRepository = klineDataRepository;
-            _logger = logger;
+            _klineRepository = klineRepository;
             _tradingPairService = tradingPairService;
+            _logger = logger;
         }
 
         public async Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string interval, int limit = 100)
         {
             try
             {
-                var pair = await _tradingPairService.GetTradingPairAsync(symbol);
-                if (pair == null) return Enumerable.Empty<KLineData>();
-                return await _klineDataRepository.GetKLineDataByTradingPairIdAsync(pair.Id, interval, limit);
+                return await _klineRepository.GetKLineDataAsync(symbol, interval, limit);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting K-line data for {Symbol} {Interval}", symbol, interval);
+                _logger.LogError(ex, "获取K线数据失败 {Symbol} {Interval}", symbol, interval);
                 return Enumerable.Empty<KLineData>();
             }
         }
 
         public async Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string interval, long? startTime, long? endTime, int limit = 100)
         {
+            // 若未提供时间范围直接退化为普通查询
+            if (startTime == null || endTime == null)
+            {
+                return await GetKLineDataAsync(symbol, interval, limit);
+            }
             try
             {
-                var pair = await _tradingPairService.GetTradingPairAsync(symbol);
-                if (pair == null) return Enumerable.Empty<KLineData>();
-                var allData = await _klineDataRepository.GetKLineDataByTradingPairIdAsync(pair.Id, interval, limit * 2);
-                
-                var filteredData = allData.AsQueryable();
-                
-                if (startTime.HasValue)
-                {
-                    filteredData = filteredData.Where(k => k.OpenTime >= startTime.Value);
-                }
-                
-                if (endTime.HasValue)
-                {
-                    filteredData = filteredData.Where(k => k.OpenTime <= endTime.Value);
-                }
-                
-                return filteredData.OrderByDescending(k => k.OpenTime).Take(limit).ToList();
+                var start = DateTimeOffset.FromUnixTimeMilliseconds(startTime.Value).UtcDateTime;
+                var end = DateTimeOffset.FromUnixTimeMilliseconds(endTime.Value).UtcDateTime;
+                var tradingPairId = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                if (tradingPairId <= 0) return Enumerable.Empty<KLineData>();
+                return await _klineRepository.GetKLineDataByTimeRangeAsync(tradingPairId, interval, start, end);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting K-line data with time range for {Symbol} {Interval}", symbol, interval);
+                _logger.LogError(ex, "按时间范围获取K线数据失败 {Symbol} {Interval}", symbol, interval);
                 return Enumerable.Empty<KLineData>();
             }
         }
@@ -70,12 +65,16 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                return await GetKLineDataAsync(symbol, interval, startTime, endTime, 1000);
+                var start = DateTimeOffset.FromUnixTimeMilliseconds(startTime).UtcDateTime;
+                var end = DateTimeOffset.FromUnixTimeMilliseconds(endTime).UtcDateTime;
+                var tradingPairId = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                if (tradingPairId <= 0) return Enumerable.Empty<KLineData>();
+                return await _klineRepository.GetKLineDataByTimeRangeAsync(tradingPairId, interval, start, end);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting historical K-line data for {Symbol} {Interval}", symbol, interval);
-                return new List<KLineData>();
+                _logger.LogError(ex, "获取历史K线数据失败 {Symbol} {Interval}", symbol, interval);
+                return Enumerable.Empty<KLineData>();
             }
         }
 
@@ -83,13 +82,13 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var pair = await _tradingPairService.GetTradingPairAsync(symbol);
-                if (pair == null) return null;
-                return await _klineDataRepository.GetLatestKLineDataAsync(pair.Id, interval);
+                var tradingPairId = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                if (tradingPairId <= 0) return null;
+                return await _klineRepository.GetLatestKLineDataAsync(tradingPairId, interval);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting latest K-line data for {Symbol} {Interval}", symbol, interval);
+                _logger.LogError(ex, "获取最新K线失败 {Symbol} {Interval}", symbol, interval);
                 return null;
             }
         }
@@ -98,53 +97,35 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                await _klineDataRepository.UpsertKLineDataAsync(klineData);
-                _logger.LogDebug("Added/Updated K-line data for trading pair {TradingPairId}, time frame {TimeFrame}, open time {OpenTime}", 
-                    klineData.TradingPairId, klineData.TimeFrame, klineData.OpenTime);
+                await _klineRepository.UpsertKLineDataAsync(klineData);
                 return klineData;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error adding/updating K-line data");
+                _logger.LogError(ex, "新增或更新K线失败 TradingPairId={TpId} {Interval} {Open}", klineData.TradingPairId, klineData.TimeFrame, klineData.OpenTime);
                 throw;
             }
         }
 
         public async Task<IEnumerable<KLineData>> BatchAddOrUpdateKLineDataAsync(IEnumerable<KLineData> klineDataList)
         {
+            var list = klineDataList.ToList();
+            if (!list.Any()) return list;
             try
             {
-                var results = new List<KLineData>();
-                foreach (var klineData in klineDataList)
-                {
-                    var result = await AddOrUpdateKLineDataAsync(klineData);
-                    results.Add(result);
-                }
-                
-                _logger.LogInformation("Batch processed {Count} K-line data entries", results.Count);
-                return results;
+                await _klineRepository.SaveKLineDataBatchAsync(list);
+                return list;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error batch processing K-line data");
-                return new List<KLineData>();
+                _logger.LogError(ex, "批量新增或更新K线失败 Count={Count}", list.Count);
+                return list; // 返回已有引用（可能部分已成功）
             }
         }
 
         public async Task SaveKLineDataAsync(KLineData klineData)
         {
-            try
-            {
-                await _klineDataRepository.AddAsync(klineData);
-                _logger.LogDebug("Saved K-line data for TradingPairId {TradingPairId} {TimeFrame} @ {OpenTime}", 
-                    klineData.TradingPairId, klineData.TimeFrame, klineData.OpenTime);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error saving K-line data for TradingPairId {TradingPairId} {TimeFrame}", 
-                    klineData.TradingPairId, klineData.TimeFrame);
-                throw;
-            }
+            await AddOrUpdateKLineDataAsync(klineData);
         }
     }
 }

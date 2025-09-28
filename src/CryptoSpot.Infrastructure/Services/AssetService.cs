@@ -4,7 +4,7 @@ using CryptoSpot.Application.Mapping;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Users;
 
-namespace CryptoSpot.Application.Services
+namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
     /// 文件已重命名: 原 AssetServiceV2.cs 逻辑并入 AssetService (应用层 DTO 门面)。

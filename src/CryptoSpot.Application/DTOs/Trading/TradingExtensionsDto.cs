@@ -1,3 +1,6 @@
+using OrderStatusDto = CryptoSpot.Domain.Entities.OrderStatus; // 统一使用 Domain 枚举
+using OrderSideDto = CryptoSpot.Domain.Entities.OrderSide;   // 统一使用 Domain 枚举
+
 namespace CryptoSpot.Application.DTOs.Trading
 {
     /// <summary>

@@ -6,7 +6,6 @@ using Microsoft.Extensions.DependencyInjection;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
-using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.Mapping;
 
 namespace CryptoSpot.Application.Services
