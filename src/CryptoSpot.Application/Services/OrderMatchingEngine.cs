@@ -1,6 +1,6 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
-using CryptoSpot.Application.Abstractions.Repositories; // 引入IUnitOfWork等接口
+using CryptoSpot.Application.Abstractions.Repositories; 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using CryptoSpot.Application.Abstractions.Services.Trading;
@@ -17,7 +17,7 @@ namespace CryptoSpot.Application.Services
     {
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
-        private readonly IAssetDomainService _assetService;
+        private readonly IAssetService _assetService;
         private readonly ITradingPairService _tradingPairService;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<OrderMatchingEngine> _logger;
@@ -29,7 +29,7 @@ namespace CryptoSpot.Application.Services
         public OrderMatchingEngine(
             IOrderService orderService,
             ITradeService tradeService,
-            IAssetDomainService assetService,
+            IAssetService assetService,
             ITradingPairService tradingPairService,
             IServiceProvider serviceProvider,
             ILogger<OrderMatchingEngine> logger,
@@ -589,7 +589,7 @@ namespace CryptoSpot.Application.Services
                 if (order.UserId.HasValue)
                 {
                     // 统一使用AssetService处理所有用户资产
-                    await _assetService.UnfreezeAssetAsync(order.UserId.Value, "USDT", unfreezeAmount);
+                    await _assetService.UnfreezeAssetRawAsync(order.UserId.Value, "USDT", unfreezeAmount);
                 }
             }
             else
@@ -599,7 +599,7 @@ namespace CryptoSpot.Application.Services
                 if (order.UserId.HasValue)
                 {
                     // 统一使用AssetService处理所有用户资产
-                    await _assetService.UnfreezeAssetAsync(order.UserId.Value, baseAsset, remainingQuantity);
+                    await _assetService.UnfreezeAssetRawAsync(order.UserId.Value, baseAsset, remainingQuantity);
                 }
             }
         }

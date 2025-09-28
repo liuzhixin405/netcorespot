@@ -1,5 +1,5 @@
-using CryptoSpot.Application.DomainCommands.Trading; // 新命名空间
-using CryptoSpot.Application.Abstractions.Repositories; // replaced Core.Interfaces.Repositories
+using CryptoSpot.Application.DomainCommands.Trading; 
+using CryptoSpot.Application.Abstractions.Repositories; 
 using CryptoSpot.Bus.Core;
 using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.Logging;
@@ -19,8 +19,8 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         private readonly IOrderMatchingEngine _orderMatchingEngine;
         private readonly ICommandBus _commandBus;
         private readonly ILogger<SubmitOrderCommandHandler> _logger;
-        private readonly IAssetDomainService _assetService; // 新增: 资产服务用于冻结
-        private readonly IMarketMakerRegistry _marketMakerRegistry; // 多做市支持
+        private readonly IAssetService _assetService;
+        private readonly IMarketMakerRegistry _marketMakerRegistry;
 
         public SubmitOrderCommandHandler(
             ITradingPairService tradingPairService,
@@ -29,8 +29,8 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             IOrderMatchingEngine orderMatchingEngine,
             ICommandBus commandBus,
             ILogger<SubmitOrderCommandHandler> logger,
-            IAssetDomainService assetService,
-            IMarketMakerRegistry marketMakerRegistry) // 注入注册表
+            IAssetService assetService,
+            IMarketMakerRegistry marketMakerRegistry)
         {
             _tradingPairService = tradingPairService;
             _userRepository = userRepository;
@@ -49,7 +49,6 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 _logger.LogDebug("Processing SubmitOrderCommand for user {UserId}, symbol {Symbol}", 
                     command.UserId, command.Symbol);
                 
-                // 验证用户
                 var user = await _userRepository.GetByIdAsync(command.UserId);
                 if (user == null)
                 {
@@ -63,7 +62,6 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 
                 _logger.LogDebug("User {UserId} found: {Username}", user.Id, user.Username);
 
-                // 验证交易对
                 var tradingPair = await _tradingPairService.GetTradingPairAsync(command.Symbol);
                 if (tradingPair == null)
                 {
@@ -74,7 +72,6 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     };
                 }
 
-                // 统一精度 (向下截断防止超额消费)
                 command.Quantity = RoundDown(command.Quantity, tradingPair.QuantityPrecision);
                 if (command.Type == OrderType.Limit && command.Price.HasValue)
                     command.Price = RoundDown(command.Price.Value, tradingPair.PricePrecision);
@@ -84,7 +81,6 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     return new SubmitOrderResult { Success = false, ErrorMessage = "数量或价格精度归一后无效" };
                 }
 
-                // 先验证订单参数（在精度归一后）
                 var validationResult = ValidateOrderCommand(command);
                 if (!validationResult.IsValid)
                 {
@@ -95,7 +91,6 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     };
                 }
 
-                // 非做市账户执行资金冻结 (做市商跳过)
                 if (!_marketMakerRegistry.IsMaker(command.UserId))
                 {
                     bool freezeOk = true;
@@ -106,11 +101,11 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                             var notional = RoundDown(command.Quantity * (command.Price ?? 0), tradingPair.PricePrecision);
                             if (notional <= 0)
                                 return new SubmitOrderResult { Success = false, ErrorMessage = "冻结金额为0" };
-                            freezeOk = await _assetService.FreezeAssetAsync(command.UserId, tradingPair.QuoteAsset, notional);
+                            freezeOk = await _assetService.FreezeAssetRawAsync(command.UserId, tradingPair.QuoteAsset, notional);
                         }
                         else if (command.Side == OrderSide.Sell)
                         {
-                            freezeOk = await _assetService.FreezeAssetAsync(command.UserId, tradingPair.BaseAsset, command.Quantity);
+                            freezeOk = await _assetService.FreezeAssetRawAsync(command.UserId, tradingPair.BaseAsset, command.Quantity);
                         }
                     }
 
@@ -120,7 +115,6 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     }
                 }
 
-                // 创建订单
                 var order = await _orderService.CreateOrderAsync(
                     command.UserId,
                     command.Symbol,
@@ -138,12 +132,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     };
                 }
 
-                // 处理订单匹配
                 var matchResult = await _orderMatchingEngine.ProcessOrderAsync(order);
-
-                // 发布领域事件 - 使用CommandBus发送相关命令
-                // 如果需要发布事件，可以创建相应的事件命令并通过CommandBus发送
-                // await _commandBus.SendAsync<SomeEventCommand, SomeEventResult>(eventCommand);
 
                 _logger.LogInformation("Order {OrderId} submitted successfully for user {UserId}", 
                     order.OrderId, command.UserId);
@@ -185,7 +174,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         {
             if (precision < 0) precision = 0;
             var factor = (decimal)Math.Pow(10, precision);
-            return Math.Truncate(value * factor) / factor; // 向下截断
+            return Math.Truncate(value * factor) / factor;
         }
     }
 }

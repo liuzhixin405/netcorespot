@@ -15,7 +15,7 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IOrderRepository _orderRepository; // 预留: 若未来需要直接更新订单
         private readonly ITradingPairRepository _tradingPairRepository;
         private readonly IUnitOfWork _unitOfWork;
-        private readonly IAssetDomainService _assetService;
+        private readonly IAssetService _assetService; // 替换领域接口
         private readonly ILogger<TradeService> _logger;
         private readonly IMarketMakerRegistry _marketMakerRegistry; // 新增
 
@@ -24,7 +24,7 @@ namespace CryptoSpot.Infrastructure.Services
             IOrderRepository orderRepository,
             ITradingPairRepository tradingPairRepository,
             IUnitOfWork unitOfWork,
-            IAssetDomainService assetService,
+            IAssetService assetService,
             ILogger<TradeService> logger,
             IMarketMakerRegistry marketMakerRegistry) // 新增
         {
@@ -74,17 +74,17 @@ namespace CryptoSpot.Infrastructure.Services
                         if (buyOrder.UserId.HasValue)
                         {
                             var buyIsMaker = _marketMakerRegistry.IsMaker(buyOrder.UserId.Value);
-                            var bd = await _assetService.DeductAssetAsync(buyOrder.UserId.Value, quoteAsset, notional, fromFrozen: !buyIsMaker);
+                            var bd = await _assetService.DeductAssetRawAsync(buyOrder.UserId.Value, quoteAsset, notional, fromFrozen: !buyIsMaker);
                             if (!bd) throw new InvalidOperationException($"买家资产扣减失败(User={buyOrder.UserId}, {quoteAsset} {notional}, fromFrozen={!buyIsMaker})");
-                            var ba = await _assetService.AddAssetAsync(buyOrder.UserId.Value, baseAsset, quantity);
+                            var ba = await _assetService.AddAssetRawAsync(buyOrder.UserId.Value, baseAsset, quantity);
                             if (!ba) throw new InvalidOperationException($"买家基础资产增加失败(User={buyOrder.UserId}, {baseAsset} {quantity})");
                         }
                         if (sellOrder.UserId.HasValue)
                         {
                             var sellIsMaker = _marketMakerRegistry.IsMaker(sellOrder.UserId.Value);
-                            var sd = await _assetService.DeductAssetAsync(sellOrder.UserId.Value, baseAsset, quantity, fromFrozen: !sellIsMaker);
+                            var sd = await _assetService.DeductAssetRawAsync(sellOrder.UserId.Value, baseAsset, quantity, fromFrozen: !sellIsMaker);
                             if (!sd) throw new InvalidOperationException($"卖家资产扣减失败(User={sellOrder.UserId}, {baseAsset} {quantity}, fromFrozen={!sellIsMaker})");
-                            var sa = await _assetService.AddAssetAsync(sellOrder.UserId.Value, quoteAsset, notional);
+                            var sa = await _assetService.AddAssetRawAsync(sellOrder.UserId.Value, quoteAsset, notional);
                             if (!sa) throw new InvalidOperationException($"卖家报价资产增加失败(User={sellOrder.UserId}, {quoteAsset} {notional})");
                         }
                     }

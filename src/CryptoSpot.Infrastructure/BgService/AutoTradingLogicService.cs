@@ -189,16 +189,16 @@ namespace CryptoSpot.Infrastructure.BgService
         public async Task RebalanceSystemAssetsAsync()
         {
             using var scope = _serviceScopeFactory.CreateScope();
-            var assetService = scope.ServiceProvider.GetRequiredService<IAssetDomainService>();
+            var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>();
             
             try
             {
                 const int systemUserId = 1; // 系统用户ID
                 
                 // 获取系统资产
-                var assets = await assetService.GetUserAssetsAsync(systemUserId);
-                
-                _logger.LogDebug("系统资产再平衡检查完成，资产数量: {Count}", assets.Count());
+                var assets = await assetService.GetUserAssetsRawAsync(systemUserId);
+                var assetCount = assets.Count();
+                _logger.LogDebug("系统资产再平衡检查完成，资产数量: {Count}", assetCount);
             }
             catch (Exception ex)
             {
@@ -211,7 +211,7 @@ namespace CryptoSpot.Infrastructure.BgService
             using var scope = _serviceScopeFactory.CreateScope();
             var orderService = scope.ServiceProvider.GetRequiredService<IOrderService>();
             var tradeService = scope.ServiceProvider.GetRequiredService<ITradeService>();
-            var assetService = scope.ServiceProvider.GetRequiredService<IAssetDomainService>();
+            var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>();
             
             try
             {
@@ -230,7 +230,7 @@ namespace CryptoSpot.Infrastructure.BgService
                     .Sum(t => t.TotalValue);
 
                 // 获取资产余额
-                var assets = await assetService.GetUserAssetsAsync(systemAccountId);
+                var assets = await assetService.GetUserAssetsRawAsync(systemAccountId);
                 var assetBalances = assets.ToDictionary(a => a.Symbol, a => a.Total);
 
                 return new AutoTradingStats

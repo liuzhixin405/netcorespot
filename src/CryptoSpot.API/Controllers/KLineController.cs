@@ -59,7 +59,20 @@ namespace CryptoSpot.API.Controllers
                 // 获取K线数据
                 var klineData = await _klineDataService.GetKLineDataAsync(symbol, interval, startTime, endTime, limit);
 
-                // 转换为前端期望的格式
+                if (!klineData.Success || klineData.Data == null)
+                {
+                    return Ok(new
+                    {
+                        success = true,
+                        data = new List<object>(),
+                        symbol = symbol,
+                        interval = interval,
+                        count = 0,
+                        message = klineData.Error ?? klineData.Message
+                    });
+                }
+
+                // 转换为前端期望的格式（此时 Data 已非空）
                 var response = klineData.Data.Select(k => new
                 {
                     timestamp = k.OpenTime,
@@ -106,14 +119,12 @@ namespace CryptoSpot.API.Controllers
                     return BadRequest(new { error = "交易对符号和时间间隔不能为空" });
                 }
 
-                // 获取最新的一条K线数据
                 var klineData = await _klineDataService.GetKLineDataAsync(symbol, interval, null, null, 1);
-                var latestKline = klineData.Data.FirstOrDefault();
-
-                if (latestKline == null)
+                if (!klineData.Success || klineData.Data == null || !klineData.Data.Any())
                 {
                     return NotFound(new { error = "未找到K线数据" });
                 }
+                var latestKline = klineData.Data.First();
 
                 var response = new
                 {

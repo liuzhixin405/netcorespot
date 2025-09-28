@@ -3,10 +3,7 @@ using CryptoSpot.Application.DTOs.Common;
 
 namespace CryptoSpot.Application.Abstractions.Services.Users
 {
-    /// <summary>
-    /// 用户服务接口 (原 IUserServiceV2) - 统一后的用户应用服务，返回 DTO。
-    /// 已移除旧的领域 IUserService 接口与其实现。
-    /// </summary>
+    /// 用户服务接口
     public interface IUserService
     {
         // 基础用户操作

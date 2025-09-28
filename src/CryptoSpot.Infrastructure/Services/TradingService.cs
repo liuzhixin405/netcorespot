@@ -15,7 +15,7 @@ using CryptoSpot.Application.Abstractions.Services.Users;
 namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
-    /// 交易服务实现 (原 TradingServiceV2)
+    /// 交易服务实现
     /// </summary>
     public class TradingService : ITradingService
     {
@@ -26,7 +26,7 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
         private readonly IOrderMatchingEngine _matchingEngine;
-        private readonly IAssetDomainService _assetService;
+        private readonly IAssetService _assetService; // 替换领域接口
         private readonly IKLineDataService _klineDataService; // 使用 DTO 层服务接口
 
         public TradingService(
@@ -37,7 +37,7 @@ namespace CryptoSpot.Infrastructure.Services
             IOrderService orderService,
             ITradeService tradeService,
             IOrderMatchingEngine matchingEngine,
-            IAssetDomainService assetService,
+            IAssetService assetService,
             IKLineDataService klineDataService)
         {
             _mappingService = mappingService;
@@ -141,7 +141,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var assets = await _assetService.GetUserAssetsAsync(userId);
+                var assets = await _assetService.GetUserAssetsRawAsync(userId);
                 var dtoList = _mappingService.MapToDto(assets);
                 return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(dtoList);
             }
@@ -157,7 +157,7 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 // 领域服务直接返回资产实体集合，不再是 ApiResponseDto
-                var assets = await _assetService.GetUserAssetsAsync(userId);
+                var assets = await _assetService.GetUserAssetsRawAsync(userId);
                 var assetList = assets.ToList();
 
                 var summary = new AssetSummaryDto

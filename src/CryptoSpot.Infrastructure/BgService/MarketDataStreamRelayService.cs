@@ -250,7 +250,7 @@ namespace CryptoSpot.Infrastructure.BgServices
                 using var scope = _scopeFactory.CreateScope();
                 var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
                 var pairService = scope.ServiceProvider.GetService<IPriceDataService>();
-                var klineService = scope.ServiceProvider.GetService<IKLineDataDomainService>();
+                var klineService = scope.ServiceProvider.GetService<IKLineDataService>();
                 int tradingPairId = await ResolveTradingPairIdAsync(k.Symbol, pairService, ct);
 
                 var klineEntity = new KLineData
@@ -289,8 +289,8 @@ namespace CryptoSpot.Infrastructure.BgServices
                         try
                         {
                             using var persistScope = _scopeFactory.CreateScope();
-                            var scopedKLineService = persistScope.ServiceProvider.GetRequiredService<IKLineDataDomainService>();
-                            await scopedKLineService.AddOrUpdateKLineDataAsync(entityCopy);
+                            var scopedKLineService = persistScope.ServiceProvider.GetRequiredService<IKLineDataService>();
+                            await scopedKLineService.AddOrUpdateKLineDataRawAsync(entityCopy);
                             _logger.LogDebug("已持久化K线 {Symbol} {Interval} open={Open}", symbol, intervalCopy, entityCopy.OpenTime);
                         }
                         catch (Exception ex)

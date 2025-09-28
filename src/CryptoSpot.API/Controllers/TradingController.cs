@@ -10,7 +10,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 namespace CryptoSpot.API.Controllers
 {
     /// <summary>
-    /// 交易控制器 - DTO统一版（由 TradingV2Controller 迁移）
+    /// 交易控制器
     /// </summary>
     [ApiController]
     [Route("api/trading")]

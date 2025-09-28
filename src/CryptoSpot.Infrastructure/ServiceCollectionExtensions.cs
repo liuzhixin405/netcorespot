@@ -41,15 +41,13 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<IKLineDataRepository, KLineDataRepository>();
             services.AddScoped<IUnitOfWork, UnitOfWork>();
 
-            // 注册领域服务实现
+            // 注册服务实现
             services.AddScoped<ITradingPairService, TradingPairService>();
-            services.AddScoped<IAssetDomainService, AssetDomainService>();
-            services.AddScoped<IKLineDataDomainService, KLineDataDomainService>(); // 新增领域K线
 
-            // 注册 DTO / 应用编排服务
+            // 应用编排 / DTO + Raw 服务
             services.AddScoped<IOrderService, OrderService>();
             services.AddScoped<ITradeService, TradeService>();
-            services.AddScoped<IKLineDataService, KLineDataService>(); // DTO K线服务实现
+            services.AddScoped<IKLineDataService, KLineDataService>(); // 统一 K线服务实现
             services.AddScoped<ITradingService, TradingService>(); // 交易编排服务
             services.AddScoped<IAssetService, AssetService>(); // 资产 DTO 服务
             services.AddScoped<IUserService, UserService>(); // 用户 DTO 服务

@@ -1,0 +1,1 @@
+Removed IAssetDomainService and AssetDomainService as part of service layer merge. Pending: remove IKLineDataDomainService after KLine merge.

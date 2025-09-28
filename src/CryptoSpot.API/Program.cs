@@ -75,7 +75,7 @@ builder.Services.AddSingleton<IRedisCache>(provider =>
 
 builder.Services.AddSingleton<RedisCacheService>();
 
-// 已在 AddPersistence 中统一注册的领域 & DTO 服务此处不再重复注册 (ITradingPairService / IAssetDomainService / IKLineDataDomainService / IKLineDataService / ITradingService / IOrderService / ITradeService / IAssetService / IUserService)
+// 已在 AddPersistence 中统一注册的服务此处不再重复注册 (ITradingPairService / IKLineDataService / ITradingService / IOrderService / ITradeService / IAssetService / IUserService)
 // 仅补充未在 AddPersistence 中的额外服务
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPriceDataService, PriceDataService>(); // 价格聚合 (依赖 TradingPairService)

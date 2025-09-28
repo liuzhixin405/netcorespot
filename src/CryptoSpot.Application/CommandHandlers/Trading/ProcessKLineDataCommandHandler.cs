@@ -10,12 +10,12 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
     /// </summary>
     public class ProcessKLineDataCommandHandler : ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>
     {
-        private readonly IKLineDataDomainService _klineDataService; // 更新
+        private readonly IKLineDataService _klineDataService; // 使用统一服务
         private readonly ICommandBus _commandBus;
         private readonly ILogger<ProcessKLineDataCommandHandler> _logger;
 
         public ProcessKLineDataCommandHandler(
-            IKLineDataDomainService klineDataService, // 更新
+            IKLineDataService klineDataService, // 更新
             ICommandBus commandBus,
             ILogger<ProcessKLineDataCommandHandler> logger)
         {
@@ -57,7 +57,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 }
 
                 // 保存K线数据
-                await _klineDataService.SaveKLineDataAsync(command.KLineData); // 修改: 调用域服务
+                await _klineDataService.SaveKLineDataRawAsync(command.KLineData); // 修改: 调用统一服务 Raw 方法
 
                 // 发布K线更新事件 - 使用CommandBus发送相关命令
                 // 如果需要发布事件，可以创建相应的事件命令并通过CommandBus发送

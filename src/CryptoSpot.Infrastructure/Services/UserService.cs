@@ -8,9 +8,7 @@ using CryptoSpot.Application.Abstractions.Repositories;
 
 namespace CryptoSpot.Infrastructure.Services
 {
-    /// <summary>
-    /// 统一后的用户应用服务 (原 UserServiceV2 + 领域实现合并)
-    /// </summary>
+    /// 用户应用服务
     public class UserService : IUserService
     {
         private readonly IUserRepository _userRepository;

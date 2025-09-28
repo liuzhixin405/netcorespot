@@ -18,14 +18,14 @@ namespace CryptoSpot.Infrastructure.Services
     public class AuthService : IAuthService
     {
         private readonly IUserRepository _userRepository;
-        private readonly IAssetDomainService _assetService;
+        private readonly IAssetService _assetService;
         private readonly IConfiguration _configuration;
         private readonly ILogger<AuthService> _logger;
         private readonly IDtoMappingService _mappingService;
 
         public AuthService(
             IUserRepository userRepository,
-            IAssetDomainService assetService,
+            IAssetService assetService,
             IConfiguration configuration,
             ILogger<AuthService> logger,
             IDtoMappingService mappingService)
@@ -99,7 +99,7 @@ namespace CryptoSpot.Infrastructure.Services
                     { "ETH", 0m },
                     { "SOL", 0m }
                 };
-                await _assetService.InitializeUserAssetsAsync(created.Id, initialBalances);
+                await _assetService.InitializeUserAssetsRawAsync(created.Id, initialBalances);
 
                 var token = GenerateJwtToken(created);
                 var dto = new AuthResultDto

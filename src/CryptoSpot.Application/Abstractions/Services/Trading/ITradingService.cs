@@ -6,7 +6,7 @@ using CryptoSpot.Application.DTOs.Common;
 namespace CryptoSpot.Application.Abstractions.Services.Trading
 {
     /// <summary>
-    /// 交易服务接口 (原 ITradingServiceV2) - 统一后的 DTO 接口。
+    /// 交易服务接口
     /// </summary>
     public interface ITradingService
     {
