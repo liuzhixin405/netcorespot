@@ -1,17 +1,22 @@
-using CryptoSpot.Domain.Entities;
+using CryptoSpot.Application.DTOs.Trading;
+using CryptoSpot.Application.DTOs.Common;
+using CryptoSpot.Domain.Entities; // 保留仅供 Raw 方法使用
 
 namespace CryptoSpot.Application.Abstractions.Services.Trading
 {
     public interface ITradeService
     {
-        Task<Trade> ExecuteTradeAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity);
-        Task<IEnumerable<Trade>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100);
-        Task<IEnumerable<Trade>> GetUserTradesAsync(int userId, string symbol = "", int limit = 100);
-        Task<IEnumerable<Trade>> GetRecentTradesAsync(string symbol, int limit = 50);
-        Task<Trade?> GetTradeByIdAsync(long tradeId);
-        Task<IEnumerable<Trade>> GetTradesByOrderIdAsync(int orderId);
-        Task<IEnumerable<Trade>> GetOrderTradesAsync(int orderId) => GetTradesByOrderIdAsync(orderId);
-        Task<decimal> GetTradingVolumeAsync(string symbol, TimeSpan timeRange);
-        Task<(decimal high, decimal low)> GetPriceRangeAsync(string symbol, TimeSpan timeRange);
+        // ========== Raw 执行 (撮合核心内部使用) ==========
+        Task<Trade> ExecuteTradeRawAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity);
+
+        // ========== DTO 查询接口 ==========
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100);
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(int userId, string symbol = "", int limit = 100);
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetRecentTradesAsync(string symbol, int limit = 50);
+        Task<ApiResponseDto<TradeDto?>> GetTradeByIdAsync(long tradeId);
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradesByOrderIdAsync(int orderId);
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(int orderId) => GetTradesByOrderIdAsync(orderId);
+        Task<ApiResponseDto<decimal>> GetTradingVolumeAsync(string symbol, TimeSpan timeRange);
+        Task<ApiResponseDto<(decimal high, decimal low)>> GetPriceRangeAsync(string symbol, TimeSpan timeRange);
     }
 }

@@ -2,6 +2,9 @@ using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.DTOs.Common;
+using CryptoSpot.Application.DTOs.Trading;
+using CryptoSpot.Application.Mapping;
 
 namespace CryptoSpot.Infrastructure.Services
 {
@@ -14,17 +17,20 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly ITradingPairRepository _tradingPairRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<OrderService> _logger;
+        private readonly IDtoMappingService _mappingService;
 
         public OrderService(
             IOrderRepository orderRepository,
             ITradingPairRepository tradingPairRepository,
             IUnitOfWork unitOfWork,
-            ILogger<OrderService> logger)
+            ILogger<OrderService> logger,
+            IDtoMappingService mappingService)
         {
             _orderRepository = orderRepository;
             _tradingPairRepository = tradingPairRepository;
             _unitOfWork = unitOfWork;
             _logger = logger;
+            _mappingService = mappingService;
         }
 
         public async Task<Order> CreateOrderAsync(int userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null)
@@ -145,6 +151,116 @@ namespace CryptoSpot.Infrastructure.Services
         {
             var expireTime = DateTimeOffset.UtcNow.Add(-expireAfter).ToUnixTimeMilliseconds();
             return _orderRepository.FindAsync(o => o.CreatedAt < expireTime && (o.Status == OrderStatus.Pending || o.Status == OrderStatus.Active));
+        }
+
+        // ========== 新增 DTO 方法实现 ==========
+        public async Task<ApiResponseDto<OrderDto?>> CreateOrderDtoAsync(int userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null)
+        {
+            try
+            {
+                var order = await CreateOrderAsync(userId, symbol, side, type, quantity, price);
+                var dto = _mappingService.MapToDto(order);
+                return ApiResponseDto<OrderDto?>.CreateSuccess(dto, "订单创建成功");
+            }
+            catch (ArgumentException aex)
+            {
+                return ApiResponseDto<OrderDto?>.CreateError(aex.Message, "ORDER_INVALID_ARGUMENT");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "创建订单(DTO)失败: UserId={UserId}, Symbol={Symbol}", userId, symbol);
+                return ApiResponseDto<OrderDto?>.CreateError("订单创建失败", "ORDER_CREATE_ERROR");
+            }
+        }
+
+        public async Task<ApiResponseDto<bool>> CancelOrderDtoAsync(int orderId, int? userId)
+        {
+            try
+            {
+                var success = await CancelOrderAsync(orderId, userId);
+                return success ? ApiResponseDto<bool>.CreateSuccess(true, "订单取消成功") : ApiResponseDto<bool>.CreateError("订单取消失败", "ORDER_CANCEL_FAILED");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "取消订单(DTO)失败: OrderId={OrderId}", orderId);
+                return ApiResponseDto<bool>.CreateError("订单取消失败", "ORDER_CANCEL_ERROR");
+            }
+        }
+
+        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetUserOrdersDtoAsync(int userId, OrderStatus? status = null, int limit = 100)
+        {
+            try
+            {
+                var orders = await GetUserOrdersAsync(userId, status, limit);
+                var dto = _mappingService.MapToDto(orders);
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取用户订单(DTO)失败: UserId={UserId}", userId);
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateError("获取用户订单失败", "ORDER_QUERY_ERROR");
+            }
+        }
+
+        public async Task<ApiResponseDto<OrderDto?>> GetOrderByIdDtoAsync(int orderId, int? userId)
+        {
+            try
+            {
+                var order = await GetOrderByIdAsync(orderId, userId);
+                var dto = order != null ? _mappingService.MapToDto(order) : null;
+                if (dto == null)
+                    return ApiResponseDto<OrderDto?>.CreateError("订单不存在", "ORDER_NOT_FOUND");
+                return ApiResponseDto<OrderDto?>.CreateSuccess(dto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取订单(DTO)失败: OrderId={OrderId}", orderId);
+                return ApiResponseDto<OrderDto?>.CreateError("获取订单失败", "ORDER_QUERY_ERROR");
+            }
+        }
+
+        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetActiveOrdersDtoAsync(string? symbol = null)
+        {
+            try
+            {
+                var orders = await GetActiveOrdersAsync(symbol);
+                var dto = _mappingService.MapToDto(orders);
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取活跃订单(DTO)失败: Symbol={Symbol}", symbol);
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateError("获取活跃订单失败", "ORDER_QUERY_ERROR");
+            }
+        }
+
+        public async Task<ApiResponseDto<bool>> UpdateOrderStatusDtoAsync(int orderId, OrderStatus status, decimal filledQuantity = 0, decimal averagePrice = 0)
+        {
+            try
+            {
+                await UpdateOrderStatusAsync(orderId, status, filledQuantity, averagePrice);
+                return ApiResponseDto<bool>.CreateSuccess(true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "更新订单状态(DTO)失败: OrderId={OrderId}", orderId);
+                return ApiResponseDto<bool>.CreateError("更新订单状态失败", "ORDER_UPDATE_ERROR");
+            }
+        }
+
+        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetExpiredOrdersDtoAsync(TimeSpan expireAfter)
+        {
+            try
+            {
+                var orders = await GetExpiredOrdersAsync(expireAfter);
+                var dto = _mappingService.MapToDto(orders);
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dto);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取过期订单(DTO)失败");
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateError("获取过期订单失败", "ORDER_QUERY_ERROR");
+            }
         }
 
         private string GenerateOrderId() => $"ORD_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Random.Shared.Next(1000, 9999)}";

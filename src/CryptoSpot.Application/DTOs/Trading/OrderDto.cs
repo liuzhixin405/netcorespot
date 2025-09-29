@@ -37,6 +37,11 @@ namespace CryptoSpot.Application.DTOs.Trading
         public string Symbol { get; set; } = string.Empty;
 
         /// <summary>
+        /// 交易对内部ID
+        /// </summary>
+        public int TradingPairId { get; set; }
+
+        /// <summary>
         /// 订单方向
         /// </summary>
         public OrderSideDto Side { get; set; }

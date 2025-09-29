@@ -57,9 +57,10 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var tradingPairs = await _tradingPairService.GetTopTradingPairsAsync(5); // Domain 实体集合
-                var dtoList = _mappingService.MapToDto(tradingPairs); // 映射方法接收 Domain
-                return ApiResponseDto<IEnumerable<TradingPairDto>>.CreateSuccess(dtoList);
+                var topResp = await _tradingPairService.GetTopTradingPairsAsync(5);
+                if (!topResp.Success || topResp.Data == null)
+                    return ApiResponseDto<IEnumerable<TradingPairDto>>.CreateError(topResp.Error ?? "获取交易对失败", topResp.ErrorCode);
+                return ApiResponseDto<IEnumerable<TradingPairDto>>.CreateSuccess(topResp.Data);
             }
             catch (Exception ex)
             {
@@ -72,9 +73,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var tradingPair = await _tradingPairService.GetTradingPairAsync(symbol); // Domain
-                var dto = tradingPair != null ? _mappingService.MapToDto(tradingPair) : null;
-                return ApiResponseDto<TradingPairDto?>.CreateSuccess(dto);
+                var resp = await _tradingPairService.GetTradingPairAsync(symbol);
+                return resp;
             }
             catch (Exception ex)
             {
@@ -87,8 +87,18 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var tradingPairs = await _tradingPairService.GetTopTradingPairsAsync(20); // Domain
-                var summaries = _mappingService.MapToSummaryDto(tradingPairs);
+                var topResp = await _tradingPairService.GetTopTradingPairsAsync(20);
+                if (!topResp.Success || topResp.Data == null)
+                    return ApiResponseDto<IEnumerable<TradingPairSummaryDto>>.CreateError(topResp.Error ?? "获取交易对摘要失败", topResp.ErrorCode);
+                var summaries = topResp.Data.Select(tp => new TradingPairSummaryDto
+                {
+                    Symbol = tp.Symbol,
+                    BaseAsset = tp.BaseAsset,
+                    QuoteAsset = tp.QuoteAsset,
+                    Price = tp.Price,
+                    Change24hPercent = tp.Price > 0 ? (tp.Change24h / tp.Price) * 100 : 0,
+                    IsActive = tp.IsActive
+                }).ToList();
                 return ApiResponseDto<IEnumerable<TradingPairSummaryDto>>.CreateSuccess(summaries);
             }
             catch (Exception ex)
@@ -336,9 +346,12 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var trades = await _tradeService.GetTradeHistoryAsync(userId, symbol);
-                var dtoList = _mappingService.MapToDto(trades);
-                return ApiResponseDto<IEnumerable<TradeDto>>.CreateSuccess(dtoList);
+                var resp = await _tradeService.GetTradeHistoryAsync(userId, symbol);
+                if (!resp.Success || resp.Data == null)
+                {
+                    return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("获取用户交易失败");
+                }
+                return resp; // 已是 DTO 列表
             }
             catch (Exception ex)
             {
@@ -356,9 +369,12 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("订单不存在");
                 }
-                var trades = await _tradeService.GetOrderTradesAsync(orderId);
-                var dtoList = _mappingService.MapToDto(trades);
-                return ApiResponseDto<IEnumerable<TradeDto>>.CreateSuccess(dtoList);
+                var resp = await _tradeService.GetOrderTradesAsync(orderId);
+                if (!resp.Success || resp.Data == null)
+                {
+                    return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("获取订单交易失败");
+                }
+                return resp;
             }
             catch (Exception ex)
             {
@@ -371,13 +387,15 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var trades = await _tradeService.GetTradeHistoryAsync(userId, null);
-                var totalTrades = trades.Count();
-                var totalVolume = trades.Sum(t => t.Quantity);
-                var totalValue = trades.Sum(t => t.Price * t.Quantity);
+                var resp = await _tradeService.GetTradeHistoryAsync(userId, null);
+                var trades = resp.Success && resp.Data != null ? resp.Data : Enumerable.Empty<TradeDto>();
+                var list = trades.ToList();
+                var totalTrades = list.Count;
+                var totalVolume = list.Sum(t => t.Quantity);
+                var totalValue = list.Sum(t => t.Price * t.Quantity);
                 var averageTradeSize = totalTrades > 0 ? totalValue / totalTrades : 0;
-                var totalFees = trades.Sum(t => t.Fee);
-                var lastTrade = trades.OrderByDescending(t => t.ExecutedAt).FirstOrDefault();
+                var totalFees = list.Sum(t => t.Fee);
+                var lastTrade = list.OrderByDescending(t => t.ExecutedDateTime).FirstOrDefault();
 
                 var dto = new TradeStatisticsDto
                 {
@@ -386,7 +404,7 @@ namespace CryptoSpot.Infrastructure.Services
                     TotalValue = totalValue,
                     AverageTradeSize = averageTradeSize,
                     TotalFees = totalFees,
-                    LastTradeTime = lastTrade != null ? DateTimeExtensions.FromUnixTimeMilliseconds(lastTrade.ExecutedAt) : (DateTime?)null,
+                    LastTradeTime = lastTrade?.ExecutedDateTime,
                     ProfitLoss = 0,
                     WinRate = 0,
                     LargestWin = 0,
@@ -443,11 +461,12 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     return ApiResponseDto<TestOrderResultDto>.CreateError("限价单需提供有效价格");
                 }
-                var pair = await _tradingPairService.GetTradingPairAsync(request.Symbol);
-                if (pair == null)
+                var pairResp = await _tradingPairService.GetTradingPairAsync(request.Symbol);
+                if (!pairResp.Success || pairResp.Data == null)
                 {
-                    return ApiResponseDto<TestOrderResultDto>.CreateError("交易对不存在");
+                    return ApiResponseDto<TestOrderResultDto>.CreateError(pairResp.Error ?? "交易对不存在", pairResp.ErrorCode);
                 }
+                var tradingPair = pairResp.Data;
                 decimal? needQuote = null; decimal? needBase = null;
                 if (request.Side == OrderSide.Buy)
                 {
@@ -495,10 +514,13 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var trades = await _tradeService.GetTradeHistoryAsync(userId, null);
-                var paged = trades.Skip((request.PageNumber - 1) * request.PageSize).Take(request.PageSize);
-                var dtoList = _mappingService.MapToDto(paged);
-                return ApiResponseDto<IEnumerable<TradeDto>>.CreateSuccess(dtoList);
+                var resp = await _tradeService.GetTradeHistoryAsync(userId, null);
+                if (!resp.Success || resp.Data == null)
+                {
+                    return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("获取交易历史失败");
+                }
+                var paged = resp.Data.Skip((request.PageNumber - 1) * request.PageSize).Take(request.PageSize).ToList();
+                return ApiResponseDto<IEnumerable<TradeDto>>.CreateSuccess(paged);
             }
             catch (Exception ex)
             {

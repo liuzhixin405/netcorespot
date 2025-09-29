@@ -62,15 +62,16 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 
                 _logger.LogDebug("User {UserId} found: {Username}", user.Id, user.Username);
 
-                var tradingPair = await _tradingPairService.GetTradingPairAsync(command.Symbol);
-                if (tradingPair == null)
+                var tradingPairResp = await _tradingPairService.GetTradingPairAsync(command.Symbol);
+                if (!tradingPairResp.Success || tradingPairResp.Data == null)
                 {
                     return new SubmitOrderResult
                     {
                         Success = false,
-                        ErrorMessage = "交易对不存在"
+                        ErrorMessage = tradingPairResp.Error ?? "交易对不存在"
                     };
                 }
+                var tradingPair = tradingPairResp.Data;
 
                 command.Quantity = RoundDown(command.Quantity, tradingPair.QuantityPrecision);
                 if (command.Type == OrderType.Limit && command.Price.HasValue)
@@ -115,22 +116,38 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     }
                 }
 
-                var order = await _orderService.CreateOrderAsync(
+                var createResp = await _orderService.CreateOrderDtoAsync(
                     command.UserId,
                     command.Symbol,
                     command.Side,
                     command.Type,
                     command.Quantity,
                     command.Price);
-
-                if (order == null)
+                if (!createResp.Success || createResp.Data == null)
                 {
-                    return new SubmitOrderResult
-                    {
-                        Success = false,
-                        ErrorMessage = "订单创建失败"
-                    };
+                    return new SubmitOrderResult { Success = false, ErrorMessage = createResp.Error ?? "订单创建失败" };
                 }
+                var orderDto = createResp.Data;
+                // 构造 Domain Order 供撮合引擎使用（后续可改为 IOrderRawAccess）
+                var order = new Order
+                {
+                    Id = orderDto.Id,
+                    OrderId = orderDto.OrderId,
+                    UserId = orderDto.UserId,
+                    TradingPairId = orderDto.TradingPairId,
+                    Side = command.Side,
+                    Type = command.Type,
+                    Quantity = orderDto.Quantity,
+                    Price = orderDto.Price,
+                    FilledQuantity = orderDto.FilledQuantity,
+                    AveragePrice = orderDto.AveragePrice,
+                    Status = orderDto.Status,
+                    ClientOrderId = orderDto.ClientOrderId,
+                    CreatedAt = new DateTimeOffset(orderDto.CreatedAt).ToUnixTimeMilliseconds(),
+                    UpdatedAt = new DateTimeOffset(orderDto.UpdatedAt).ToUnixTimeMilliseconds(),
+                };
+                // RemainingQuantity 使用撮合逻辑内定义：
+                order.FilledQuantity = orderDto.FilledQuantity;
 
                 var matchResult = await _orderMatchingEngine.ProcessOrderAsync(order);
 

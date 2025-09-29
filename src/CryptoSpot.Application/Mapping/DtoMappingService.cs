@@ -23,6 +23,7 @@ namespace CryptoSpot.Application.Mapping
                 ClientOrderId = order.ClientOrderId,
                 UserId = order.UserId,
                 Symbol = order.TradingPair?.Symbol ?? string.Empty,
+                TradingPairId = order.TradingPairId,
                 Side = order.Side, // 直接赋值 Domain 枚举
                 Type = order.Type,
                 Quantity = order.Quantity,

@@ -58,14 +58,15 @@ namespace CryptoSpot.Application.Services
             try
             {
                 // 获取交易对符号
-                var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(order.TradingPairId);
-                if (tradingPair == null)
+                var tradingPairResp = await _tradingPairService.GetTradingPairByIdAsync(order.TradingPairId);
+                if (!tradingPairResp.Success || tradingPairResp.Data == null)
                 {
                     _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", order.TradingPairId);
                     order.Status = OrderStatus.Rejected;
                     await _orderService.UpdateOrderStatusAsync(order.Id, OrderStatus.Rejected);
                     return result;
                 }
+                var tradingPair = tradingPairResp.Data;
                 symbol = tradingPair.Symbol;
                 
                 // 获取或创建该交易对的锁
@@ -204,7 +205,7 @@ namespace CryptoSpot.Application.Services
                                 if (await CanMatchOrderAsync(buyOrder, sellOrder))
                                 {
                                     _logger.LogInformation("✅ 订单可以匹配，开始执行交易");
-                                    var trade = await ExecuteTradeAsync(buyOrder, sellOrder);
+                                    var trade = await CreateTradeAsync(buyOrder, sellOrder, sellOrder.Price ?? 0, Math.Min(buyOrder.RemainingQuantity, sellOrder.RemainingQuantity));
                                     if (trade != null)
                                     {
                                         trades.Add(trade);
@@ -367,17 +368,17 @@ namespace CryptoSpot.Application.Services
         private async Task<List<Trade>> MatchMarketOrderAsync(Order marketOrder, HashSet<decimal>? impactedBidPrices = null, HashSet<decimal>? impactedAskPrices = null)
         {
             var trades = new List<Trade>();
-            
-            // 获取交易对符号
-            var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(marketOrder.TradingPairId);
-            if (tradingPair == null)
+            // 获取交易对符号 (DTO)
+            var tradingPairResp = await _tradingPairService.GetTradingPairByIdAsync(marketOrder.TradingPairId);
+            if (!tradingPairResp.Success || tradingPairResp.Data == null)
             {
                 _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", marketOrder.TradingPairId);
                 return trades;
             }
+            var symbol = tradingPairResp.Data.Symbol;
             
             // 获取对手方订单
-            var activeOrders = await _orderService.GetActiveOrdersAsync(tradingPair.Symbol);
+            var activeOrders = await _orderService.GetActiveOrdersAsync(symbol);
             var oppositeOrders = activeOrders
                 .Where(o => o.Side != marketOrder.Side && o.Type == OrderType.Limit)
                 .OrderBy(o => marketOrder.Side == OrderSide.Buy ? o.Price : -o.Price) // 买单匹配最低卖价，卖单匹配最高买价
@@ -431,17 +432,16 @@ namespace CryptoSpot.Application.Services
         private async Task<List<Trade>> MatchLimitOrderAsync(Order limitOrder, HashSet<decimal>? impactedBidPrices = null, HashSet<decimal>? impactedAskPrices = null)
         {
             var trades = new List<Trade>();
-            
-            // 获取交易对符号
-            var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(limitOrder.TradingPairId);
-            if (tradingPair == null)
+            var tradingPairResp = await _tradingPairService.GetTradingPairByIdAsync(limitOrder.TradingPairId);
+            if (!tradingPairResp.Success || tradingPairResp.Data == null)
             {
                 _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", limitOrder.TradingPairId);
                 return trades;
             }
+            var symbol = tradingPairResp.Data.Symbol;
             
             // 获取可匹配的对手方订单
-            var activeOrders = await _orderService.GetActiveOrdersAsync(tradingPair.Symbol);
+            var activeOrders = await _orderService.GetActiveOrdersAsync(symbol);
             _logger.LogDebug("找到 {Count} 个活跃订单", activeOrders.Count());
             
             var matchableOrders = activeOrders
@@ -497,29 +497,12 @@ namespace CryptoSpot.Application.Services
             return trades;
         }
 
-        private async Task<Trade?> ExecuteTradeAsync(Order buyOrder, Order sellOrder)
-        {
-            try
-            {
-                var matchQuantity = Math.Min(buyOrder.RemainingQuantity, sellOrder.RemainingQuantity);
-                var matchPrice = sellOrder.Price ?? 0; // 使用卖单价格
-
-                return await CreateTradeAsync(buyOrder, sellOrder, matchPrice, matchQuantity);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "执行交易时出错: BuyOrderId={BuyOrderId}, SellOrderId={SellOrderId}", 
-                    buyOrder.OrderId, sellOrder.OrderId);
-                return null;
-            }
-        }
-
         private async Task<Trade?> CreateTradeAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity)
         {
             try
             {
-                // 交给交易服务执行(内部处理订单状态、资产结算、事务提交)
-                var trade = await _tradeService.ExecuteTradeAsync(buyOrder, sellOrder, price, quantity);
+                // 交给交易服务执行 Raw
+                var trade = await _tradeService.ExecuteTradeRawAsync(buyOrder, sellOrder, price, quantity);
                 return trade;
             }
             catch (Exception ex)
@@ -573,13 +556,13 @@ namespace CryptoSpot.Application.Services
 
         private async Task UnfreezeOrderAssets(Order order)
         {
-            var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(order.TradingPairId);
-            if (tradingPair == null)
+            var tradingPairResp = await _tradingPairService.GetTradingPairByIdAsync(order.TradingPairId);
+            if (!tradingPairResp.Success || tradingPairResp.Data == null)
             {
                 _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", order.TradingPairId);
                 return;
             }
-            var symbol = tradingPair.Symbol;
+            var symbol = tradingPairResp.Data.Symbol;
             var remainingQuantity = order.RemainingQuantity;
             
             if (order.Side == OrderSide.Buy)
@@ -595,7 +578,7 @@ namespace CryptoSpot.Application.Services
             else
             {
                 // 卖单解冻基础资产
-                var baseAsset = symbol.Replace("USDT", "");
+                var baseAsset = symbol.Replace("USDT", string.Empty);
                 if (order.UserId.HasValue)
                 {
                     // 统一使用AssetService处理所有用户资产

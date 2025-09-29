@@ -76,9 +76,14 @@ namespace CryptoSpot.Infrastructure.BgService
 
             try
             {
-                // 获取活跃的交易对
-                var tradingPairs = await tradingPairService.GetActiveTradingPairsAsync();
-                
+                // 获取活跃的交易对 (已改为 ApiResponseDto)
+                var tradingPairsResp = await tradingPairService.GetActiveTradingPairsAsync();
+                if (!tradingPairsResp.Success || tradingPairsResp.Data == null)
+                {
+                    _logger.LogWarning("获取活跃交易对失败: {Error}", tradingPairsResp.Error ?? "Unknown");
+                    return;
+                }
+                var tradingPairs = tradingPairsResp.Data;
                 foreach (var pair in tradingPairs.Take(5)) // 限制处理数量
                 {
                     await CreateMarketMakingOrdersAsync(pair.Symbol);
@@ -220,7 +225,8 @@ namespace CryptoSpot.Infrastructure.BgService
                 var activeOrdersCount = activeOrders.Count();
 
                 // 获取今日交易数量
-                var todayTrades = await tradeService.GetUserTradesAsync(systemAccountId, string.Empty, limit: 1000);
+                var todayTradesResp = await tradeService.GetTradeHistoryAsync(systemAccountId, null, 1000);
+                var todayTrades = (todayTradesResp.Success && todayTradesResp.Data != null) ? todayTradesResp.Data : Enumerable.Empty<TradeDto>();
                 var todayStart = DateTime.UtcNow.Date;
                 var todayTradesCount = todayTrades.Count(t => t.ExecutedDateTime >= todayStart);
 

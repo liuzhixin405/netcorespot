@@ -208,7 +208,8 @@ namespace CryptoSpot.Infrastructure.Services
             try {
                 var start = DateTimeOffset.FromUnixTimeMilliseconds(startTime.Value).UtcDateTime;
                 var end = DateTimeOffset.FromUnixTimeMilliseconds(endTime.Value).UtcDateTime;
-                var tpId = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
                 if (tpId <= 0) return Enumerable.Empty<KLineData>();
                 return await _klineRepository.GetKLineDataByTimeRangeAsync(tpId, interval, start, end);
             } catch { return Enumerable.Empty<KLineData>(); }
@@ -218,7 +219,8 @@ namespace CryptoSpot.Infrastructure.Services
             try {
                 var start = DateTimeOffset.FromUnixTimeMilliseconds(startTime).UtcDateTime;
                 var end = DateTimeOffset.FromUnixTimeMilliseconds(endTime).UtcDateTime;
-                var tpId = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
                 if (tpId <= 0) return Enumerable.Empty<KLineData>();
                 return await _klineRepository.GetKLineDataByTimeRangeAsync(tpId, interval, start, end);
             } catch { return Enumerable.Empty<KLineData>(); }
@@ -226,7 +228,8 @@ namespace CryptoSpot.Infrastructure.Services
         public async Task<KLineData?> GetLatestKLineDataRawAsync(string symbol, string interval)
         {
             try {
-                var tpId = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
                 if (tpId <= 0) return null;
                 return await _klineRepository.GetLatestKLineDataAsync(tpId, interval);
             } catch { return null; }

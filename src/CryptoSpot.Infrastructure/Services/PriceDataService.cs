@@ -5,6 +5,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.Mapping;
+using CryptoSpot.Application.DTOs.Common;
 
 namespace CryptoSpot.Infrastructure.Services
 {
@@ -28,8 +29,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var entity = await _tradingPairService.GetTradingPairAsync(symbol);
-                return entity == null ? null : _mapping.MapToDto(entity);
+                var resp = await _tradingPairService.GetTradingPairAsync(symbol);
+                return resp.Success ? resp.Data : null;
             }
             catch (Exception ex)
             {
@@ -45,10 +46,10 @@ namespace CryptoSpot.Infrastructure.Services
                 var list = new List<TradingPairDto>();
                 foreach (var symbol in symbols)
                 {
-                    var entity = await _tradingPairService.GetTradingPairAsync(symbol);
-                    if (entity != null)
+                    var resp = await _tradingPairService.GetTradingPairAsync(symbol);
+                    if (resp.Success && resp.Data != null)
                     {
-                        list.Add(_mapping.MapToDto(entity));
+                        list.Add(resp.Data);
                     }
                 }
                 return list;
@@ -64,8 +65,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var entities = await _tradingPairService.GetTopTradingPairsAsync(count);
-                return entities.Select(_mapping.MapToDto);
+                var resp = await _tradingPairService.GetTopTradingPairsAsync(count);
+                return resp.Success && resp.Data != null ? resp.Data : Enumerable.Empty<TradingPairDto>();
             }
             catch (Exception ex)
             {
