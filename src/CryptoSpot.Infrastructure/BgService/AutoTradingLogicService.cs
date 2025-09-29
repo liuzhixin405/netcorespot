@@ -173,7 +173,8 @@ namespace CryptoSpot.Infrastructure.BgService
                 const int systemUserId = 1; // 系统用户ID
                 
                 // 获取系统用户的待处理订单
-                var pendingOrders = await orderService.GetUserOrdersAsync(systemUserId, OrderStatus.Pending);
+                var pendingOrdersResp = await orderService.GetUserOrdersDtoAsync(systemUserId, OrderStatus.Pending);
+                var pendingOrders = (pendingOrdersResp.Success && pendingOrdersResp.Data != null) ? pendingOrdersResp.Data : Enumerable.Empty<OrderDto>();
                 
                 // 取消超过5分钟的订单
                 var expiredOrders = pendingOrders.Where(o => 
@@ -181,7 +182,7 @@ namespace CryptoSpot.Infrastructure.BgService
 
                 foreach (var order in expiredOrders)
                 {
-                    await orderService.CancelOrderAsync(order.Id, systemUserId);
+                    await orderService.CancelOrderDtoAsync(order.Id, systemUserId);
                     _logger.LogDebug("取消过期订单 {OrderId}", order.Id);
                 }
             }
@@ -221,7 +222,8 @@ namespace CryptoSpot.Infrastructure.BgService
             try
             {
                 // 获取活跃订单数量
-                var activeOrders = await orderService.GetUserOrdersAsync(systemAccountId, OrderStatus.Pending);
+                var activeOrdersResp = await orderService.GetUserOrdersDtoAsync(systemAccountId, OrderStatus.Pending);
+                var activeOrders = (activeOrdersResp.Success && activeOrdersResp.Data != null) ? activeOrdersResp.Data : Enumerable.Empty<OrderDto>();
                 var activeOrdersCount = activeOrders.Count();
 
                 // 获取今日交易数量

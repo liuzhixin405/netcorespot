@@ -16,6 +16,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         private readonly ITradingPairService _tradingPairService;
         private readonly IUserRepository _userRepository;
         private readonly IOrderService _orderService;
+        private readonly IOrderRawAccess _orderRawAccess; // 新增
         private readonly IOrderMatchingEngine _orderMatchingEngine;
         private readonly ICommandBus _commandBus;
         private readonly ILogger<SubmitOrderCommandHandler> _logger;
@@ -26,6 +27,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             ITradingPairService tradingPairService,
             IUserRepository userRepository,
             IOrderService orderService,
+            IOrderRawAccess orderRawAccess,
             IOrderMatchingEngine orderMatchingEngine,
             ICommandBus commandBus,
             ILogger<SubmitOrderCommandHandler> logger,
@@ -35,6 +37,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             _tradingPairService = tradingPairService;
             _userRepository = userRepository;
             _orderService = orderService;
+            _orderRawAccess = orderRawAccess;
             _orderMatchingEngine = orderMatchingEngine;
             _commandBus = commandBus;
             _logger = logger;
@@ -128,37 +131,25 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                     return new SubmitOrderResult { Success = false, ErrorMessage = createResp.Error ?? "订单创建失败" };
                 }
                 var orderDto = createResp.Data;
-                // 构造 Domain Order 供撮合引擎使用（后续可改为 IOrderRawAccess）
-                var order = new Order
-                {
-                    Id = orderDto.Id,
-                    OrderId = orderDto.OrderId,
-                    UserId = orderDto.UserId,
-                    TradingPairId = orderDto.TradingPairId,
-                    Side = command.Side,
-                    Type = command.Type,
-                    Quantity = orderDto.Quantity,
-                    Price = orderDto.Price,
-                    FilledQuantity = orderDto.FilledQuantity,
-                    AveragePrice = orderDto.AveragePrice,
-                    Status = orderDto.Status,
-                    ClientOrderId = orderDto.ClientOrderId,
-                    CreatedAt = new DateTimeOffset(orderDto.CreatedAt).ToUnixTimeMilliseconds(),
-                    UpdatedAt = new DateTimeOffset(orderDto.UpdatedAt).ToUnixTimeMilliseconds(),
-                };
-                // RemainingQuantity 使用撮合逻辑内定义：
-                order.FilledQuantity = orderDto.FilledQuantity;
 
-                var matchResult = await _orderMatchingEngine.ProcessOrderAsync(order);
+                // 通过 RawAccess 读取真实持久化实体供撮合引擎使用，避免手动构造
+                var rawOrder = await _orderRawAccess.GetOrderRawAsync(orderDto.Id);
+                if (rawOrder == null)
+                {
+                    _logger.LogWarning("Raw order not found after creation: Id={OrderId}", orderDto.Id);
+                    return new SubmitOrderResult { Success = false, ErrorMessage = "订单创建后读取失败" };
+                }
+
+                var matchResult = await _orderMatchingEngine.ProcessOrderAsync(rawOrder);
 
                 _logger.LogInformation("Order {OrderId} submitted successfully for user {UserId}", 
-                    order.OrderId, command.UserId);
+                    rawOrder.OrderId, command.UserId);
 
                 return new SubmitOrderResult
                 {
                     Success = true,
-                    OrderId = order.Id,
-                    OrderIdString = order.OrderId,
+                    OrderId = rawOrder.Id,
+                    OrderIdString = rawOrder.OrderId,
                     ExecutedTrades = matchResult.Trades.ToList()
                 };
             }

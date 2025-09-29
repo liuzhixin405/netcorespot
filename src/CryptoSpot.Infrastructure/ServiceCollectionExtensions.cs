@@ -14,6 +14,7 @@ using CryptoSpot.Domain.Entities; // MarketMakerOptions
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users; // IMarketMakerRegistry
 using CryptoSpot.Application.Abstractions.Services.MarketData; // K线接口
+using CryptoSpot.Infrastructure.Repositories; // 新增 RawAccess
 
 namespace CryptoSpot.Infrastructure
 {
@@ -51,6 +52,7 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<ITradingService, TradingService>(); // 交易编排服务
             services.AddScoped<IAssetService, AssetService>(); // 资产 DTO 服务
             services.AddScoped<IUserService, UserService>(); // 用户 DTO 服务
+            services.AddScoped<IOrderRawAccess, OrderRawAccess>(); // 注册订单原始访问接口
 
             services.AddScoped<DataInitializationService>();
             // 注册多做市配置与注册表

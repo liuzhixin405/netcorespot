@@ -196,11 +196,13 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var orders = await _orderService.GetUserOrdersAsync(userId);
+                var resp = await _orderService.GetUserOrdersDtoAsync(userId);
+                if (!resp.Success || resp.Data == null)
+                    return ApiResponseDto<IEnumerable<OrderDto>>.CreateError(resp.Error ?? "获取用户订单失败", resp.ErrorCode);
+                var orders = resp.Data;
                 if (!string.IsNullOrEmpty(symbol))
-                    orders = orders.Where(o => o.TradingPair != null && o.TradingPair.Symbol == symbol);
-                var dtoList = _mappingService.MapToDto(orders);
-                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dtoList);
+                    orders = orders.Where(o => o.Symbol == symbol);
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(orders.ToList());
             }
             catch (Exception ex)
             {
@@ -213,11 +215,12 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var orders = await _orderService.GetUserOrdersAsync(userId, null, 500);
-                var filtered = orders.Where(o => o.Status == OrderStatus.Pending || o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled)
-                                     .Where(o => string.IsNullOrEmpty(symbol) || (o.TradingPair != null && o.TradingPair.Symbol == symbol));
-                var dtoList = _mappingService.MapToDto(filtered);
-                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dtoList);
+                var resp = await _orderService.GetUserOrdersDtoAsync(userId, null, 500);
+                if (!resp.Success || resp.Data == null)
+                    return ApiResponseDto<IEnumerable<OrderDto>>.CreateError(resp.Error ?? "获取开放订单失败", resp.ErrorCode);
+                var filtered = resp.Data.Where(o => o.Status == OrderStatus.Pending || o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled)
+                                         .Where(o => string.IsNullOrEmpty(symbol) || o.Symbol == symbol);
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(filtered.ToList());
             }
             catch (Exception ex)
             {
@@ -230,9 +233,9 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var order = await _orderService.GetOrderByIdAsync(orderId, userId);
-                var dto = order != null ? _mappingService.MapToDto(order) : null;
-                return ApiResponseDto<OrderDto?>.CreateSuccess(dto);
+                var resp = await _orderService.GetOrderByIdDtoAsync(orderId, userId);
+                if (!resp.Success) return ApiResponseDto<OrderDto?>.CreateError(resp.Error ?? "获取订单失败", resp.ErrorCode);
+                return ApiResponseDto<OrderDto?>.CreateSuccess(resp.Data);
             }
             catch (Exception ex)
             {
@@ -262,14 +265,11 @@ namespace CryptoSpot.Infrastructure.Services
                     return ApiResponseDto<OrderDto?>.CreateError(result.ErrorMessage ?? "订单提交失败");
                 }
 
-                var order = await _orderService.GetOrderByIdAsync(result.OrderId.Value, userId);
-                if (order == null)
-                {
-                    return ApiResponseDto<OrderDto?>.CreateError("订单不存在");
-                }
+                var orderResp = await _orderService.GetOrderByIdDtoAsync(result.OrderId.Value, userId);
+                if (!orderResp.Success)
+                    return ApiResponseDto<OrderDto?>.CreateError(orderResp.Error ?? "订单不存在", orderResp.ErrorCode);
 
-                var dto = _mappingService.MapToDto(order);
-                return ApiResponseDto<OrderDto?>.CreateSuccess(dto, "订单提交成功");
+                return ApiResponseDto<OrderDto?>.CreateSuccess(orderResp.Data, "订单提交成功");
             }
             catch (Exception ex)
             {
@@ -303,7 +303,7 @@ namespace CryptoSpot.Infrastructure.Services
                 var open = await GetOpenOrdersAsync(userId, symbol);
                 if (!open.Success || open.Data == null)
                 {
-                    return ApiResponseDto<BatchCancelOrdersResultDto>.CreateError("无法获取开放订单");
+                    return ApiResponseDto<BatchCancelOrdersResultDto>.CreateError(open.Error ?? "无法获取开放订单");
                 }
 
                 var resultDto = new BatchCancelOrdersResultDto
@@ -338,6 +338,23 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
+        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetOrderHistoryAsync(int userId, PagedRequestDto request)
+        {
+            try
+            {
+                var resp = await _orderService.GetUserOrdersDtoAsync(userId, null, request.PageSize * request.PageNumber); // 简易分页处理
+                if (!resp.Success || resp.Data == null)
+                    return ApiResponseDto<IEnumerable<OrderDto>>.CreateError(resp.Error ?? "获取订单历史失败", resp.ErrorCode);
+                var paged = resp.Data.Skip((request.PageNumber - 1) * request.PageSize).Take(request.PageSize).ToList();
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(paged);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting order history for user {UserId}", userId);
+                return ApiResponseDto<IEnumerable<OrderDto>>.CreateError("获取订单历史失败");
+            }
+        }
+
         #endregion
 
         #region 交易记录相关
@@ -364,10 +381,10 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var order = await _orderService.GetOrderByIdAsync(orderId, userId);
-                if (order == null)
+                var orderResp = await _orderService.GetOrderByIdDtoAsync(orderId, userId); // 使用 DTO 接口
+                if (!orderResp.Success || orderResp.Data == null)
                 {
-                    return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("订单不存在");
+                    return ApiResponseDto<IEnumerable<TradeDto>>.CreateError(orderResp.Error ?? "订单不存在", orderResp.ErrorCode);
                 }
                 var resp = await _tradeService.GetOrderTradesAsync(orderId);
                 if (!resp.Success || resp.Data == null)
@@ -493,22 +510,6 @@ namespace CryptoSpot.Infrastructure.Services
         #endregion
 
         #region 批量操作相关
-
-        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetOrderHistoryAsync(int userId, PagedRequestDto request)
-        {
-            try
-            {
-                var orders = await _orderService.GetUserOrdersAsync(userId);
-                var paged = orders.Skip((request.PageNumber - 1) * request.PageSize).Take(request.PageSize);
-                var dtoList = _mappingService.MapToDto(paged);
-                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dtoList);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting order history for user {UserId}", userId);
-                return ApiResponseDto<IEnumerable<OrderDto>>.CreateError("获取订单历史失败");
-            }
-        }
 
         public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(int userId, PagedRequestDto request)
         {

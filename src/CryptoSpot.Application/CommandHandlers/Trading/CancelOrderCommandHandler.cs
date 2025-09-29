@@ -1,13 +1,13 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 新命名空间
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
-using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.Services.Trading; // 添加引用枚举
+using CryptoSpot.Application.Abstractions.Services.Trading; // DTO 服务接口
+using CryptoSpot.Domain.Entities; // 为枚举保留 (后续可用 DTO 中的枚举映射)
 
 namespace CryptoSpot.Application.CommandHandlers.Trading
 {
     /// <summary>
-    /// 取消订单命令处理器
+    /// 取消订单命令处理器 (已改用 DTO 接口，不再依赖 Domain Order 返回)
     /// </summary>
     public class CancelOrderCommandHandler : ICommandHandler<CancelOrderCommand, CancelOrderResult>
     {
@@ -26,43 +26,45 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         {
             try
             {
-                _logger.LogInformation("Processing cancel order command for OrderId: {OrderId}, UserId: {UserId}", 
+                _logger.LogInformation("Processing cancel order command for OrderId: {OrderId}, UserId: {UserId}",
                     command.OrderId, command.UserId);
 
-                // 验证订单是否存在且属于该用户
-                var order = await _orderService.GetOrderByIdAsync(command.OrderId, command.UserId);
-                if (order == null)
+                // 使用 DTO 接口获取订单
+                var orderResp = await _orderService.GetOrderByIdDtoAsync(command.OrderId, command.UserId);
+                if (!orderResp.Success || orderResp.Data == null)
                 {
-                    _logger.LogWarning("Order {OrderId} not found for user {UserId}", command.OrderId, command.UserId);
-                    return CancelOrderResult.CreateFailure("订单不存在或无权限");
+                    _logger.LogWarning("Order {OrderId} not found or no permission for user {UserId}. Error: {Error}", command.OrderId, command.UserId, orderResp.Error);
+                    return CancelOrderResult.CreateFailure(orderResp.Error ?? "订单不存在或无权限");
                 }
 
-                // 检查订单状态是否可以取消
-                if (order.Status != OrderStatus.Pending)
+                var orderDto = orderResp.Data;
+
+                // 检查订单状态是否可以取消 (保持原规则：仅 Pending 可取消；如需放开 Active/PartiallyFilled 可调整)
+                if (orderDto.Status != OrderStatus.Pending)
                 {
-                    _logger.LogWarning("Order {OrderId} cannot be cancelled, current status: {Status}", 
-                        command.OrderId, order.Status);
+                    _logger.LogWarning("Order {OrderId} cannot be cancelled, current status: {Status}",
+                        command.OrderId, orderDto.Status);
                     return CancelOrderResult.CreateFailure("订单状态不允许取消");
                 }
 
-                // 执行取消操作
-                var success = await _orderService.CancelOrderAsync(command.OrderId, command.UserId);
-                if (success)
+                // 执行取消操作 (DTO 接口)
+                var cancelResp = await _orderService.CancelOrderDtoAsync(command.OrderId, command.UserId);
+                if (cancelResp.Success && cancelResp.Data)
                 {
-                    _logger.LogInformation("Successfully cancelled order {OrderId} for user {UserId}", 
+                    _logger.LogInformation("Successfully cancelled order {OrderId} for user {UserId}",
                         command.OrderId, command.UserId);
                     return CancelOrderResult.CreateSuccess();
                 }
                 else
                 {
-                    _logger.LogError("Failed to cancel order {OrderId} for user {UserId}", 
-                        command.OrderId, command.UserId);
-                    return CancelOrderResult.CreateFailure("取消订单失败");
+                    _logger.LogError("Failed to cancel order {OrderId} for user {UserId}. Error: {Error}",
+                        command.OrderId, command.UserId, cancelResp.Error);
+                    return CancelOrderResult.CreateFailure(cancelResp.Error ?? "取消订单失败");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing cancel order command for OrderId: {OrderId}, UserId: {UserId}", 
+                _logger.LogError(ex, "Error processing cancel order command for OrderId: {OrderId}, UserId: {UserId}",
                     command.OrderId, command.UserId);
                 return CancelOrderResult.CreateFailure($"取消订单时发生错误: {ex.Message}");
             }
