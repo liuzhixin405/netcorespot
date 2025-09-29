@@ -26,11 +26,11 @@
     <Compile Remove="Abstractions\Trading\ITradingServiceV2.cs" />
     <Compile Remove="Abstractions\Users\IUserServiceV2.cs" />
     <Compile Remove="Abstractions\Users\IAssetServiceV2.cs" />
-    <Compile Remove="Abstractions\Services\Trading\ITradingServiceV2.cs" />
-    <Compile Remove="Abstractions\Services\Users\IUserServiceV2.cs" />
-    <Compile Remove="Abstractions\Services\Users\IAssetServiceV2.cs" />
+    <Compile Remove="Abstractions\IServices\Trading\ITradingServiceV2.cs" />
+    <Compile Remove="Abstractions\IServices\Users\IUserServiceV2.cs" />
+    <Compile Remove="Abstractions\IServices\Users\IAssetServiceV2.cs" />
     <!-- 新增：排除仍含重复类定义的旧 TradingServiceV2 文件 -->
     <!-- 新增：排除重复接口及实现文件 -->
-    <Compile Remove="Abstractions\Services\MarketData\IKLineDataServiceV2.cs" />
+    <Compile Remove="Abstractions\IServices\MarketData\IKLineDataServiceV2.cs" />
   </ItemGroup>
 </Project>
