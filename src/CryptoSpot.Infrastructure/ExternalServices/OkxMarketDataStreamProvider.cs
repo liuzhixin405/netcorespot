@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Configuration;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Domain.Entities; // 为 OrderBookLevel
 
 namespace CryptoSpot.Infrastructure.ExternalServices
 {

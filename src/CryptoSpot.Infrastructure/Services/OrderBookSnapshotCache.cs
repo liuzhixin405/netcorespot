@@ -5,6 +5,7 @@ using System.Linq;
 using System.Collections.Generic;
 using CryptoSpot.Redis;
 using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Domain.Entities; // 引入 OrderBookLevel
 
 namespace CryptoSpot.Infrastructure.Services
 {

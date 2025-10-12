@@ -450,8 +450,7 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     return ApiResponseDto<OrderBookDepthDto>.CreateError("获取订单簿失败");
                 }
-                var dto = _mappingService.MapToDto(orderBook);
-                return ApiResponseDto<OrderBookDepthDto>.CreateSuccess(dto);
+                return ApiResponseDto<OrderBookDepthDto>.CreateSuccess(orderBook);
             }
             catch (Exception ex)
             {

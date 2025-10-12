@@ -294,21 +294,5 @@ namespace CryptoSpot.Application.Mapping
         }
 
         #endregion
-
-        #region OrderMatchResult Mappings
-
-        public OrderMatchResultDto MapToDto(OrderMatchResult matchResult)
-        {
-            return new OrderMatchResultDto
-            {
-                Order = MapToDto(matchResult.Order),
-                Trades = matchResult.Trades.Select(MapToDto).ToList(),
-                IsFullyMatched = matchResult.IsFullyMatched,
-                TotalMatchedQuantity = matchResult.TotalMatchedQuantity,
-                AveragePrice = matchResult.AveragePrice
-            };
-        }
-
-        #endregion
     }
 }

@@ -118,25 +118,14 @@ namespace CryptoSpot.Infrastructure.Hubs
                 {
                     var orderBookData = new
                     {
-                        type = "snapshot", // 标记为快照数据
-                        symbol = symbol,
-                        bids = orderBookDepth.Bids.Select(b => new
-                        {
-                            price = b.Price,
-                            amount = b.Quantity,
-                            total = b.Total
-                        }).ToList(),
-                        asks = orderBookDepth.Asks.Select(a => new
-                        {
-                            price = a.Price,
-                            amount = a.Quantity,
-                            total = a.Total
-                        }).ToList(),
+                        type = "snapshot",
+                        symbol,
+                        bids = orderBookDepth.Bids.Select(b => new { price = b.Price, amount = b.Quantity, total = b.Total }).ToList(),
+                        asks = orderBookDepth.Asks.Select(a => new { price = a.Price, amount = a.Quantity, total = a.Total }).ToList(),
                         timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                     };
-
                     await Clients.Caller.SendAsync("OrderBookData", orderBookData);
-                    _logger.LogInformation($"Sent order book data to client {Context.ConnectionId} for {symbol}: {orderBookDepth.Bids.Count} bids, {orderBookDepth.Asks.Count} asks");
+                    _logger.LogInformation("Sent order book snapshot to {Conn} for {Symbol}", Context.ConnectionId, symbol);
                 }
                 else
                 {

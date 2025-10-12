@@ -49,8 +49,5 @@ namespace CryptoSpot.Application.Mapping
         (IEnumerable<OrderBookLevelDto> bids, IEnumerable<OrderBookLevelDto> asks) MapOrderBookLevels(
             IEnumerable<OrderBookLevel> bidLevels,
             IEnumerable<OrderBookLevel> askLevels);
-
-        // OrderMatchResult mappings
-        OrderMatchResultDto MapToDto(OrderMatchResult matchResult);
     }
 }

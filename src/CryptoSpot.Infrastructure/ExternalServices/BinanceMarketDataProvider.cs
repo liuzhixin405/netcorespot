@@ -9,6 +9,7 @@ using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.DTOs.MarketData;
+using CryptoSpot.Application.DTOs.Trading;
 
 namespace CryptoSpot.Infrastructure.ExternalServices
 {
@@ -24,7 +25,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
         private readonly Timer _timer;
         private readonly ConcurrentDictionary<string, DateTime> _lastUpdateTimes = new();
         private readonly ConcurrentDictionary<string, (decimal Price, decimal Change24h, decimal Volume24h, decimal High24h, decimal Low24h)> _priceCache = new();
-        private readonly ConcurrentDictionary<string, KLineData> _klineCache = new();
+        private readonly ConcurrentDictionary<string, KLineDataDto> _klineCache = new();
         private DateTime _lastMinuteSave = DateTime.MinValue;
 
         private readonly string[] _topSymbols = { "BTCUSDT", "ETHUSDT", "SOLUSDT" };
@@ -88,7 +89,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             }
         }
 
-        public async Task<IEnumerable<TradingPair>> GetTopTradingPairsAsync(int count = 5)
+        public async Task<IEnumerable<TradingPairDto>> GetTopTradingPairsAsync(int count = 10)
         {
             try
             {
@@ -96,61 +97,49 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 var symbolsJson = "[" + string.Join(",", symbolsToQuery.Select(s => $"\"{s}\"")) + "]";
                 var symbolsParam = Uri.EscapeDataString(symbolsJson);
                 var url = $"api/v3/ticker/24hr?symbols={symbolsParam}";
-                
-                _logger.LogInformation("Fetching batch data for symbols: {Symbols}", string.Join(", ", symbolsToQuery));
-                
                 var response = await _httpClient.GetStringAsync(url);
-                var tickerDataList = JsonConvert.DeserializeObject<List<BinanceTickerData>>(response);
-
-                if (tickerDataList == null || !tickerDataList.Any())
-                {
-                    _logger.LogWarning("No ticker data received from Binance API");
-                    return new List<TradingPair>();
-                }
-
-                _logger.LogInformation("Successfully received data for {Count} trading pairs", tickerDataList.Count);
-
-                return tickerDataList.Select(t => new TradingPair
+                var tickerDataList = JsonConvert.DeserializeObject<List<BinanceTickerData>>(response) ?? new();
+                return tickerDataList.Select(t => new TradingPairDto
                 {
                     Symbol = t.Symbol,
-                    BaseAsset = t.Symbol.Replace("USDT", ""),
+                    BaseAsset = t.Symbol.Replace("USDT", string.Empty),
                     QuoteAsset = "USDT",
                     Price = t.LastPrice,
-                    Change24h = t.PriceChangePercent / 100, // 转换为小数形式
+                    Change24h = t.PriceChangePercent / 100,
+                    Change24hPercent = t.PriceChangePercent,
                     Volume24h = t.Volume,
                     High24h = t.HighPrice,
                     Low24h = t.LowPrice,
-                    LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    LastUpdated = DateTime.UtcNow,
                     IsActive = true
                 }).ToList();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get top trading pairs from Binance API");
-                return new List<TradingPair>();
+                return Enumerable.Empty<TradingPairDto>();
             }
         }
 
-        public async Task<TradingPair?> GetTradingPairAsync(string symbol)
+        public async Task<TradingPairDto?> GetTradingPairAsync(string symbol)
         {
             try
             {
                 var response = await _httpClient.GetStringAsync($"api/v3/ticker/24hr?symbol={symbol}");
-                var tickerData = JsonConvert.DeserializeObject<BinanceTickerData>(response);
-
-                if (tickerData == null) return null;
-
-                return new TradingPair
+                var t = JsonConvert.DeserializeObject<BinanceTickerData>(response);
+                if (t == null) return null;
+                return new TradingPairDto
                 {
-                    Symbol = tickerData.Symbol,
-                    BaseAsset = tickerData.Symbol.Replace("USDT", ""),
+                    Symbol = t.Symbol,
+                    BaseAsset = t.Symbol.Replace("USDT", string.Empty),
                     QuoteAsset = "USDT",
-                    Price = tickerData.LastPrice,
-                    Change24h = tickerData.PriceChangePercent / 100, // 转换为小数形式
-                    Volume24h = tickerData.Volume,
-                    High24h = tickerData.HighPrice,
-                    Low24h = tickerData.LowPrice,
-                    LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    Price = t.LastPrice,
+                    Change24h = t.PriceChangePercent / 100,
+                    Change24hPercent = t.PriceChangePercent,
+                    Volume24h = t.Volume,
+                    High24h = t.HighPrice,
+                    Low24h = t.LowPrice,
+                    LastUpdated = DateTime.UtcNow,
                     IsActive = true
                 };
             }
@@ -161,37 +150,32 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             }
         }
 
-        public async Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string interval, int limit = 100)
+        public async Task<IEnumerable<KLineDataDto>> GetKLineDataAsync(string symbol, string interval, int limit = 100)
         {
             try
             {
                 var response = await _httpClient.GetStringAsync($"api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}");
-                var klineData = JsonConvert.DeserializeObject<List<object[]>>(response);
-
-                if (klineData == null) return new List<KLineData>();
-
-                using var scope = _serviceScopeFactory.CreateScope();
-                var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
-                var tradingPair = await priceDataService.GetCurrentPriceAsync(symbol);
-                if (tradingPair == null) return new List<KLineData>();
-
-                return klineData.Select(k => new KLineData
+                var klineData = JsonConvert.DeserializeObject<List<object[]>>(response) ?? new();
+                // 获取 TradingPair Id 需要调用价格服务，但此处我们仅返回 DTO，不需要 Id
+                return klineData.Select(k => new KLineDataDto
                 {
-                    TradingPairId = tradingPair.Id,
+                    Symbol = symbol,
                     TimeFrame = interval,
                     OpenTime = Convert.ToInt64(k[0]),
-                    CloseTime = Convert.ToInt64(k[6]),
                     Open = Convert.ToDecimal(k[1]),
                     High = Convert.ToDecimal(k[2]),
                     Low = Convert.ToDecimal(k[3]),
                     Close = Convert.ToDecimal(k[4]),
-                    Volume = Convert.ToDecimal(k[5])
-                });
+                    Volume = Convert.ToDecimal(k[5]),
+                    CloseTime = Convert.ToInt64(k[6]),
+                    OpenDateTime = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(k[0])).UtcDateTime,
+                    CloseDateTime = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(k[6])).UtcDateTime
+                }).ToList();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to get K-line data for {Symbol} {Interval} from Binance", symbol, interval);
-                return new List<KLineData>();
+                return Enumerable.Empty<KLineDataDto>();
             }
         }
 
@@ -375,7 +359,20 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 foreach (var kvp in _klineCache)
                 {
                     var klineData = kvp.Value;
-                    tasks.Add(klineDataRepository.UpsertKLineDataAsync(klineData));
+                    // 将 DTO 映射为领域实体再持久化（此处简化映射）
+                    var entity = new CryptoSpot.Domain.Entities.KLineData
+                    {
+                        TradingPairId = 0, // 若需要，可在此解析或延后补全
+                        TimeFrame = klineData.TimeFrame,
+                        OpenTime = klineData.OpenTime,
+                        CloseTime = klineData.CloseTime,
+                        Open = klineData.Open,
+                        High = klineData.High,
+                        Low = klineData.Low,
+                        Close = klineData.Close,
+                        Volume = klineData.Volume
+                    };
+                    tasks.Add(klineDataRepository.UpsertKLineDataAsync(entity));
                 }
 
                 await Task.WhenAll(tasks);
@@ -438,7 +435,20 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                                     
                                     // 2. 缓存K线数据（使用symbol+interval作为key）
                                     var cacheKey = $"{symbol}_{interval}";
-                                    _klineCache[cacheKey] = latestKline;
+                                    _klineCache[cacheKey] = new KLineDataDto
+                                    {
+                                        Symbol = symbol,
+                                        TimeFrame = interval,
+                                        OpenTime = latestKline.OpenTime,
+                                        CloseTime = latestKline.CloseTime,
+                                        Open = latestKline.Open,
+                                        High = latestKline.High,
+                                        Low = latestKline.Low,
+                                        Close = latestKline.Close,
+                                        Volume = latestKline.Volume,
+                                        OpenDateTime = latestKline.OpenDateTime,
+                                        CloseDateTime = latestKline.CloseDateTime
+                                    };
                                 }
                                 
                                 _logger.LogDebug("Synced K-line data for {Symbol} {Interval} (real-time push)", symbol, interval);

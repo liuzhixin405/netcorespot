@@ -1,4 +1,5 @@
 using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Domain.Entities;
 
 namespace CryptoSpot.Application.Abstractions.Services.MarketData
 {

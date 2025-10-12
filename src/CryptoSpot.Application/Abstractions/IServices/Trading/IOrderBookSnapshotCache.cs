@@ -1,3 +1,5 @@
+using CryptoSpot.Domain.Entities;
+
 namespace CryptoSpot.Application.Abstractions.Services.Trading
 {
     public interface IOrderBookSnapshotCache
@@ -7,5 +9,5 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         Task<bool> TryLoadAsync(string symbol, CancellationToken ct = default);
     }
 
-    // Removed duplicate OrderBookLevel definition. Use OrderBookLevel declared in IOrderMatchingEngine.
+    // Removed duplicate OrderBookLevel definition. Use OrderBookLevel declared in Domain.
 }

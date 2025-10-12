@@ -7,6 +7,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.Mapping;
+using CryptoSpot.Application.DTOs.Trading;
 
 namespace CryptoSpot.Application.Services
 {
@@ -44,7 +45,83 @@ namespace CryptoSpot.Application.Services
             _mapping = mapping;
         }
 
-        public async Task<OrderMatchResult> ProcessOrderAsync(Order order)
+        // 新接口实现：接收下单请求 DTO
+        public async Task<OrderMatchResultDto> ProcessOrderAsync(CreateOrderRequestDto orderRequest, int userId = 0)
+        {
+            var pairResp = await _tradingPairService.GetTradingPairAsync(orderRequest.Symbol);
+            if (!pairResp.Success || pairResp.Data == null)
+            {
+                return new OrderMatchResultDto { Order = new OrderDto { Symbol = orderRequest.Symbol }, Trades = new List<TradeDto>() };
+            }
+            var domainOrder = _mapping.MapToDomain(orderRequest, userId, pairResp.Data.Id);
+            // 调用内部旧逻辑 (旧逻辑方法重命名为 ProcessDomainOrderAsync)
+            var legacy = await ProcessDomainOrderAsync(domainOrder);
+            return new OrderMatchResultDto
+            {
+                Order = _mapping.MapToDto(legacy.Order),
+                Trades = legacy.Trades.Select(_mapping.MapToDto).ToList(),
+                IsFullyMatched = legacy.IsFullyMatched,
+                TotalMatchedQuantity = legacy.TotalMatchedQuantity,
+                AveragePrice = legacy.AveragePrice
+            };
+        }
+
+        // DTO 匹配执行
+        public async Task<List<TradeDto>> MatchOrdersAsync(string symbol)
+        {
+            var domainTrades = await MatchDomainOrdersAsync(symbol);
+            return domainTrades.Select(_mapping.MapToDto).ToList();
+        }
+
+        public async Task<OrderBookDepthDto> GetOrderBookDepthAsync(string symbol, int depth = 20)
+        {
+            var snapshot = await GetOrderBookDepthDomainAsync(symbol, depth);
+            var dto = new OrderBookDepthDto
+            {
+                Symbol = snapshot.Symbol,
+                Timestamp = snapshot.Timestamp,
+                Bids = snapshot.Bids.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList(),
+                Asks = snapshot.Asks.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList()
+            };
+            return dto;
+        }
+
+        public async Task<bool> CancelOrderAsync(int orderId, int userId = 0)
+        {
+            return await CancelDomainOrderAsync(orderId);
+        }
+
+        public Task<bool> CanMatchOrderAsync(OrderDto buyOrder, OrderDto sellOrder)
+        {
+            var buy = new Order { Id = buyOrder.Id, Side = (OrderSide)buyOrder.Side, Price = buyOrder.Price, UserId = buyOrder.UserId };
+            var sell = new Order { Id = sellOrder.Id, Side = (OrderSide)sellOrder.Side, Price = sellOrder.Price, UserId = sellOrder.UserId };
+            return CanMatchOrderAsync(buy, sell);
+        }
+
+        // ================= 旧域逻辑入口重命名 (原 public 方法改 internal/private) =================
+        private async Task<OrderMatchResult> ProcessDomainOrderAsync(Order order)
+        {
+            // 原 ProcessOrderAsync 主体保留，这里调用其主体实现 —— 为简洁使用现有主体代码
+            return await ProcessOrderCoreAsync(order);
+        }
+
+        private async Task<List<Trade>> MatchDomainOrdersAsync(string symbol)
+        {
+            return await MatchOrdersCoreAsync(symbol);
+        }
+
+        private async Task<OrderBookDepthDomain> GetOrderBookDepthDomainAsync(string symbol, int depth)
+        {
+            return await GetOrderBookDepthCoreAsync(symbol, depth);
+        }
+
+        private async Task<bool> CancelDomainOrderAsync(int orderId)
+        {
+            return await CancelOrderCoreAsync(orderId);
+        }
+
+        // ============== 以下为抽取出的 Core 实现骨架，需要将原来的实现主体迁移/替换 ==============
+        private async Task<OrderMatchResult> ProcessOrderCoreAsync(Order order)
         {
             var result = new OrderMatchResult { Order = order };
             string symbol = string.Empty;
@@ -52,8 +129,8 @@ namespace CryptoSpot.Application.Services
             // 新增: 记录增量受影响价位集合
             var impactedBidPrices = new HashSet<decimal>();
             var impactedAskPrices = new HashSet<decimal>();
-            List<OrderBookLevel> bidDeltaLevels = new();
-            List<OrderBookLevel> askDeltaLevels = new();
+            List<OrderBookLevelDomain> bidDeltaLevels = new();
+            List<OrderBookLevelDomain> askDeltaLevels = new();
 
             try
             {
@@ -124,13 +201,21 @@ namespace CryptoSpot.Application.Services
                     var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
                     if (bidDeltaLevels.Count > 0 || askDeltaLevels.Count > 0)
                     {
-                        var (bidDto, askDto) = _mapping.MapOrderBookLevels(bidDeltaLevels, askDeltaLevels);
+                        // 将 Domain level 转换为 DTO level
+                        var bidDto = bidDeltaLevels.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount });
+                        var askDto = askDeltaLevels.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount });
                         await realTimeDataPushService.PushOrderBookDeltaAsync(symbol, bidDto.ToList(), askDto.ToList());
                     }
                     else
                     {
-                        var depthSnapshot = await GetOrderBookDepthAsync(symbol, 20);
-                        var depthDto = _mapping.MapToDto(depthSnapshot);
+                        var depthSnapshot = await GetOrderBookDepthDomainAsync(symbol, 20);
+                        var depthDto = new OrderBookDepthDto
+                        {
+                            Symbol = depthSnapshot.Symbol,
+                            Timestamp = depthSnapshot.Timestamp,
+                            Bids = depthSnapshot.Bids.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList(),
+                            Asks = depthSnapshot.Asks.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList()
+                        };
                         await realTimeDataPushService.PushOrderBookDataAsync(symbol, depthDto);
                     }
 
@@ -141,7 +226,7 @@ namespace CryptoSpot.Application.Services
                     // 仅在订单簿变化或有成交时读取当前顶级价
                     if (bidDeltaLevels.Count > 0 || askDeltaLevels.Count > 0 || lastPrice.HasValue)
                     {
-                        var depthTop = await GetOrderBookDepthAsync(symbol, 1); // 只取顶层
+                        var depthTop = await GetOrderBookDepthDomainAsync(symbol, 1); // 只取顶层
                         decimal? bestBid = depthTop.Bids.FirstOrDefault()?.Price;
                         decimal? bestAsk = depthTop.Asks.FirstOrDefault()?.Price;
                         decimal? mid = (bestBid.HasValue && bestAsk.HasValue && bestBid > 0 && bestAsk > 0) ? (bestBid + bestAsk) / 2m : null;
@@ -157,7 +242,7 @@ namespace CryptoSpot.Application.Services
             return result;
         }
 
-        public async Task<List<Trade>> MatchOrdersAsync(string symbol)
+        private async Task<List<Trade>> MatchOrdersCoreAsync(string symbol)
         {
             var trades = new List<Trade>();
             
@@ -240,8 +325,14 @@ namespace CryptoSpot.Application.Services
                         try
                         {
                             var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
-                            var depthSnapshot = await GetOrderBookDepthAsync(symbol, 20);
-                            var depthDto = _mapping.MapToDto(depthSnapshot);
+                            var depthSnapshot = await GetOrderBookDepthDomainAsync(symbol, 20);
+                            var depthDto = new OrderBookDepthDto
+                            {
+                                Symbol = depthSnapshot.Symbol,
+                                Timestamp = depthSnapshot.Timestamp,
+                                Bids = depthSnapshot.Bids.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList(),
+                                Asks = depthSnapshot.Asks.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList()
+                            };
                             await realTimeDataPushService.PushOrderBookDataAsync(symbol, depthDto);
                         }
                         catch (Exception ex)
@@ -263,9 +354,9 @@ namespace CryptoSpot.Application.Services
             return trades;
         }
 
-        public async Task<OrderBookDepth> GetOrderBookDepthAsync(string symbol, int depth = 20)
+        private async Task<OrderBookDepthDomain> GetOrderBookDepthCoreAsync(string symbol, int depth)
         {
-            var orderBookDepth = new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookDepth { Symbol = symbol };
+            var orderBookDepth = new OrderBookDepthDomain { Symbol = symbol };
 
             try
             {
@@ -278,7 +369,7 @@ namespace CryptoSpot.Application.Services
                 var buyOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Buy && o.Type == OrderType.Limit)
                     .GroupBy(o => o.Price)
-                    .Select(g => new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookLevel
+                    .Select(g => new OrderBookLevelDomain
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
@@ -293,7 +384,7 @@ namespace CryptoSpot.Application.Services
                 var sellOrders = activeOrders
                     .Where(o => o.Side == OrderSide.Sell && o.Type == OrderType.Limit)
                     .GroupBy(o => o.Price)
-                    .Select(g => new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookLevel
+                    .Select(g => new OrderBookLevelDomain
                     {
                         Price = g.Key ?? 0,
                         Quantity = g.Sum(o => o.RemainingQuantity),
@@ -318,7 +409,7 @@ namespace CryptoSpot.Application.Services
             return orderBookDepth;
         }
 
-        public async Task<bool> CancelOrderAsync(int orderId)
+        private async Task<bool> CancelOrderCoreAsync(int orderId)
         {
             try
             {
@@ -588,15 +679,15 @@ namespace CryptoSpot.Application.Services
         }
 
         // 新增: 汇总指定价位集合对应的订单簿层
-        private List<OrderBookLevel> AggregateLevels(IEnumerable<Order> activeOrders, HashSet<decimal> prices, OrderSide side)
+        private List<OrderBookLevelDomain> AggregateLevels(IEnumerable<Order> activeOrders, HashSet<decimal> prices, OrderSide side)
         {
-            var list = new List<OrderBookLevel>();
+            var list = new List<OrderBookLevelDomain>();
             foreach (var price in prices)
             {
                 var sideOrders = activeOrders.Where(o => o.Side == side && o.Type == OrderType.Limit && o.Price == price).ToList();
                 if (!sideOrders.Any())
                 {
-                    list.Add(new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookLevel
+                    list.Add(new OrderBookLevelDomain
                     {
                         Price = price,
                         Quantity = 0,
@@ -607,7 +698,7 @@ namespace CryptoSpot.Application.Services
                 else
                 {
                     var qty = sideOrders.Sum(o => o.RemainingQuantity);
-                    list.Add(new CryptoSpot.Application.Abstractions.Services.Trading.OrderBookLevel
+                    list.Add(new OrderBookLevelDomain
                     {
                         Price = price,
                         Quantity = qty,
@@ -634,5 +725,29 @@ namespace CryptoSpot.Application.Services
         }
 
         #endregion
+
+        // ============== 为保持编译，定义内部使用的旧结构（后续可完全删除） ==============
+        private class OrderMatchResult
+        {
+            public Order Order { get; set; } = null!;
+            public List<Trade> Trades { get; set; } = new();
+            public bool IsFullyMatched { get; set; }
+            public decimal TotalMatchedQuantity { get; set; }
+            public decimal AveragePrice { get; set; }
+        }
+        private class OrderBookDepthDomain
+        {
+            public string Symbol { get; set; } = string.Empty;
+            public List<OrderBookLevelDomain> Bids { get; set; } = new();
+            public List<OrderBookLevelDomain> Asks { get; set; } = new();
+            public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+        }
+        private class OrderBookLevelDomain
+        {
+            public decimal Price { get; set; }
+            public decimal Quantity { get; set; }
+            public decimal Total { get; set; }
+            public int OrderCount { get; set; }
+        }
     }
 }
