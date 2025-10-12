@@ -6,6 +6,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.DTOs.Trading;
+using CryptoSpot.Application.DTOs.Users; // 新增资产 DTO 引用
 using OrderSide = CryptoSpot.Domain.Entities.OrderSide; // 添加枚举别名
 using OrderType = CryptoSpot.Domain.Entities.OrderType; // 添加枚举别名
 
@@ -202,7 +203,8 @@ namespace CryptoSpot.Infrastructure.BgService
                 const int systemUserId = 1; // 系统用户ID
                 
                 // 获取系统资产
-                var assets = await assetService.GetUserAssetsRawAsync(systemUserId);
+                var assetsResp = await assetService.GetUserAssetsAsync(systemUserId);
+                var assets = assetsResp.Success && assetsResp.Data != null ? assetsResp.Data : Enumerable.Empty<CryptoSpot.Application.DTOs.Users.AssetDto>();
                 var assetCount = assets.Count();
                 _logger.LogDebug("系统资产再平衡检查完成，资产数量: {Count}", assetCount);
             }
@@ -238,8 +240,9 @@ namespace CryptoSpot.Infrastructure.BgService
                     .Sum(t => t.TotalValue);
 
                 // 获取资产余额
-                var assets = await assetService.GetUserAssetsRawAsync(systemAccountId);
-                var assetBalances = assets.ToDictionary(a => a.Symbol, a => a.Total);
+                var assetsResp2 = await assetService.GetUserAssetsAsync(systemAccountId);
+                var assets2 = assetsResp2.Success && assetsResp2.Data != null ? assetsResp2.Data : Enumerable.Empty<CryptoSpot.Application.DTOs.Users.AssetDto>();
+                var assetBalances = assets2.ToDictionary(a => a.Symbol, a => a.Total);
 
                 return new AutoTradingStats
                 {

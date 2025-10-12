@@ -3,18 +3,18 @@ using CryptoSpot.Application.DTOs.Common;
 using CryptoSpot.Application.Mapping;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Users;
-using CryptoSpot.Domain.Entities; // 新增
-using CryptoSpot.Application.Abstractions.Repositories; // 新增仓储
+using CryptoSpot.Domain.Entities; // 内部仍可使用领域实体
+using CryptoSpot.Application.Abstractions.Repositories;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
-    /// 资产服务：同时提供 DTO 和 Raw(领域实体) 方法，整合原 AssetDomainService。
+    /// 资产服务实现（仅对外暴露 DTO 接口；领域实体操作封装为私有方法）。
     /// </summary>
     public class AssetService : IAssetService
     {
-        private readonly IAssetRepository _assetRepository; // 新增: 直接仓储
-        private readonly IUnitOfWork _unitOfWork; // 新增: 事务支持
+        private readonly IAssetRepository _assetRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IDtoMappingService _mappingService;
         private readonly ILogger<AssetService> _logger;
 
@@ -30,14 +30,13 @@ namespace CryptoSpot.Infrastructure.Services
             _logger = logger;
         }
 
-        // ================= DTO 层实现（改为调用 Raw 方法） =================
+        #region DTO 接口实现
         public async Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(int userId)
         {
             try
             {
-                var assets = await GetUserAssetsRawAsync(userId);
-                var dtoList = _mappingService.MapToDto(assets);
-                return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(dtoList);
+                var assets = await GetUserAssetsInternalAsync(userId);
+                return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(_mappingService.MapToDto(assets));
             }
             catch (Exception ex)
             {
@@ -50,9 +49,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var asset = await GetUserAssetRawAsync(userId, symbol);
-                var dto = asset != null ? _mappingService.MapToDto(asset) : null;
-                return ApiResponseDto<AssetDto?>.CreateSuccess(dto);
+                var asset = await GetUserAssetInternalAsync(userId, symbol);
+                return ApiResponseDto<AssetDto?>.CreateSuccess(asset == null ? null : _mappingService.MapToDto(asset));
             }
             catch (Exception ex)
             {
@@ -65,13 +63,13 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var assets = (await GetUserAssetsRawAsync(userId)).ToList();
+                var list = (await GetUserAssetsInternalAsync(userId)).ToList();
                 var summary = new AssetSummaryDto
                 {
-                    TotalValue = assets.Sum(a => a.Total),
-                    AvailableValue = assets.Sum(a => a.Available),
-                    FrozenValue = assets.Sum(a => a.Frozen),
-                    AssetTypes = assets.Count(a => a.Total > 0),
+                    TotalValue = list.Sum(a => a.Total),
+                    AvailableValue = list.Sum(a => a.Available),
+                    FrozenValue = list.Sum(a => a.Frozen),
+                    AssetTypes = list.Count(a => a.Total > 0),
                     LastUpdated = DateTime.UtcNow
                 };
                 return ApiResponseDto<AssetSummaryDto>.CreateSuccess(summary);
@@ -84,37 +82,17 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         public Task<ApiResponseDto<IEnumerable<AssetDto>>> GetSystemAssetsAsync()
-        {
-            try
-            {
-                return Task.FromResult(ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(Enumerable.Empty<AssetDto>(), "系统资产功能暂未实现"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting system assets");
-                return Task.FromResult(ApiResponseDto<IEnumerable<AssetDto>>.CreateError("获取系统资产失败"));
-            }
-        }
+            => Task.FromResult(ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(Enumerable.Empty<AssetDto>(), "系统资产功能暂未实现"));
 
         public Task<ApiResponseDto<AssetDto?>> GetSystemAssetAsync(string symbol)
-        {
-            try
-            {
-                return Task.FromResult(ApiResponseDto<AssetDto?>.CreateSuccess(null, "系统资产功能暂未实现"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting system asset {Symbol}", symbol);
-                return Task.FromResult(ApiResponseDto<AssetDto?>.CreateError("获取系统资产失败"));
-            }
-        }
+            => Task.FromResult(ApiResponseDto<AssetDto?>.CreateSuccess(null, "系统资产功能暂未实现"));
 
         public async Task<ApiResponseDto<bool>> AddAssetAsync(int userId, AssetOperationRequestDto request)
         {
             try
             {
-                var success = await AddAssetRawAsync(userId, request.Symbol, request.Amount);
-                return ApiResponseDto<bool>.CreateSuccess(success, success ? "资产增加成功" : "资产增加失败");
+                var ok = await AddAssetInternalAsync(userId, request.Symbol, request.Amount);
+                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产增加成功" : "资产增加失败");
             }
             catch (Exception ex)
             {
@@ -127,8 +105,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var success = await DeductAssetRawAsync(userId, request.Symbol, request.Amount);
-                return ApiResponseDto<bool>.CreateSuccess(success, success ? "资产扣除成功" : "资产扣除失败");
+                var ok = await DeductAssetInternalAsync(userId, request.Symbol, request.Amount);
+                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产扣除成功" : "资产扣除失败");
             }
             catch (Exception ex)
             {
@@ -141,8 +119,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var success = await FreezeAssetRawAsync(userId, request.Symbol, request.Amount);
-                return ApiResponseDto<bool>.CreateSuccess(success, success ? "资产冻结成功" : "资产冻结失败");
+                var ok = await FreezeAssetInternalAsync(userId, request.Symbol, request.Amount);
+                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产冻结成功" : "资产冻结失败");
             }
             catch (Exception ex)
             {
@@ -155,8 +133,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var success = await UnfreezeAssetRawAsync(userId, request.Symbol, request.Amount);
-                return ApiResponseDto<bool>.CreateSuccess(success, success ? "资产解冻成功" : "资产解冻失败");
+                var ok = await UnfreezeAssetInternalAsync(userId, request.Symbol, request.Amount);
+                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产解冻成功" : "资产解冻失败");
             }
             catch (Exception ex)
             {
@@ -165,26 +143,40 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
+        public async Task<ApiResponseDto<bool>> ConsumeFrozenAssetAsync(int userId, AssetOperationRequestDto request)
+        {
+            try
+            {
+                var ok = await DeductAssetInternalAsync(userId, request.Symbol, request.Amount, fromFrozen: true);
+                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "冻结资产消耗成功" : "冻结资产消耗失败");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error consuming frozen asset {Symbol} for user {UserId}", request.Symbol, userId);
+                return ApiResponseDto<bool>.CreateError("冻结资产消耗失败");
+            }
+        }
+
         public async Task<ApiResponseDto<bool>> TransferAssetAsync(int fromUserId, AssetTransferRequestDto request)
         {
             try
             {
-                var fromAsset = await GetUserAssetRawAsync(fromUserId, request.Symbol);
-                if (fromAsset == null || !await HasSufficientBalanceRawAsync(fromUserId, request.Symbol, request.Amount))
+                var fromAsset = await GetUserAssetInternalAsync(fromUserId, request.Symbol);
+                if (fromAsset == null || !await HasSufficientBalanceInternalAsync(fromUserId, request.Symbol, request.Amount))
                 {
                     return ApiResponseDto<bool>.CreateSuccess(false, "余额不足");
                 }
-                var deductSuccess = await DeductAssetRawAsync(fromUserId, request.Symbol, request.Amount);
-                if (deductSuccess)
+                var deduct = await DeductAssetInternalAsync(fromUserId, request.Symbol, request.Amount);
+                if (deduct)
                 {
-                    var addSuccess = await AddAssetRawAsync(request.ToUserId, request.Symbol, request.Amount);
-                    if (!addSuccess)
+                    var add = await AddAssetInternalAsync(request.ToUserId, request.Symbol, request.Amount);
+                    if (!add)
                     {
-                        await AddAssetRawAsync(fromUserId, request.Symbol, request.Amount); // 回滚
+                        await AddAssetInternalAsync(fromUserId, request.Symbol, request.Amount); // 回滚
                         return ApiResponseDto<bool>.CreateSuccess(false, "转账失败，已回滚");
                     }
                 }
-                return ApiResponseDto<bool>.CreateSuccess(deductSuccess, deductSuccess ? "转账成功" : "转账失败");
+                return ApiResponseDto<bool>.CreateSuccess(deduct, deduct ? "转账成功" : "转账失败");
             }
             catch (Exception ex)
             {
@@ -194,38 +186,17 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         public Task<ApiResponseDto<bool>> RefillSystemAssetAsync(string symbol, decimal amount)
-        {
-            try
-            {
-                return Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "系统资产补充功能暂未实现"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error refilling system asset {Symbol}", symbol);
-                return Task.FromResult(ApiResponseDto<bool>.CreateError("系统资产补充失败"));
-            }
-        }
+            => Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "系统资产补充功能暂未实现"));
 
         public Task<ApiResponseDto<bool>> UpdateSystemAssetConfigAsync(string symbol, decimal minReserve, decimal targetBalance, bool autoRefillEnabled)
-        {
-            try
-            {
-                return Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "系统资产配置功能暂未实现"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error updating system asset config {Symbol}", symbol);
-                return Task.FromResult(ApiResponseDto<bool>.CreateError("系统资产配置失败"));
-            }
-        }
+            => Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "系统资产配置功能暂未实现"));
 
         public async Task<ApiResponseDto<decimal>> GetTotalAssetValueAsync(int userId, string quoteCurrency = "USDT")
         {
             try
             {
-                var assets = await GetUserAssetsRawAsync(userId);
-                var totalValue = assets.Sum(a => a.Total); // 简化
-                return ApiResponseDto<decimal>.CreateSuccess(totalValue);
+                var assets = await GetUserAssetsInternalAsync(userId);
+                return ApiResponseDto<decimal>.CreateSuccess(assets.Sum(a => a.Total));
             }
             catch (Exception ex)
             {
@@ -238,10 +209,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var assets = await GetUserAssetsRawAsync(userId);
-                var filtered = assets.Where(a => a.Total >= threshold);
-                var dtoList = _mappingService.MapToDto(filtered);
-                return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(dtoList);
+                var assets = (await GetUserAssetsInternalAsync(userId)).Where(a => a.Total >= threshold);
+                return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(_mappingService.MapToDto(assets));
             }
             catch (Exception ex)
             {
@@ -254,8 +223,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var isValid = await HasSufficientBalanceRawAsync(userId, symbol, amount, includeFrozen);
-                return ApiResponseDto<bool>.CreateSuccess(isValid);
+                var ok = await HasSufficientBalanceInternalAsync(userId, symbol, amount, includeFrozen);
+                return ApiResponseDto<bool>.CreateSuccess(ok);
             }
             catch (Exception ex)
             {
@@ -268,7 +237,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var asset = await GetUserAssetRawAsync(userId, symbol);
+                var asset = await GetUserAssetInternalAsync(userId, symbol);
                 return ApiResponseDto<bool>.CreateSuccess(asset != null);
             }
             catch (Exception ex)
@@ -278,16 +247,35 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        // ================= Raw 实体方法实现 =================
-        public Task<IEnumerable<Asset>> GetUserAssetsRawAsync(int userId) => _assetRepository.FindAsync(a => a.UserId == userId);
+        public async Task<ApiResponseDto<bool>> InitializeUserAssetsAsync(int userId, Dictionary<string, decimal> initialBalances)
+        {
+            try
+            {
+                foreach (var kv in initialBalances)
+                {
+                    await AddAssetInternalAsync(userId, kv.Key, kv.Value);
+                }
+                return ApiResponseDto<bool>.CreateSuccess(true, "初始化成功");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error initializing user assets for user {UserId}", userId);
+                return ApiResponseDto<bool>.CreateError("初始化资产失败");
+            }
+        }
+        #endregion
 
-        public async Task<Asset?> GetUserAssetRawAsync(int userId, string symbol)
+        #region 内部领域操作（私有）
+        private Task<IEnumerable<Asset>> GetUserAssetsInternalAsync(int userId)
+            => _assetRepository.FindAsync(a => a.UserId == userId);
+
+        private async Task<Asset?> GetUserAssetInternalAsync(int userId, string symbol)
         {
             var assets = await _assetRepository.FindAsync(a => a.UserId == userId && a.Symbol == symbol);
             return assets.FirstOrDefault();
         }
 
-        public async Task<Asset> CreateUserAssetRawAsync(int userId, string symbol, decimal available = 0, decimal frozen = 0)
+        private async Task<Asset> CreateUserAssetInternalAsync(int userId, string symbol, decimal available = 0, decimal frozen = 0)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var asset = new Asset
@@ -302,25 +290,21 @@ namespace CryptoSpot.Infrastructure.Services
             return await _assetRepository.AddAsync(asset);
         }
 
-        public async Task<Asset> UpdateAssetBalanceRawAsync(int userId, string symbol, decimal available, decimal frozen)
+        private async Task<Asset> GetOrCreateAsync(int userId, string symbol)
         {
-            var asset = await GetOrCreateAsync(userId, symbol);
-            asset.Available = available;
-            asset.Frozen = frozen;
-            asset.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await _assetRepository.UpdateAsync(asset);
-            return asset;
+            var existing = await GetUserAssetInternalAsync(userId, symbol);
+            return existing ?? await CreateUserAssetInternalAsync(userId, symbol);
         }
 
-        public async Task<bool> HasSufficientBalanceRawAsync(int userId, string symbol, decimal amount, bool includeFrozen = false)
+        private async Task<bool> HasSufficientBalanceInternalAsync(int userId, string symbol, decimal amount, bool includeFrozen = false)
         {
-            var asset = await GetUserAssetRawAsync(userId, symbol);
+            var asset = await GetUserAssetInternalAsync(userId, symbol);
             if (asset == null) return false;
             var balance = includeFrozen ? asset.Total : asset.Available;
             return balance >= amount;
         }
 
-        public async Task<bool> FreezeAssetRawAsync(int userId, string symbol, decimal amount)
+        private async Task<bool> FreezeAssetInternalAsync(int userId, string symbol, decimal amount)
         {
             var asset = await GetOrCreateAsync(userId, symbol);
             if (asset.Available < amount) return false;
@@ -331,7 +315,7 @@ namespace CryptoSpot.Infrastructure.Services
             return true;
         }
 
-        public async Task<bool> UnfreezeAssetRawAsync(int userId, string symbol, decimal amount)
+        private async Task<bool> UnfreezeAssetInternalAsync(int userId, string symbol, decimal amount)
         {
             var asset = await GetOrCreateAsync(userId, symbol);
             if (asset.Frozen < amount) return false;
@@ -342,7 +326,7 @@ namespace CryptoSpot.Infrastructure.Services
             return true;
         }
 
-        public async Task<bool> DeductAssetRawAsync(int userId, string symbol, decimal amount, bool fromFrozen = false)
+        private async Task<bool> DeductAssetInternalAsync(int userId, string symbol, decimal amount, bool fromFrozen = false)
         {
             var asset = await GetOrCreateAsync(userId, symbol);
             if (fromFrozen)
@@ -360,7 +344,7 @@ namespace CryptoSpot.Infrastructure.Services
             return true;
         }
 
-        public async Task<bool> AddAssetRawAsync(int userId, string symbol, decimal amount)
+        private async Task<bool> AddAssetInternalAsync(int userId, string symbol, decimal amount)
         {
             var asset = await GetOrCreateAsync(userId, symbol);
             asset.Available += amount;
@@ -368,20 +352,6 @@ namespace CryptoSpot.Infrastructure.Services
             await _assetRepository.UpdateAsync(asset);
             return true;
         }
-
-        public async Task InitializeUserAssetsRawAsync(int userId, Dictionary<string, decimal> initialBalances)
-        {
-            foreach (var kv in initialBalances)
-            {
-                await AddAssetRawAsync(userId, kv.Key, kv.Value);
-            }
-        }
-
-        private async Task<Asset> GetOrCreateAsync(int userId, string symbol)
-        {
-            var existing = await GetUserAssetRawAsync(userId, symbol);
-            if (existing != null) return existing;
-            return await CreateUserAssetRawAsync(userId, symbol);
-        }
+        #endregion
     }
 }

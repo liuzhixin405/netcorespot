@@ -99,7 +99,7 @@ namespace CryptoSpot.Infrastructure.Services
                     { "ETH", 0m },
                     { "SOL", 0m }
                 };
-                await _assetService.InitializeUserAssetsRawAsync(created.Id, initialBalances);
+                await _assetService.InitializeUserAssetsAsync(created.Id, initialBalances);
 
                 var token = GenerateJwtToken(created);
                 var dto = new AuthResultDto

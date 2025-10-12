@@ -6,8 +6,8 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
 {
     public interface ITradeService
     {
-        // ========== Raw 执行 (撮合核心内部使用) ==========
-        Task<Trade> ExecuteTradeRawAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity);
+        // ========== DTO 执行与查询接口 ==========
+        Task<ApiResponseDto<TradeDto?>> ExecuteTradeAsync(ExecuteTradeRequestDto request); // 新增: 替代 Raw 执行
 
         // ========== DTO 查询接口 ==========
         Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100);

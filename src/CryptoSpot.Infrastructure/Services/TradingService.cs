@@ -26,8 +26,8 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
         private readonly IOrderMatchingEngine _matchingEngine;
-        private readonly IAssetService _assetService; // 替换领域接口
-        private readonly IKLineDataService _klineDataService; // 使用 DTO 层服务接口
+        private readonly IAssetService _assetService;
+        private readonly IKLineDataService _klineDataService;
 
         public TradingService(
             IDtoMappingService mappingService,
@@ -116,7 +116,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var dtoResponse = await _klineDataService.GetKLineDataAsync(symbol, timeFrame, limit); // 已是 DTO 响应
+                var dtoResponse = await _klineDataService.GetKLineDataAsync(symbol, timeFrame, limit);
                 return dtoResponse;
             }
             catch (Exception ex)
@@ -151,8 +151,9 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var assets = await _assetService.GetUserAssetsRawAsync(userId);
-                var dtoList = _mappingService.MapToDto(assets);
+                var assetsResp = await _assetService.GetUserAssetsAsync(userId);
+                var assets = assetsResp.Success && assetsResp.Data != null ? assetsResp.Data : Enumerable.Empty<AssetDto>();
+                var dtoList = assets.ToList();
                 return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(dtoList);
             }
             catch (Exception ex)
@@ -166,9 +167,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                // 领域服务直接返回资产实体集合，不再是 ApiResponseDto
-                var assets = await _assetService.GetUserAssetsRawAsync(userId);
-                var assetList = assets.ToList();
+                var assetsResp = await _assetService.GetUserAssetsAsync(userId);
+                var assetList = (assetsResp.Success && assetsResp.Data != null ? assetsResp.Data : Enumerable.Empty<AssetDto>()).ToList();
 
                 var summary = new AssetSummaryDto
                 {
@@ -342,7 +342,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var resp = await _orderService.GetUserOrdersDtoAsync(userId, null, request.PageSize * request.PageNumber); // 简易分页处理
+                var resp = await _orderService.GetUserOrdersDtoAsync(userId, null, request.PageSize * request.PageNumber);
                 if (!resp.Success || resp.Data == null)
                     return ApiResponseDto<IEnumerable<OrderDto>>.CreateError(resp.Error ?? "获取订单历史失败", resp.ErrorCode);
                 var paged = resp.Data.Skip((request.PageNumber - 1) * request.PageSize).Take(request.PageSize).ToList();
@@ -368,7 +368,7 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("获取用户交易失败");
                 }
-                return resp; // 已是 DTO 列表
+                return resp;
             }
             catch (Exception ex)
             {
@@ -381,7 +381,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var orderResp = await _orderService.GetOrderByIdDtoAsync(orderId, userId); // 使用 DTO 接口
+                var orderResp = await _orderService.GetOrderByIdDtoAsync(orderId, userId);
                 if (!orderResp.Success || orderResp.Data == null)
                 {
                     return ApiResponseDto<IEnumerable<TradeDto>>.CreateError(orderResp.Error ?? "订单不存在", orderResp.ErrorCode);

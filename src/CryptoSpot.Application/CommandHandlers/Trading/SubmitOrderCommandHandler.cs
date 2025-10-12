@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.DTOs.Trading; // 添加 DTO using
+using CryptoSpot.Application.DTOs.Users; // 新增 DTO 资产操作
 
 namespace CryptoSpot.Application.CommandHandlers.Trading
 {
@@ -106,11 +107,13 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                             var notional = RoundDown(command.Quantity * (command.Price ?? 0), tradingPair.PricePrecision);
                             if (notional <= 0)
                                 return new SubmitOrderResult { Success = false, ErrorMessage = "冻结金额为0" };
-                            freezeOk = await _assetService.FreezeAssetRawAsync(command.UserId, tradingPair.QuoteAsset, notional);
+                            var freezeResp = await _assetService.FreezeAssetAsync(command.UserId, new AssetOperationRequestDto { Symbol = tradingPair.QuoteAsset, Amount = notional });
+                            freezeOk = freezeResp.Success && freezeResp.Data;
                         }
                         else if (command.Side == OrderSide.Sell)
                         {
-                            freezeOk = await _assetService.FreezeAssetRawAsync(command.UserId, tradingPair.BaseAsset, command.Quantity);
+                            var freezeResp = await _assetService.FreezeAssetAsync(command.UserId, new AssetOperationRequestDto { Symbol = tradingPair.BaseAsset, Amount = command.Quantity });
+                            freezeOk = freezeResp.Success && freezeResp.Data;
                         }
                     }
 

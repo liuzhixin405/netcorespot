@@ -6,6 +6,7 @@ using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.Common;
 using CryptoSpot.Application.Mapping;
+using CryptoSpot.Application.DTOs.Users; // 新增资产操作 DTO
 
 namespace CryptoSpot.Infrastructure.Services
 {
@@ -80,17 +81,21 @@ namespace CryptoSpot.Infrastructure.Services
                         if (buyOrder.UserId.HasValue)
                         {
                             var buyIsMaker = _marketMakerRegistry.IsMaker(buyOrder.UserId.Value);
-                            var bd = await _assetService.DeductAssetRawAsync(buyOrder.UserId.Value, quoteAsset, notional, fromFrozen: !buyIsMaker);
+                            var bdResp = await _assetService.DeductAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional });
+                            var bd = bdResp.Success && bdResp.Data;
                             if (!bd) throw new InvalidOperationException($"买家资产扣减失败(User={buyOrder.UserId}, {quoteAsset} {notional}, fromFrozen={!buyIsMaker})");
-                            var ba = await _assetService.AddAssetRawAsync(buyOrder.UserId.Value, baseAsset, quantity);
+                            var baResp = await _assetService.AddAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity });
+                            var ba = baResp.Success && baResp.Data;
                             if (!ba) throw new InvalidOperationException($"买家基础资产增加失败(User={buyOrder.UserId}, {baseAsset} {quantity})");
                         }
                         if (sellOrder.UserId.HasValue)
                         {
                             var sellIsMaker = _marketMakerRegistry.IsMaker(sellOrder.UserId.Value);
-                            var sd = await _assetService.DeductAssetRawAsync(sellOrder.UserId.Value, baseAsset, quantity, fromFrozen: !sellIsMaker);
+                            var sdResp = await _assetService.DeductAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity });
+                            var sd = sdResp.Success && sdResp.Data;
                             if (!sd) throw new InvalidOperationException($"卖家资产扣减失败(User={sellOrder.UserId}, {baseAsset} {quantity}, fromFrozen={!sellIsMaker})");
-                            var sa = await _assetService.AddAssetRawAsync(sellOrder.UserId.Value, quoteAsset, notional);
+                            var saResp = await _assetService.AddAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional });
+                            var sa = saResp.Success && saResp.Data;
                             if (!sa) throw new InvalidOperationException($"卖家报价资产增加失败(User={sellOrder.UserId}, {quoteAsset} {notional})");
                         }
                     }
@@ -106,6 +111,29 @@ namespace CryptoSpot.Infrastructure.Services
                 throw;
             }
         }
+
+        // 旧 Raw 方法重构: 新增 DTO 执行接口
+        public async Task<ApiResponseDto<TradeDto?>> ExecuteTradeAsync(ExecuteTradeRequestDto request)
+        {
+            try
+            {
+                var buyOrder = await _orderRepository.GetByIdAsync(request.BuyOrderId);
+                var sellOrder = await _orderRepository.GetByIdAsync(request.SellOrderId);
+                if (buyOrder == null || sellOrder == null)
+                    return ApiResponseDto<TradeDto?>.CreateError("订单不存在，无法执行成交");
+
+                var trade = await ExecuteTradeInternalAsync(buyOrder, sellOrder, request.Price, request.Quantity);
+                return ApiResponseDto<TradeDto?>.CreateSuccess(_mapping.MapToDto(trade));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "执行撮合成交失败 BuyOrder={BuyOrderId} SellOrder={SellOrderId}", request.BuyOrderId, request.SellOrderId);
+                return ApiResponseDto<TradeDto?>.CreateError("执行成交失败");
+            }
+        }
+
+        private Task<Trade> ExecuteTradeInternalAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity)
+            => ExecuteTradeRawAsync(buyOrder, sellOrder, price, quantity); // 复用原实现主体
 
         // ========== DTO 查询实现 ==========
         public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100)

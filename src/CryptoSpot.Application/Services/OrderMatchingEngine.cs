@@ -8,6 +8,7 @@ using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.Mapping;
 using CryptoSpot.Application.DTOs.Trading;
+using CryptoSpot.Application.DTOs.Users; // 新增: 资产操作 DTO
 
 namespace CryptoSpot.Application.Services
 {
@@ -592,9 +593,30 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                // 交给交易服务执行 Raw
-                var trade = await _tradeService.ExecuteTradeRawAsync(buyOrder, sellOrder, price, quantity);
-                return trade;
+                var tradeResp = await _tradeService.ExecuteTradeAsync(new ExecuteTradeRequestDto { BuyOrderId = buyOrder.Id, SellOrderId = sellOrder.Id, Price = price, Quantity = quantity });
+                if (tradeResp.Success && tradeResp.Data != null)
+                {
+                    var dto = tradeResp.Data;
+                    var ts = new DateTimeOffset(dto.ExecutedAt).ToUnixTimeMilliseconds();
+                    var tradeDomain = new Trade
+                    {
+                        BuyOrderId = buyOrder.Id,
+                        SellOrderId = sellOrder.Id,
+                        BuyerId = buyOrder.UserId ?? 0,
+                        SellerId = sellOrder.UserId ?? 0,
+                        TradingPairId = buyOrder.TradingPairId,
+                        TradeId = dto.TradeId,
+                        Price = dto.Price,
+                        Quantity = dto.Quantity,
+                        Fee = dto.Fee,
+                        FeeAsset = dto.FeeAsset ?? "USDT",
+                        ExecutedAt = ts,
+                        CreatedAt = ts,
+                        UpdatedAt = ts
+                    };
+                    return tradeDomain;
+                }
+                return null;
             }
             catch (Exception ex)
             {
@@ -663,7 +685,7 @@ namespace CryptoSpot.Application.Services
                 if (order.UserId.HasValue)
                 {
                     // 统一使用AssetService处理所有用户资产
-                    await _assetService.UnfreezeAssetRawAsync(order.UserId.Value, "USDT", unfreezeAmount);
+                    await _assetService.UnfreezeAssetAsync(order.UserId.Value, new AssetOperationRequestDto { Symbol = "USDT", Amount = unfreezeAmount });
                 }
             }
             else
@@ -673,7 +695,7 @@ namespace CryptoSpot.Application.Services
                 if (order.UserId.HasValue)
                 {
                     // 统一使用AssetService处理所有用户资产
-                    await _assetService.UnfreezeAssetRawAsync(order.UserId.Value, baseAsset, remainingQuantity);
+                    await _assetService.UnfreezeAssetAsync(order.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = remainingQuantity });
                 }
             }
         }
