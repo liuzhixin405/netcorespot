@@ -18,7 +18,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         private readonly ITradingPairService _tradingPairService;
         private readonly IUserRepository _userRepository;
         private readonly IOrderService _orderService;
-        private readonly IOrderRawAccess _orderRawAccess; // 新增
+        private readonly IMatchingOrderStore _orderStore; // 原 _orderRawAccess 重命名
         private readonly IOrderMatchingEngine _orderMatchingEngine;
         private readonly ICommandBus _commandBus;
         private readonly ILogger<SubmitOrderCommandHandler> _logger;
@@ -29,7 +29,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             ITradingPairService tradingPairService,
             IUserRepository userRepository,
             IOrderService orderService,
-            IOrderRawAccess orderRawAccess,
+            IMatchingOrderStore orderStore,
             IOrderMatchingEngine orderMatchingEngine,
             ICommandBus commandBus,
             ILogger<SubmitOrderCommandHandler> logger,
@@ -39,7 +39,7 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
             _tradingPairService = tradingPairService;
             _userRepository = userRepository;
             _orderService = orderService;
-            _orderRawAccess = orderRawAccess;
+            _orderStore = orderStore;
             _orderMatchingEngine = orderMatchingEngine;
             _commandBus = commandBus;
             _logger = logger;
@@ -137,10 +137,10 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 var orderDto = createResp.Data;
 
                 // 通过 RawAccess 读取真实持久化实体供撮合引擎使用，避免手动构造
-                var rawOrder = await _orderRawAccess.GetOrderRawAsync(orderDto.Id);
-                if (rawOrder == null)
+                var activeOrders = await _orderStore.GetActiveOrdersAsync(tradingPair.Symbol);
+                if (activeOrders == null)
                 {
-                    _logger.LogWarning("Raw order not found after creation: Id={OrderId}", orderDto.Id);
+                    _logger.LogWarning("Active orders not found after creation: Symbol={Symbol}", tradingPair.Symbol);
                     return new SubmitOrderResult { Success = false, ErrorMessage = "订单创建后读取失败" };
                 }
 
@@ -154,13 +154,13 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 }, command.UserId);
 
                 _logger.LogInformation("Order {OrderId} submitted successfully for user {UserId}", 
-                    rawOrder.OrderId, command.UserId);
+                    orderDto.Id, command.UserId);
 
                 return new SubmitOrderResult
                 {
                     Success = true,
-                    OrderId = rawOrder.Id,
-                    OrderIdString = rawOrder.OrderId,
+                    OrderId = orderDto.Id,
+                    OrderIdString = orderDto.OrderId,
                     // 暂保留领域成交对象无法直接构造，改用空列表或后续映射实现
                     ExecutedTrades = new List<Trade>()
                 };

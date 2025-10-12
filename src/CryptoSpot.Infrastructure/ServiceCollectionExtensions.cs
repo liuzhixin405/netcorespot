@@ -52,7 +52,8 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<ITradingService, TradingService>(); // 交易编排服务
             services.AddScoped<IAssetService, AssetService>(); // 资产 DTO 服务
             services.AddScoped<IUserService, UserService>(); // 用户 DTO 服务
-            services.AddScoped<IOrderRawAccess, OrderRawAccess>(); // 注册订单原始访问接口
+            // services.AddScoped<IOrderRawAccess, OrderRawAccess>(); // 已替换为撮合专用接口
+            services.AddScoped<IMatchingOrderStore, MatchingOrderStore>(); // 注册撮合专用订单存取
 
             services.AddScoped<DataInitializationService>();
             // 注册多做市配置与注册表

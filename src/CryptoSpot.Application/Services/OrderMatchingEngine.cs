@@ -1,6 +1,6 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
-using CryptoSpot.Application.Abstractions.Repositories; 
+using CryptoSpot.Application.Abstractions.Repositories; // 新接口
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using CryptoSpot.Application.Abstractions.Services.Trading;
@@ -17,7 +17,7 @@ namespace CryptoSpot.Application.Services
     /// </summary>
     public class OrderMatchingEngine : IOrderMatchingEngine
     {
-        private readonly IOrderRawAccess _orderRawAccess; // 使用最小原始访问
+        private readonly IMatchingOrderStore _orderStore; // 重命名
         private readonly ITradeService _tradeService;
         private readonly IAssetService _assetService;
         private readonly ITradingPairService _tradingPairService;
@@ -29,7 +29,7 @@ namespace CryptoSpot.Application.Services
         private readonly Dictionary<string, SemaphoreSlim> _symbolLocks = new();
 
         public OrderMatchingEngine(
-            IOrderRawAccess orderRawAccess,
+            IMatchingOrderStore orderStore,
             ITradeService tradeService,
             IAssetService assetService,
             ITradingPairService tradingPairService,
@@ -37,7 +37,7 @@ namespace CryptoSpot.Application.Services
             ILogger<OrderMatchingEngine> logger,
             IDtoMappingService mapping)
         {
-            _orderRawAccess = orderRawAccess;
+            _orderStore = orderStore;
             _tradeService = tradeService;
             _assetService = assetService;
             _tradingPairService = tradingPairService;
@@ -141,7 +141,7 @@ namespace CryptoSpot.Application.Services
                 {
                     _logger.LogError("Trading pair not found for TradingPairId: {TradingPairId}", order.TradingPairId);
                     order.Status = OrderStatus.Rejected;
-                    await _orderRawAccess.UpdateOrderStatusRawAsync(order.Id, OrderStatus.Rejected);
+                    await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.Rejected);
                     return result;
                 }
                 var tradingPair = tradingPairResp.Data;
@@ -170,7 +170,7 @@ namespace CryptoSpot.Application.Services
                     // 在锁内构建增量层级，保证一致性
                     if (impactedBidPrices.Count > 0 || impactedAskPrices.Count > 0)
                     {
-                        var activeOrders = await _orderRawAccess.GetActiveOrdersRawAsync(symbol);
+                        var activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
                         bidDeltaLevels = AggregateLevels(activeOrders, impactedBidPrices, OrderSide.Buy);
                         askDeltaLevels = AggregateLevels(activeOrders, impactedAskPrices, OrderSide.Sell);
                     }
@@ -186,7 +186,7 @@ namespace CryptoSpot.Application.Services
                 try
                 {
                     order.Status = OrderStatus.Rejected;
-                    await _orderRawAccess.UpdateOrderStatusRawAsync(order.Id, OrderStatus.Rejected);
+                    await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.Rejected);
                 }
                 catch (Exception updateEx)
                 {
@@ -255,7 +255,7 @@ namespace CryptoSpot.Application.Services
                 try
                 {
                     // 获取活跃的买单和卖单
-                    var activeOrders = await _orderRawAccess.GetActiveOrdersRawAsync(symbol);
+                    var activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
                     
                     var buyOrders = activeOrders
                         .Where(o => o.Side == OrderSide.Buy && o.Type == OrderType.Limit)
@@ -361,7 +361,7 @@ namespace CryptoSpot.Application.Services
 
             try
             {
-                var activeOrders = await _orderRawAccess.GetActiveOrdersRawAsync(symbol);
+                var activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
                 
                 var orderCount = activeOrders.Count();
                 _logger.LogInformation($"📊 获取订单簿深度: Symbol={symbol}, 活跃订单数量={orderCount}, 请求深度={depth}");
@@ -414,7 +414,7 @@ namespace CryptoSpot.Application.Services
         {
             try
             {
-                var order = await _orderRawAccess.GetOrderRawAsync(orderId);
+                var order = await _orderStore.GetOrderAsync(orderId);
                 if (order == null || order.Status != OrderStatus.Pending && order.Status != OrderStatus.PartiallyFilled)
                 {
                     return false;
@@ -424,7 +424,7 @@ namespace CryptoSpot.Application.Services
                 await UnfreezeOrderAssets(order);
 
                 // 更新订单状态
-                await _orderRawAccess.CancelOrderRawAsync(orderId);
+                await _orderStore.CancelOrderAsync(orderId);
 
                 _logger.LogInformation("取消订单成功: OrderId={OrderId}", order.OrderId);
                 return true;
@@ -470,7 +470,7 @@ namespace CryptoSpot.Application.Services
             var symbol = tradingPairResp.Data.Symbol;
             
             // 获取对手方订单
-            var activeOrders = await _orderRawAccess.GetActiveOrdersRawAsync(symbol);
+            var activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
             var oppositeOrders = activeOrders
                 .Where(o => o.Side != marketOrder.Side && o.Type == OrderType.Limit)
                 .OrderBy(o => marketOrder.Side == OrderSide.Buy ? o.Price : -o.Price) // 买单匹配最低卖价，卖单匹配最高买价
@@ -496,13 +496,13 @@ namespace CryptoSpot.Application.Services
                     // 增量更新买/卖双方订单
                     if (marketOrder.Side == OrderSide.Buy)
                     {
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(marketOrder.Id, marketOrder.Status, matchQuantity, matchPrice);
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
+                        await _orderStore.UpdateOrderStatusAsync(marketOrder.Id, marketOrder.Status, matchQuantity, matchPrice);
+                        await _orderStore.UpdateOrderStatusAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
                     }
                     else
                     {
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(marketOrder.Id, marketOrder.Status, matchQuantity, matchPrice);
+                        await _orderStore.UpdateOrderStatusAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
+                        await _orderStore.UpdateOrderStatusAsync(marketOrder.Id, marketOrder.Status, matchQuantity, matchPrice);
                     }
 
                     // 记录受影响价位（对手方价位）
@@ -515,7 +515,7 @@ namespace CryptoSpot.Application.Services
             if (remainingQuantity > 0)
             {
                 _logger.LogWarning("市价单未完全成交，剩余数量={Remaining}，订单将被取消: OrderId={OrderId}", remainingQuantity, marketOrder.OrderId);
-                await _orderRawAccess.UpdateOrderStatusRawAsync(marketOrder.Id, OrderStatus.Cancelled);
+                await _orderStore.UpdateOrderStatusAsync(marketOrder.Id, OrderStatus.Cancelled);
             }
 
             return trades;
@@ -533,7 +533,7 @@ namespace CryptoSpot.Application.Services
             var symbol = tradingPairResp.Data.Symbol;
             
             // 获取可匹配的对手方订单
-            var activeOrders = await _orderRawAccess.GetActiveOrdersRawAsync(symbol);
+            var activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
             _logger.LogDebug("找到 {Count} 个活跃订单", activeOrders.Count());
             
             var matchableOrders = activeOrders
@@ -563,13 +563,13 @@ namespace CryptoSpot.Application.Services
 
                     if (limitOrder.Side == OrderSide.Buy)
                     {
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(limitOrder.Id, limitOrder.Status, matchQuantity, matchPrice);
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
+                        await _orderStore.UpdateOrderStatusAsync(limitOrder.Id, limitOrder.Status, matchQuantity, matchPrice);
+                        await _orderStore.UpdateOrderStatusAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
                     }
                     else
                     {
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(limitOrder.Id, limitOrder.Status, matchQuantity, matchPrice);
+                        await _orderStore.UpdateOrderStatusAsync(oppositeOrder.Id, oppositeOrder.Status, matchQuantity, matchPrice);
+                        await _orderStore.UpdateOrderStatusAsync(limitOrder.Id, limitOrder.Status, matchQuantity, matchPrice);
                     }
 
                     // 记录双方价位
@@ -634,7 +634,7 @@ namespace CryptoSpot.Application.Services
                 {
                     if (order.Type == OrderType.Limit && order.Status == OrderStatus.Pending)
                     {
-                        await _orderRawAccess.UpdateOrderStatusRawAsync(order.Id, OrderStatus.Active);
+                        await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.Active);
                     }
                 }
             }
@@ -657,7 +657,7 @@ namespace CryptoSpot.Application.Services
 
             if (order.Status != newStatus)
             {
-                await _orderRawAccess.UpdateOrderStatusRawAsync(order.Id, newStatus, order.FilledQuantity);
+                await _orderStore.UpdateOrderStatusAsync(order.Id, newStatus, order.FilledQuantity);
             }
         }
 

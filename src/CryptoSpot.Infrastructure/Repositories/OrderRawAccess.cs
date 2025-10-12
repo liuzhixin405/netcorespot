@@ -1,4 +1,4 @@
-// filepath: g:\\github\\netcorespot\\src\\CryptoSpot.Infrastructure\\Repositories\\OrderRawAccess.cs
+// filepath: g:\\github\\netcorespot\\src\\CryptoSpot.Infrastructure\\Repositories\\MatchingOrderStore.cs
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.Logging;
@@ -6,19 +6,19 @@ using Microsoft.Extensions.Logging;
 namespace CryptoSpot.Infrastructure.Repositories
 {
     /// <summary>
-    /// IOrderRawAccess 实现：直接使用底层 IOrderRepository，避免 DTO 映射。
+    /// 撮合专用订单存取实现。
     /// </summary>
-    public class OrderRawAccess : IOrderRawAccess
+    public class MatchingOrderStore : IMatchingOrderStore
     {
         private readonly IOrderRepository _orderRepository;
         private readonly ITradingPairRepository _tradingPairRepository;
         private readonly IUnitOfWork _uow;
-        private readonly ILogger<OrderRawAccess> _logger;
+        private readonly ILogger<MatchingOrderStore> _logger;
 
-        public OrderRawAccess(IOrderRepository orderRepository,
-                              ITradingPairRepository tradingPairRepository,
-                              IUnitOfWork uow,
-                              ILogger<OrderRawAccess> logger)
+        public MatchingOrderStore(IOrderRepository orderRepository,
+                                  ITradingPairRepository tradingPairRepository,
+                                  IUnitOfWork uow,
+                                  ILogger<MatchingOrderStore> logger)
         {
             _orderRepository = orderRepository;
             _tradingPairRepository = tradingPairRepository;
@@ -26,20 +26,20 @@ namespace CryptoSpot.Infrastructure.Repositories
             _logger = logger;
         }
 
-        public Task<Order?> GetOrderRawAsync(int orderId) => _orderRepository.GetByIdAsync(orderId);
+        public Task<Order?> GetOrderAsync(int orderId) => _orderRepository.GetByIdAsync(orderId);
 
-        public Task<IEnumerable<Order>> GetActiveOrdersRawAsync(string? symbol = null) => _orderRepository.GetActiveOrdersAsync(symbol);
+        public Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null) => _orderRepository.GetActiveOrdersAsync(symbol);
 
-        public Task<IEnumerable<Order>> GetUserOrdersRawAsync(int userId, OrderStatus? status = null, int limit = 100) => _orderRepository.GetUserOrdersAsync(userId, null, status, limit);
+        public Task<IEnumerable<Order>> GetUserOrdersAsync(int userId, OrderStatus? status = null, int limit = 100) => _orderRepository.GetUserOrdersAsync(userId, null, status, limit);
 
-        public async Task<Order> AddOrderRawAsync(Order order)
+        public async Task<Order> AddOrderAsync(Order order)
         {
             var added = await _orderRepository.AddAsync(order);
             await _uow.SaveChangesAsync();
             return added;
         }
 
-        public async Task<bool> UpdateOrderStatusRawAsync(int orderId, OrderStatus status, decimal filledQuantityDelta = 0, decimal? averagePrice = null)
+        public async Task<bool> UpdateOrderStatusAsync(int orderId, OrderStatus status, decimal filledQuantityDelta = 0, decimal? averagePrice = null)
         {
             try
             {
@@ -68,12 +68,12 @@ namespace CryptoSpot.Infrastructure.Repositories
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "UpdateOrderStatusRaw failed: {OrderId}", orderId);
+                _logger.LogError(ex, "UpdateOrderStatus failed: {OrderId}", orderId);
                 return false;
             }
         }
 
-        public async Task<bool> CancelOrderRawAsync(int orderId)
+        public async Task<bool> CancelOrderAsync(int orderId)
         {
             try
             {
@@ -88,7 +88,7 @@ namespace CryptoSpot.Infrastructure.Repositories
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "CancelOrderRaw failed: {OrderId}", orderId);
+                _logger.LogError(ex, "CancelOrder failed: {OrderId}", orderId);
                 return false;
             }
         }

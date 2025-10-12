@@ -1,19 +1,19 @@
-// filepath: g:\\github\\netcorespot\\src\\CryptoSpot.Application\\Abstractions\\Repositories\\IOrderRawAccess.cs
+// filepath: g:\\github\\netcorespot\\src\\CryptoSpot.Application\\Abstractions\\Repositories\\IMatchingOrderStore.cs
 using CryptoSpot.Domain.Entities;
 
 namespace CryptoSpot.Application.Abstractions.Repositories
 {
     /// <summary>
-    /// 提供撮合/系统任务所需的最小化订单原始访问接口，避免服务层 DTO 开销。
-    /// 仅限内部 (撮合引擎、自动交易、清算任务) 使用，不对外暴露。
+    /// 撮合/系统任务专用的最小订单存取接口（避免 DTO 开销）。
+    /// 禁止在常规应用服务 / 控制器中直接使用。
     /// </summary>
-    public interface IOrderRawAccess
+    public interface IMatchingOrderStore
     {
-        Task<Order?> GetOrderRawAsync(int orderId);
-        Task<IEnumerable<Order>> GetActiveOrdersRawAsync(string? symbol = null);
-        Task<IEnumerable<Order>> GetUserOrdersRawAsync(int userId, OrderStatus? status = null, int limit = 100);
-        Task<Order> AddOrderRawAsync(Order order);
-        Task<bool> UpdateOrderStatusRawAsync(int orderId, OrderStatus status, decimal filledQuantityDelta = 0, decimal? averagePrice = null);
-        Task<bool> CancelOrderRawAsync(int orderId);
+        Task<Order?> GetOrderAsync(int orderId);
+        Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null);
+        Task<IEnumerable<Order>> GetUserOrdersAsync(int userId, OrderStatus? status = null, int limit = 100);
+        Task<Order> AddOrderAsync(Order order);
+        Task<bool> UpdateOrderStatusAsync(int orderId, OrderStatus status, decimal filledQuantityDelta = 0, decimal? averagePrice = null);
+        Task<bool> CancelOrderAsync(int orderId);
     }
 }
