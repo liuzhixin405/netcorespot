@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.MarketData;
@@ -285,12 +286,11 @@ namespace CryptoSpot.Infrastructure.BgServices
                     };
 
                     _ = Task.Run(async () =>
-                    {
-                        try
+                    {                        try
                         {
                             using var persistScope = _scopeFactory.CreateScope();
-                            var scopedKLineService = persistScope.ServiceProvider.GetRequiredService<IKLineDataService>();
-                            await scopedKLineService.AddOrUpdateKLineDataRawAsync(entityCopy);
+                            var scopedKLineRepository = persistScope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
+                            await scopedKLineRepository.UpsertKLineDataAsync(entityCopy);
                             _logger.LogDebug("已持久化K线 {Symbol} {Interval} open={Open}", symbol, intervalCopy, entityCopy.OpenTime);
                         }
                         catch (Exception ex)

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
 using System.Collections.Concurrent;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.DTOs.MarketData;
 
@@ -367,16 +368,14 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 {
                     _logger.LogDebug("No cached K-line data to save for minute {Minute}", currentMinute.ToString("HH:mm"));
                     return;
-                }
-
-                using var scope = _serviceScopeFactory.CreateScope();
-                var klineDataService = scope.ServiceProvider.GetRequiredService<IKLineDataService>();
+                }            using var scope = _serviceScopeFactory.CreateScope();
+                var klineDataRepository = scope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
                 
                 var tasks = new List<Task>();
                 foreach (var kvp in _klineCache)
                 {
                     var klineData = kvp.Value;
-                    tasks.Add(klineDataService.AddOrUpdateKLineDataRawAsync(klineData));
+                    tasks.Add(klineDataRepository.UpsertKLineDataAsync(klineData));
                 }
 
                 await Task.WhenAll(tasks);

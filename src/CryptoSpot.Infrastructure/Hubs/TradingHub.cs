@@ -2,19 +2,21 @@ using Microsoft.AspNetCore.SignalR;
 using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Trading;
-using CryptoSpot.Application.Abstractions.Services.MarketData;   // migrated from Core.Interfaces.Trading
+using CryptoSpot.Application.Abstractions.Repositories;   // 使用仓储接口
+using CryptoSpot.Application.Abstractions.Services.MarketData;   // 交易对服务
 
 namespace CryptoSpot.Infrastructure.Hubs
-{
-    public class TradingHub : Hub
+{    public class TradingHub : Hub
     {
-        private readonly IKLineDataService _klineDataService; // 使用统一服务
+        private readonly IKLineDataRepository _klineDataRepository;
+        private readonly ITradingPairService _tradingPairService;
         private readonly IOrderMatchingEngine _orderMatchingEngine;
         private readonly ILogger<TradingHub> _logger;
 
-        public TradingHub(IKLineDataService klineDataService, IOrderMatchingEngine orderMatchingEngine, ILogger<TradingHub> logger)
+        public TradingHub(IKLineDataRepository klineDataRepository, ITradingPairService tradingPairService, IOrderMatchingEngine orderMatchingEngine, ILogger<TradingHub> logger)
         {
-            _klineDataService = klineDataService;
+            _klineDataRepository = klineDataRepository;
+            _tradingPairService = tradingPairService;
             _orderMatchingEngine = orderMatchingEngine;
             _logger = logger;
         }
@@ -35,10 +37,10 @@ namespace CryptoSpot.Infrastructure.Hubs
             {
                 var groupName = $"kline_{symbol}_{interval}";
                 await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-                await Clients.Caller.SendAsync("KLineSubscribed", symbol, interval);
-
-                // 使用领域服务获取最新一条实体
-                var latest = await _klineDataService.GetLatestKLineDataRawAsync(symbol, interval);
+                await Clients.Caller.SendAsync("KLineSubscribed", symbol, interval);                // 使用仓储获取最新一条实体
+                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
+                KLineData? latest = tpId <= 0 ? null : await _klineDataRepository.GetLatestKLineDataAsync(tpId, interval);
                 if (latest != null)
                 {
                     var initial = new

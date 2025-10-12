@@ -1,25 +1,24 @@
 using CryptoSpot.Application.DomainCommands.Trading; // 替换 Core.Commands.Trading
 using CryptoSpot.Bus.Core;
 using Microsoft.Extensions.Logging;
-using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Repositories;
 
 namespace CryptoSpot.Application.CommandHandlers.Trading
-{
-    /// <summary>
+{    /// <summary>
     /// 处理K线数据命令处理器 - 专门处理高频K线数据
     /// </summary>
     public class ProcessKLineDataCommandHandler : ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>
     {
-        private readonly IKLineDataService _klineDataService; // 使用统一服务
+        private readonly IKLineDataRepository _klineDataRepository;
         private readonly ICommandBus _commandBus;
         private readonly ILogger<ProcessKLineDataCommandHandler> _logger;
 
         public ProcessKLineDataCommandHandler(
-            IKLineDataService klineDataService, // 更新
+            IKLineDataRepository klineDataRepository,
             ICommandBus commandBus,
             ILogger<ProcessKLineDataCommandHandler> logger)
         {
-            _klineDataService = klineDataService;
+            _klineDataRepository = klineDataRepository;
             _commandBus = commandBus;
             _logger = logger;
         }
@@ -54,10 +53,8 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                         Success = false,
                         ErrorMessage = "时间框架不能为空"
                     };
-                }
-
-                // 保存K线数据
-                await _klineDataService.SaveKLineDataRawAsync(command.KLineData); // 修改: 调用统一服务 Raw 方法
+                }                // 保存K线数据
+                await _klineDataRepository.UpsertKLineDataAsync(command.KLineData);
 
                 // 发布K线更新事件 - 使用CommandBus发送相关命令
                 // 如果需要发布事件，可以创建相应的事件命令并通过CommandBus发送

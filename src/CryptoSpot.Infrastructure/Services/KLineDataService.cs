@@ -46,13 +46,24 @@ namespace CryptoSpot.Infrastructure.Services
                 _logger.LogError(ex, "Error getting K-line data for {Symbol} {Interval}", symbol, interval);
                 return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateError("获取K线数据失败");
             }
-        }
-
-        public async Task<ApiResponseDto<IEnumerable<KLineDataDto>>> GetKLineDataAsync(string symbol, string interval, long? startTime, long? endTime, int limit = 100)
+        }        public async Task<ApiResponseDto<IEnumerable<KLineDataDto>>> GetKLineDataAsync(string symbol, string interval, long? startTime, long? endTime, int limit = 100)
         {
             try
             {
-                var klineData = await GetKLineDataRawAsync(symbol, interval, startTime, endTime, limit);
+                IEnumerable<KLineData> klineData;
+                if (startTime == null || endTime == null)
+                {
+                    klineData = await _klineRepository.GetKLineDataAsync(symbol, interval, limit);
+                }
+                else
+                {
+                    var start = DateTimeOffset.FromUnixTimeMilliseconds(startTime.Value).UtcDateTime;
+                    var end = DateTimeOffset.FromUnixTimeMilliseconds(endTime.Value).UtcDateTime;
+                    var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                    var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
+                    if (tpId <= 0) klineData = Enumerable.Empty<KLineData>();
+                    else klineData = await _klineRepository.GetKLineDataByTimeRangeAsync(tpId, interval, start, end);
+                }
                 var dtoList = _mappingService.MapToDto(klineData, symbol);
                 return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateSuccess(dtoList);
             }
@@ -61,13 +72,17 @@ namespace CryptoSpot.Infrastructure.Services
                 _logger.LogError(ex, "Error getting K-line data with time range for {Symbol} {Interval}", symbol, interval);
                 return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateError("获取K线数据失败");
             }
-        }
-
-        public async Task<ApiResponseDto<IEnumerable<KLineDataDto>>> GetHistoricalKLineDataAsync(string symbol, string interval, long startTime, long endTime)
+        }        public async Task<ApiResponseDto<IEnumerable<KLineDataDto>>> GetHistoricalKLineDataAsync(string symbol, string interval, long startTime, long endTime)
         {
             try
             {
-                var klineData = await GetHistoricalKLineDataRawAsync(symbol, interval, startTime, endTime);
+                var start = DateTimeOffset.FromUnixTimeMilliseconds(startTime).UtcDateTime;
+                var end = DateTimeOffset.FromUnixTimeMilliseconds(endTime).UtcDateTime;
+                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
+                IEnumerable<KLineData> klineData = tpId <= 0 ? 
+                    Enumerable.Empty<KLineData>() : 
+                    await _klineRepository.GetKLineDataByTimeRangeAsync(tpId, interval, start, end);
                 var dtoList = _mappingService.MapToDto(klineData, symbol);
                 return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateSuccess(dtoList);
             }
@@ -76,13 +91,13 @@ namespace CryptoSpot.Infrastructure.Services
                 _logger.LogError(ex, "Error getting historical K-line data for {Symbol} {Interval}", symbol, interval);
                 return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateError("获取历史K线数据失败");
             }
-        }
-
-        public async Task<ApiResponseDto<KLineDataDto?>> GetLatestKLineDataAsync(string symbol, string interval)
+        }        public async Task<ApiResponseDto<KLineDataDto?>> GetLatestKLineDataAsync(string symbol, string interval)
         {
             try
             {
-                var latestData = await GetLatestKLineDataRawAsync(symbol, interval);
+                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
+                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
+                KLineData? latestData = tpId <= 0 ? null : await _klineRepository.GetLatestKLineDataAsync(tpId, interval);
                 var dto = latestData != null ? _mappingService.MapToDto(latestData, symbol) : null;
                 return ApiResponseDto<KLineDataDto?>.CreateSuccess(dto);
             }
@@ -194,58 +209,6 @@ namespace CryptoSpot.Infrastructure.Services
             {
                 _logger.LogError(ex, "Error unsubscribing from K-line data for {Symbol} {Interval}", symbol, interval);
                 return Task.FromResult(ApiResponseDto<bool>.CreateError("取消订阅K线数据失败"));
-            }
-        }
-
-        // =============== Raw 领域实体方法实现 ===============
-        public async Task<IEnumerable<KLineData>> GetKLineDataRawAsync(string symbol, string interval, int limit = 100)
-        {
-            try { return await _klineRepository.GetKLineDataAsync(symbol, interval, limit); } catch { return Enumerable.Empty<KLineData>(); }
-        }
-        public async Task<IEnumerable<KLineData>> GetKLineDataRawAsync(string symbol, string interval, long? startTime, long? endTime, int limit = 100)
-        {
-            if (startTime == null || endTime == null) return await GetKLineDataRawAsync(symbol, interval, limit);
-            try {
-                var start = DateTimeOffset.FromUnixTimeMilliseconds(startTime.Value).UtcDateTime;
-                var end = DateTimeOffset.FromUnixTimeMilliseconds(endTime.Value).UtcDateTime;
-                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
-                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
-                if (tpId <= 0) return Enumerable.Empty<KLineData>();
-                return await _klineRepository.GetKLineDataByTimeRangeAsync(tpId, interval, start, end);
-            } catch { return Enumerable.Empty<KLineData>(); }
-        }
-        public async Task<IEnumerable<KLineData>> GetHistoricalKLineDataRawAsync(string symbol, string interval, long startTime, long endTime)
-        {
-            try {
-                var start = DateTimeOffset.FromUnixTimeMilliseconds(startTime).UtcDateTime;
-                var end = DateTimeOffset.FromUnixTimeMilliseconds(endTime).UtcDateTime;
-                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
-                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
-                if (tpId <= 0) return Enumerable.Empty<KLineData>();
-                return await _klineRepository.GetKLineDataByTimeRangeAsync(tpId, interval, start, end);
-            } catch { return Enumerable.Empty<KLineData>(); }
-        }
-        public async Task<KLineData?> GetLatestKLineDataRawAsync(string symbol, string interval)
-        {
-            try {
-                var tpIdResp = await _tradingPairService.GetTradingPairIdAsync(symbol);
-                var tpId = tpIdResp.Success ? tpIdResp.Data : 0;
-                if (tpId <= 0) return null;
-                return await _klineRepository.GetLatestKLineDataAsync(tpId, interval);
-            } catch { return null; }
-        }
-        public async Task<KLineData> AddOrUpdateKLineDataRawAsync(KLineData klineData)
-        {
-            await _klineRepository.UpsertKLineDataAsync(klineData);
-            return klineData;
-        }
-        public async Task<IEnumerable<KLineData>> BatchAddOrUpdateKLineDataRawAsync(IEnumerable<KLineData> klineDataList)
-        {
-            var list = klineDataList.ToList();
-            if (!list.Any()) return list;
-            await _klineRepository.SaveKLineDataBatchAsync(list);
-            return list;
-        }
-        public Task SaveKLineDataRawAsync(KLineData klineData) => AddOrUpdateKLineDataRawAsync(klineData);
+            }        }
     }
 }
