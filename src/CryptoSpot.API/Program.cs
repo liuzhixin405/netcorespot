@@ -3,7 +3,6 @@ using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories; // IDatabaseCoordinator
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Services;
-using CryptoSpot.Application.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;

@@ -1,4 +1,3 @@
-using CryptoSpot.Application.Services; // 引入 OrderMatchingEngine
 using Microsoft.Extensions.DependencyInjection;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.Users;
@@ -29,10 +28,6 @@ namespace CryptoSpot.Application.DependencyInjection
             services.AddTransient<ICommandHandler<CancelOrderCommand, CancelOrderResult>, CancelOrderCommandHandler>();
             services.AddTransient<ICommandHandler<UpdatePriceCommand, UpdatePriceResult>, UpdatePriceCommandHandler>();
             services.AddTransient<ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>, ProcessKLineDataCommandHandler>();
-
-            // 注册领域服务（核心业务逻辑）- Transient，无状态
-            services.AddTransient<OrderMatchingEngine>();
-
             // 注册DTO映射服务
             services.AddSingleton<IDtoMappingService, DtoMappingService>();
 

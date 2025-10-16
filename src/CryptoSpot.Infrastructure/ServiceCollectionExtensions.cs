@@ -1,4 +1,9 @@
 ﻿using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Services.MarketData; // K线接口
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.Abstractions.Services.Users; // IMarketMakerRegistry
+using CryptoSpot.Domain.Entities; // MarketMakerOptions
+using CryptoSpot.Infrastructure.Repositories; // 新增 RawAccess
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.Persistence.Data;
 using CryptoSpot.Persistence.Repositories;
@@ -10,11 +15,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using CryptoSpot.Domain.Entities; // MarketMakerOptions
-using CryptoSpot.Application.Abstractions.Services.Trading;
-using CryptoSpot.Application.Abstractions.Services.Users; // IMarketMakerRegistry
-using CryptoSpot.Application.Abstractions.Services.MarketData; // K线接口
-using CryptoSpot.Infrastructure.Repositories; // 新增 RawAccess
 
 namespace CryptoSpot.Infrastructure
 {
@@ -60,6 +60,8 @@ namespace CryptoSpot.Infrastructure
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));
             services.AddSingleton<IMarketMakerRegistry, MarketMakerRegistry>();
 
+            // 注册领域服务（核心业务逻辑）- Transient，无状态
+            services.AddTransient<OrderMatchingEngine>();
             return services;
         }
 
