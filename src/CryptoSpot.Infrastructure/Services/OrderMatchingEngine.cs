@@ -10,7 +10,7 @@ using CryptoSpot.Application.Mapping;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.Users; // 新增: 资产操作 DTO
 
-namespace CryptoSpot.Application.Services
+namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
     /// 订单匹配引擎实现
