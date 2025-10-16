@@ -8,9 +8,9 @@ using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.Users; // 新增资产 DTO 引用
 using OrderSide = CryptoSpot.Domain.Entities.OrderSide; // 添加枚举别名
-using OrderType = CryptoSpot.Domain.Entities.OrderType; // 添加枚举别名
+using OrderType = CryptoSpot.Domain.Entities.OrderType;
 
-namespace CryptoSpot.Infrastructure.BgService
+namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
     /// 自动交易逻辑服务 - 简化版本，专注于核心交易逻辑
@@ -175,7 +175,7 @@ namespace CryptoSpot.Infrastructure.BgService
                 
                 // 获取系统用户的待处理订单
                 var pendingOrdersResp = await orderService.GetUserOrdersDtoAsync(systemUserId, OrderStatus.Pending);
-                var pendingOrders = (pendingOrdersResp.Success && pendingOrdersResp.Data != null) ? pendingOrdersResp.Data : Enumerable.Empty<OrderDto>();
+                var pendingOrders = pendingOrdersResp.Success && pendingOrdersResp.Data != null ? pendingOrdersResp.Data : Enumerable.Empty<OrderDto>();
                 
                 // 取消超过5分钟的订单
                 var expiredOrders = pendingOrders.Where(o => 
@@ -204,7 +204,7 @@ namespace CryptoSpot.Infrastructure.BgService
                 
                 // 获取系统资产
                 var assetsResp = await assetService.GetUserAssetsAsync(systemUserId);
-                var assets = assetsResp.Success && assetsResp.Data != null ? assetsResp.Data : Enumerable.Empty<CryptoSpot.Application.DTOs.Users.AssetDto>();
+                var assets = assetsResp.Success && assetsResp.Data != null ? assetsResp.Data : Enumerable.Empty<AssetDto>();
                 var assetCount = assets.Count();
                 _logger.LogDebug("系统资产再平衡检查完成，资产数量: {Count}", assetCount);
             }
@@ -225,12 +225,12 @@ namespace CryptoSpot.Infrastructure.BgService
             {
                 // 获取活跃订单数量
                 var activeOrdersResp = await orderService.GetUserOrdersDtoAsync(systemAccountId, OrderStatus.Pending);
-                var activeOrders = (activeOrdersResp.Success && activeOrdersResp.Data != null) ? activeOrdersResp.Data : Enumerable.Empty<OrderDto>();
+                var activeOrders = activeOrdersResp.Success && activeOrdersResp.Data != null ? activeOrdersResp.Data : Enumerable.Empty<OrderDto>();
                 var activeOrdersCount = activeOrders.Count();
 
                 // 获取今日交易数量
                 var todayTradesResp = await tradeService.GetTradeHistoryAsync(systemAccountId, null, 1000);
-                var todayTrades = (todayTradesResp.Success && todayTradesResp.Data != null) ? todayTradesResp.Data : Enumerable.Empty<TradeDto>();
+                var todayTrades = todayTradesResp.Success && todayTradesResp.Data != null ? todayTradesResp.Data : Enumerable.Empty<TradeDto>();
                 var todayStart = DateTime.UtcNow.Date;
                 var todayTradesCount = todayTrades.Count(t => t.ExecutedDateTime >= todayStart);
 
@@ -241,7 +241,7 @@ namespace CryptoSpot.Infrastructure.BgService
 
                 // 获取资产余额
                 var assetsResp2 = await assetService.GetUserAssetsAsync(systemAccountId);
-                var assets2 = assetsResp2.Success && assetsResp2.Data != null ? assetsResp2.Data : Enumerable.Empty<CryptoSpot.Application.DTOs.Users.AssetDto>();
+                var assets2 = assetsResp2.Success && assetsResp2.Data != null ? assetsResp2.Data : Enumerable.Empty<AssetDto>();
                 var assetBalances = assets2.ToDictionary(a => a.Symbol, a => a.Total);
 
                 return new AutoTradingStats
