@@ -11,9 +11,9 @@ import {
   TimeFrame 
 } from '../types';
 
-// 后端 Trading 控制器实际基础路径: /api/v2/TradingV2
-// 由于 axios 基础 baseURL 已含 /api, 这里使用相对路径前缀 /v2/TradingV2
-const TRADING_BASE = '/v2/TradingV2';
+// 后端 Trading 控制器实际基础路径: /api/trading
+// 由于 axios 基础 baseURL 已含 /api, 这里使用相对路径前缀 /trading
+const TRADING_BASE = '/trading';
 
 export class TradingApi extends BaseApi {
   // 获取加密货币价格列表 (若后端尚未实现保持原路径 /crypto/prices)

@@ -47,10 +47,6 @@ export const useSignalROrderBook = (
     asks: new Map()
   });
 
-  // 防抖更新机制
-  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const pendingUpdateRef = useRef<any>(null);
-
   // 处理订单簿数据更新
   const handleOrderBookData = useCallback((data: any) => {
     // 如果是快照数据（首次加载或重新同步），立即处理
@@ -75,33 +71,22 @@ export const useSignalROrderBook = (
       });
       
       setOrderBookData(orderBook);
+      setLoading(false);
     } else {
-      // 增量更新使用防抖机制
-      pendingUpdateRef.current = data;
-      
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current);
-      }
-      
-      updateTimeoutRef.current = setTimeout(() => {
-        if (pendingUpdateRef.current) {
-          updateOrderBookIncremental(pendingUpdateRef.current);
-          pendingUpdateRef.current = null;
-        }
-      }, 50); // 减少防抖延迟到50ms
+      // 增量更新立即处理，不使用防抖
+      updateOrderBookIncremental(data);
     }
     
     setLastUpdate(Date.now());
     setError(null);
     setIsConnected(true);
-    setLoading(false);
   }, []); // 移除 orderBookData 依赖
   // 增量更新订单簿
   const updateOrderBookIncremental = useCallback((data: any) => {
     const { bids, asks } = data;
 
     // 如果当前还没有本地数据, 强制按 snapshot 处理
-    if (!orderBookData) {
+    if (localOrderBookRef.current.bids.size === 0 && localOrderBookRef.current.asks.size === 0) {
       // 回退到 snapshot 逻辑
       const snapshotLike = {
         symbol: data.symbol,
@@ -157,29 +142,32 @@ export const useSignalROrderBook = (
     // 只有在有变化时才更新状态
     if (!hasChanges) return;
 
-    // 转换 & 排序 (保持最少重建)
-    const sortedBidEntries = Array.from(localOrderBookRef.current.bids.entries()).sort((a,b) => b[0]-a[0]).slice(0, depth);
-    const sortedAskEntries = Array.from(localOrderBookRef.current.asks.entries()).sort((a,b) => a[0]-b[0]).slice(0, depth);
+    // 使用requestAnimationFrame优化渲染性能
+    requestAnimationFrame(() => {
+      // 转换 & 排序 (保持最少重建)
+      const sortedBidEntries = Array.from(localOrderBookRef.current.bids.entries()).sort((a,b) => b[0]-a[0]).slice(0, depth);
+      const sortedAskEntries = Array.from(localOrderBookRef.current.asks.entries()).sort((a,b) => a[0]-b[0]).slice(0, depth);
 
-    let bidTotal = 0;
-    const bidsWithTotal = sortedBidEntries.map(([price, lvl]) => {
-      bidTotal += lvl.amount;
-      return { ...lvl, total: bidTotal };
-    });
-    let askTotal = 0;
-    const asksWithTotal = sortedAskEntries.map(([price, lvl]) => {
-      askTotal += lvl.amount;
-      return { ...lvl, total: askTotal };
-    });
+      let bidTotal = 0;
+      const bidsWithTotal = sortedBidEntries.map(([price, lvl]) => {
+        bidTotal += lvl.amount;
+        return { ...lvl, total: bidTotal };
+      });
+      let askTotal = 0;
+      const asksWithTotal = sortedAskEntries.map(([price, lvl]) => {
+        askTotal += lvl.amount;
+        return { ...lvl, total: askTotal };
+      });
 
-    // 直接更新状态，因为我们已经知道有变化
-    setOrderBookData({ 
-      symbol: data.symbol, 
-      bids: bidsWithTotal, 
-      asks: asksWithTotal, 
-      timestamp: data.timestamp 
+      // 直接更新状态，因为我们已经知道有变化
+      setOrderBookData({ 
+        symbol: data.symbol, 
+        bids: bidsWithTotal, 
+        asks: asksWithTotal, 
+        timestamp: data.timestamp 
+      });
     });
-  }, [depth, orderBookData]);
+  }, [depth]);
 
   // 处理连接错误
   const handleError = useCallback((err: any) => {
@@ -309,12 +297,6 @@ export const useSignalROrderBook = (
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
-      }
-      
-      // 清理防抖定时器
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current);
-        updateTimeoutRef.current = null;
       }
       
       // 重置重连计数器
