@@ -22,7 +22,7 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
     public async Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null)
     {
         IQueryable<Order> query = _dbSet.Include(o => o.TradingPair)
-            .Where(o => o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled);
+            .Where(o => o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled || o.Status == OrderStatus.Pending);
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);

@@ -100,6 +100,8 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 if (!_marketMakerRegistry.IsMaker(command.UserId))
                 {
                     bool freezeOk = true;
+                    string errorMsg = "余额不足或冻结失败";
+                    
                     if (command.Type == OrderType.Limit)
                     {
                         if (command.Side == OrderSide.Buy)
@@ -107,19 +109,58 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                             var notional = RoundDown(command.Quantity * (command.Price ?? 0), tradingPair.PricePrecision);
                             if (notional <= 0)
                                 return new SubmitOrderResult { Success = false, ErrorMessage = "冻结金额为0" };
-                            var freezeResp = await _assetService.FreezeAssetAsync(command.UserId, new AssetOperationRequestDto { Symbol = tradingPair.QuoteAsset, Amount = notional });
-                            freezeOk = freezeResp.Success && freezeResp.Data;
+                            
+                            // 检查可用余额
+                            var assetResp = await _assetService.GetUserAssetAsync(command.UserId, tradingPair.QuoteAsset);
+                            if (assetResp.Success && assetResp.Data != null)
+                            {
+                                var available = assetResp.Data.Available;
+                                if (available < notional)
+                                {
+                                    errorMsg = $"余额不足，可用: {available:F4} {tradingPair.QuoteAsset}, 需要: {notional:F4} {tradingPair.QuoteAsset}";
+                                    freezeOk = false;
+                                }
+                                else
+                                {
+                                    var freezeResp = await _assetService.FreezeAssetAsync(command.UserId, new AssetOperationRequestDto { Symbol = tradingPair.QuoteAsset, Amount = notional });
+                                    freezeOk = freezeResp.Success && freezeResp.Data;
+                                }
+                            }
+                            else
+                            {
+                                freezeOk = false;
+                                errorMsg = $"未找到 {tradingPair.QuoteAsset} 资产";
+                            }
                         }
                         else if (command.Side == OrderSide.Sell)
                         {
-                            var freezeResp = await _assetService.FreezeAssetAsync(command.UserId, new AssetOperationRequestDto { Symbol = tradingPair.BaseAsset, Amount = command.Quantity });
-                            freezeOk = freezeResp.Success && freezeResp.Data;
+                            // 检查可用余额
+                            var assetResp = await _assetService.GetUserAssetAsync(command.UserId, tradingPair.BaseAsset);
+                            if (assetResp.Success && assetResp.Data != null)
+                            {
+                                var available = assetResp.Data.Available;
+                                if (available < command.Quantity)
+                                {
+                                    errorMsg = $"余额不足，可用: {available:F8} {tradingPair.BaseAsset}, 需要: {command.Quantity:F8} {tradingPair.BaseAsset}";
+                                    freezeOk = false;
+                                }
+                                else
+                                {
+                                    var freezeResp = await _assetService.FreezeAssetAsync(command.UserId, new AssetOperationRequestDto { Symbol = tradingPair.BaseAsset, Amount = command.Quantity });
+                                    freezeOk = freezeResp.Success && freezeResp.Data;
+                                }
+                            }
+                            else
+                            {
+                                freezeOk = false;
+                                errorMsg = $"未找到 {tradingPair.BaseAsset} 资产";
+                            }
                         }
                     }
 
                     if (!freezeOk)
                     {
-                        return new SubmitOrderResult { Success = false, ErrorMessage = "余额不足或冻结失败" };
+                        return new SubmitOrderResult { Success = false, ErrorMessage = errorMsg };
                     }
                 }
 
@@ -136,22 +177,36 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                 }
                 var orderDto = createResp.Data;
 
-                // 通过 RawAccess 读取真实持久化实体供撮合引擎使用，避免手动构造
-                var activeOrders = await _orderStore.GetActiveOrdersAsync(tradingPair.Symbol);
-                if (activeOrders == null)
+                // 获取刚创建的订单实体，传递给撮合引擎进行处理
+                var createdOrder = await _orderStore.GetOrderAsync(orderDto.Id);
+                if (createdOrder == null)
                 {
-                    _logger.LogWarning("Active orders not found after creation: Symbol={Symbol}", tradingPair.Symbol);
-                    return new SubmitOrderResult { Success = false, ErrorMessage = "订单创建后读取失败" };
+                    _logger.LogWarning("Created order not found: OrderId={OrderId}", orderDto.Id);
+                    return new SubmitOrderResult { Success = false, ErrorMessage = "订单创建后无法找到" };
                 }
 
+                // 直接传递订单实体给撮合引擎处理，确保状态更新会反映到数据库
                 var matchResult = await _orderMatchingEngine.ProcessOrderAsync(new CreateOrderRequestDto
                 {
                     Symbol = command.Symbol,
-                    Side = command.Side, // 使用枚举直接赋值 (类型兼容 OrderSideDto)
+                    Side = command.Side,
                     Type = command.Type,
                     Quantity = command.Quantity,
                     Price = command.Price
                 }, command.UserId);
+
+                // 触发该交易对的定期匹配，处理可能存在的其他pending订单
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _orderMatchingEngine.MatchOrdersAsync(command.Symbol);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Background order matching failed for symbol {Symbol}", command.Symbol);
+                    }
+                });
 
                 _logger.LogInformation("Order {OrderId} submitted successfully for user {UserId}", 
                     orderDto.Id, command.UserId);

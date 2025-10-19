@@ -74,6 +74,7 @@ namespace CryptoSpot.Infrastructure.Services
             var tradingPairService = scope.ServiceProvider.GetRequiredService<ITradingPairService>();
             var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
             var orderService = scope.ServiceProvider.GetRequiredService<IOrderService>();
+            var orderMatchingEngine = scope.ServiceProvider.GetRequiredService<IOrderMatchingEngine>();
 
             try
             {
@@ -85,9 +86,25 @@ namespace CryptoSpot.Infrastructure.Services
                     return;
                 }
                 var tradingPairs = tradingPairsResp.Data;
+                
                 foreach (var pair in tradingPairs.Take(5)) // 限制处理数量
                 {
-                    await CreateMarketMakingOrdersAsync(pair.Symbol);
+                    try
+                    {
+                        // 1. 先执行订单匹配，处理现有的pending订单
+                        var matchedTrades = await orderMatchingEngine.MatchOrdersAsync(pair.Symbol);
+                        if (matchedTrades.Any())
+                        {
+                            _logger.LogInformation("为交易对 {Symbol} 匹配了 {Count} 笔交易", pair.Symbol, matchedTrades.Count);
+                        }
+                        
+                        // 2. 创建做市订单
+                        await CreateMarketMakingOrdersAsync(pair.Symbol);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "处理交易对 {Symbol} 时出错", pair.Symbol);
+                    }
                 }
             }
             catch (Exception ex)

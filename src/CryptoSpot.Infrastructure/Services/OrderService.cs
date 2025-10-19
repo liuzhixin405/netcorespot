@@ -45,7 +45,7 @@ namespace CryptoSpot.Infrastructure.Services
                 if (quantity <= 0 || (type == OrderType.Limit && price.HasValue && price.Value <= 0))
                     throw new ArgumentException("精度归一后数量或价格无效");
 
-                var initialStatus = type == OrderType.Limit ? OrderStatus.Active : OrderStatus.Pending;
+                var initialStatus = OrderStatus.Pending; // 所有新订单都从Pending开始，等待撮合引擎处理
 
                 var order = new Order
                 {

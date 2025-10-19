@@ -81,7 +81,10 @@ namespace CryptoSpot.Infrastructure.Services
                         if (buyOrder.UserId.HasValue)
                         {
                             var buyIsMaker = _marketMakerRegistry.IsMaker(buyOrder.UserId.Value);
-                            var bdResp = await _assetService.DeductAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional });
+                            // 做市商从可用资金扣除，普通用户从冻结资金扣除
+                            var bdResp = buyIsMaker 
+                                ? await _assetService.DeductAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional })
+                                : await _assetService.ConsumeFrozenAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional });
                             var bd = bdResp.Success && bdResp.Data;
                             if (!bd) throw new InvalidOperationException($"买家资产扣减失败(User={buyOrder.UserId}, {quoteAsset} {notional}, fromFrozen={!buyIsMaker})");
                             var baResp = await _assetService.AddAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity });
@@ -91,7 +94,10 @@ namespace CryptoSpot.Infrastructure.Services
                         if (sellOrder.UserId.HasValue)
                         {
                             var sellIsMaker = _marketMakerRegistry.IsMaker(sellOrder.UserId.Value);
-                            var sdResp = await _assetService.DeductAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity });
+                            // 做市商从可用资金扣除，普通用户从冻结资金扣除
+                            var sdResp = sellIsMaker
+                                ? await _assetService.DeductAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity })
+                                : await _assetService.ConsumeFrozenAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity });
                             var sd = sdResp.Success && sdResp.Data;
                             if (!sd) throw new InvalidOperationException($"卖家资产扣减失败(User={sellOrder.UserId}, {baseAsset} {quantity}, fromFrozen={!sellIsMaker})");
                             var saResp = await _assetService.AddAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional });
@@ -141,7 +147,17 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 var trades = await _tradeRepository.GetTradeHistoryAsync(userId, symbol, limit);
-                return ApiResponseDto<IEnumerable<TradeDto>>.CreateSuccess(_mapping.MapToDto(trades));
+                var tradeDtos = _mapping.MapToDto(trades).Select(dto =>
+                {
+                    // 根据用户ID判断交易方向
+                    var trade = trades.FirstOrDefault(t => t.Id == dto.Id);
+                    if (trade != null)
+                    {
+                        dto.Side = trade.BuyerId == userId ? Domain.Entities.OrderSide.Buy : Domain.Entities.OrderSide.Sell;
+                    }
+                    return dto;
+                }).ToList();
+                return ApiResponseDto<IEnumerable<TradeDto>>.CreateSuccess(tradeDtos);
             }
             catch (Exception ex)
             {

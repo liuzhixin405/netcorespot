@@ -49,22 +49,44 @@ namespace CryptoSpot.Infrastructure.Services
         // 新接口实现：接收下单请求 DTO
         public async Task<OrderMatchResultDto> ProcessOrderAsync(CreateOrderRequestDto orderRequest, int userId = 0)
         {
-            var pairResp = await _tradingPairService.GetTradingPairAsync(orderRequest.Symbol);
-            if (!pairResp.Success || pairResp.Data == null)
+            try
             {
+                // 根据用户ID和交易对查找最新的pending订单
+                var pairResp = await _tradingPairService.GetTradingPairAsync(orderRequest.Symbol);
+                if (!pairResp.Success || pairResp.Data == null)
+                {
+                    return new OrderMatchResultDto { Order = new OrderDto { Symbol = orderRequest.Symbol }, Trades = new List<TradeDto>() };
+                }
+                
+                // 查找该用户最新创建的pending订单（刚刚提交的订单）
+                var pendingOrders = await _orderStore.GetActiveOrdersAsync(orderRequest.Symbol);
+                var targetOrder = pendingOrders
+                    .Where(o => o.UserId == userId && o.Status == OrderStatus.Pending)
+                    .OrderByDescending(o => o.CreatedAt)
+                    .FirstOrDefault();
+
+                if (targetOrder == null)
+                {
+                    _logger.LogWarning("No pending order found for user {UserId} and symbol {Symbol}", userId, orderRequest.Symbol);
+                    return new OrderMatchResultDto { Order = new OrderDto { Symbol = orderRequest.Symbol }, Trades = new List<TradeDto>() };
+                }
+
+                // 调用处理真实订单的方法
+                var legacy = await ProcessDomainOrderAsync(targetOrder);
+                return new OrderMatchResultDto
+                {
+                    Order = _mapping.MapToDto(legacy.Order),
+                    Trades = legacy.Trades.Select(_mapping.MapToDto).ToList(),
+                    IsFullyMatched = legacy.IsFullyMatched,
+                    TotalMatchedQuantity = legacy.TotalMatchedQuantity,
+                    AveragePrice = legacy.AveragePrice
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing order request for user {UserId}", userId);
                 return new OrderMatchResultDto { Order = new OrderDto { Symbol = orderRequest.Symbol }, Trades = new List<TradeDto>() };
             }
-            var domainOrder = _mapping.MapToDomain(orderRequest, userId, pairResp.Data.Id);
-            // 调用内部旧逻辑 (旧逻辑方法重命名为 ProcessDomainOrderAsync)
-            var legacy = await ProcessDomainOrderAsync(domainOrder);
-            return new OrderMatchResultDto
-            {
-                Order = _mapping.MapToDto(legacy.Order),
-                Trades = legacy.Trades.Select(_mapping.MapToDto).ToList(),
-                IsFullyMatched = legacy.IsFullyMatched,
-                TotalMatchedQuantity = legacy.TotalMatchedQuantity,
-                AveragePrice = legacy.AveragePrice
-            };
         }
 
         // DTO 匹配执行
@@ -254,17 +276,50 @@ namespace CryptoSpot.Infrastructure.Services
                 
                 try
                 {
-                    // 获取活跃的买单和卖单
+                    // 获取活跃的买单和卖单，包括pending状态的订单
                     var activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
                     
+                    // 首先处理所有pending状态的订单
+                    var pendingOrders = activeOrders
+                        .Where(o => o.Status == OrderStatus.Pending)
+                        .ToList();
+                    
+                    if (pendingOrders.Any())
+                    {
+                        _logger.LogInformation("发现 {Count} 个pending订单待处理: {Symbol}", pendingOrders.Count, symbol);
+                        
+                        foreach (var pendingOrder in pendingOrders)
+                        {
+                            if (pendingOrder.Type == OrderType.Limit)
+                            {
+                                // 限价单激活
+                                await _orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Active);
+                                pendingOrder.Status = OrderStatus.Active;
+                                _logger.LogInformation("✅ 激活pending限价单: OrderId={OrderId}, UserId={UserId}, Price={Price}", 
+                                    pendingOrder.OrderId, pendingOrder.UserId, pendingOrder.Price);
+                            }
+                            else if (pendingOrder.Type == OrderType.Market)
+                            {
+                                // 市价单如果还在pending，说明创建时没有立即匹配，应该取消
+                                // 或者尝试立即匹配一次，如果还是不行就取消
+                                _logger.LogWarning("⚠️ 发现pending市价单，将尝试匹配或取消: OrderId={OrderId}", pendingOrder.OrderId);
+                                await _orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Cancelled);
+                                pendingOrder.Status = OrderStatus.Cancelled;
+                            }
+                        }
+                    }
+                    
+                    // 重新获取订单列表，确保状态是最新的
+                    activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
+                    
                     var buyOrders = activeOrders
-                        .Where(o => o.Side == OrderSide.Buy && o.Type == OrderType.Limit)
+                        .Where(o => o.Side == OrderSide.Buy && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled) && o.Type == OrderType.Limit)
                         .OrderByDescending(o => o.Price) // 买单按价格降序
                         .ThenBy(o => o.CreatedAt) // 同价格按时间优先
                         .ToList();
                     
                     var sellOrders = activeOrders
-                        .Where(o => o.Side == OrderSide.Sell && o.Type == OrderType.Limit)
+                        .Where(o => o.Side == OrderSide.Sell && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled) && o.Type == OrderType.Limit)
                         .OrderBy(o => o.Price) // 卖单按价格升序
                         .ThenBy(o => o.CreatedAt) // 同价格按时间优先
                         .ToList();
@@ -297,6 +352,10 @@ namespace CryptoSpot.Infrastructure.Services
                                         trades.Add(trade);
                                         _logger.LogInformation("🎉 交易执行成功: TradeId={TradeId}, Price={Price}, Quantity={Quantity}", 
                                             trade.TradeId, trade.Price, trade.Quantity);
+                                        
+                                        // 立即更新订单状态
+                                        await UpdateOrderAfterTrade(buyOrder, trade.Quantity);
+                                        await UpdateOrderAfterTrade(sellOrder, trade.Quantity);
                                     }
                                     else
                                     {
@@ -353,6 +412,35 @@ namespace CryptoSpot.Infrastructure.Services
             }
 
             return trades;
+        }
+
+        // 新增：交易后更新订单状态的辅助方法
+        private async Task UpdateOrderAfterTrade(Order order, decimal executedQuantity)
+        {
+            try
+            {
+                order.FilledQuantity += executedQuantity;
+                
+                if (order.FilledQuantity >= order.Quantity)
+                {
+                    // 完全成交
+                    await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.Filled, order.FilledQuantity);
+                    order.Status = OrderStatus.Filled;
+                    _logger.LogInformation("订单完全成交: OrderId={OrderId}", order.OrderId);
+                }
+                else
+                {
+                    // 部分成交
+                    await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.PartiallyFilled, order.FilledQuantity);
+                    order.Status = OrderStatus.PartiallyFilled;
+                    _logger.LogInformation("订单部分成交: OrderId={OrderId}, FilledQuantity={Filled}, RemainingQuantity={Remaining}", 
+                        order.OrderId, order.FilledQuantity, order.RemainingQuantity);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "更新订单状态失败: OrderId={OrderId}", order.OrderId);
+            }
         }
 
         private async Task<OrderBookDepthDomain> GetOrderBookDepthCoreAsync(string symbol, int depth)
@@ -627,20 +715,49 @@ namespace CryptoSpot.Infrastructure.Services
 
         private async Task UpdateOrderStatusAfterMatch(Order order, List<Trade> trades)
         {
-            // 现在增量在匹配循环里已处理；这里只在完全无成交情况下保持状态或激活
             try
             {
+                // 如果没有成交，将pending状态的限价单激活
                 if (!trades.Any())
                 {
                     if (order.Type == OrderType.Limit && order.Status == OrderStatus.Pending)
                     {
+                        _logger.LogInformation("激活未成交的限价单: OrderId={OrderId}", order.OrderId);
                         await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.Active);
+                        order.Status = OrderStatus.Active; // 同步内存状态
+                    }
+                    else if (order.Type == OrderType.Market && order.Status == OrderStatus.Pending)
+                    {
+                        // 市价单如果没有匹配到任何订单，应该被取消
+                        _logger.LogWarning("市价单无法匹配，取消订单: OrderId={OrderId}", order.OrderId);
+                        await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.Cancelled);
+                        order.Status = OrderStatus.Cancelled;
+                    }
+                }
+                else
+                {
+                    // 有成交的情况下，根据成交情况更新状态
+                    var totalExecuted = trades.Sum(t => t.Quantity);
+                    if (totalExecuted >= order.Quantity)
+                    {
+                        // 完全成交
+                        _logger.LogInformation("订单完全成交: OrderId={OrderId}, ExecutedQuantity={Executed}", order.OrderId, totalExecuted);
+                        await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.Filled, totalExecuted);
+                        order.Status = OrderStatus.Filled;
+                    }
+                    else
+                    {
+                        // 部分成交
+                        _logger.LogInformation("订单部分成交: OrderId={OrderId}, ExecutedQuantity={Executed}, RemainingQuantity={Remaining}", 
+                            order.OrderId, totalExecuted, order.Quantity - totalExecuted);
+                        await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.PartiallyFilled, totalExecuted);
+                        order.Status = OrderStatus.PartiallyFilled;
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "更新订单状态(撮合后)时发生异常: OrderId={OrderId}", order.OrderId);
+                _logger.LogError(ex, "更新订单状态(撮合后)时发生异常: OrderId={OrderId}", order.OrderId);
             }
         }
 
