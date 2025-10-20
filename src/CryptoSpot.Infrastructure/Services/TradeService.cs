@@ -246,6 +246,44 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
+        public async Task<ApiResponseDto<IEnumerable<MarketTradeDto>>> GetMarketRecentTradesAsync(string symbol, int limit = 50)
+        {
+            try
+            {
+                // 先获取交易对ID
+                var tradingPair = await _tradingPairRepository.GetBySymbolAsync(symbol);
+                if (tradingPair == null)
+                {
+                    return ApiResponseDto<IEnumerable<MarketTradeDto>>.CreateError($"交易对 {symbol} 不存在");
+                }
+
+                // 获取更多数据以便过滤后仍有足够记录
+                var trades = await _tradeRepository.GetRecentTradesByPairIdAsync(tradingPair.Id, limit * 2);
+                
+                // 只过滤掉双方都是系统用户的成交,保留至少一方是真实用户的成交
+                var filteredTrades = trades
+                    .Where(t => !(_marketMakerRegistry.IsMaker(t.BuyerId) && _marketMakerRegistry.IsMaker(t.SellerId)))
+                    .Take(limit)
+                    .Select(t => new MarketTradeDto
+                    {
+                        Id = t.Id,
+                        Symbol = symbol,
+                        Price = t.Price,
+                        Quantity = t.Quantity,
+                        ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(t.ExecutedAt).DateTime,
+                        IsBuyerMaker = false // TODO: 需要根据订单类型判断,暂时设为false
+                    })
+                    .ToList();
+
+                return ApiResponseDto<IEnumerable<MarketTradeDto>>.CreateSuccess(filteredTrades);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取市场最近成交失败: Symbol={Symbol}", symbol);
+                return ApiResponseDto<IEnumerable<MarketTradeDto>>.CreateError("获取市场最近成交失败");
+            }
+        }
+
         private string GenerateTradeId() => $"TRD_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Random.Shared.Next(1000, 9999)}";
         private decimal CalculateFee(decimal price, decimal quantity) => price * quantity * 0.001m; // 0.1%
     }

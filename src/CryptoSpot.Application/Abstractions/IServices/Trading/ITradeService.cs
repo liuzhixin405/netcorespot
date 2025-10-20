@@ -18,5 +18,11 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(int orderId) => GetTradesByOrderIdAsync(orderId);
         Task<ApiResponseDto<decimal>> GetTradingVolumeAsync(string symbol, TimeSpan timeRange);
         Task<ApiResponseDto<(decimal high, decimal low)>> GetPriceRangeAsync(string symbol, TimeSpan timeRange);
+        
+        // ========== 市场公开数据接口 ==========
+        /// <summary>
+        /// 获取市场最近成交记录 (公开数据,不包含用户信息)
+        /// </summary>
+        Task<ApiResponseDto<IEnumerable<MarketTradeDto>>> GetMarketRecentTradesAsync(string symbol, int limit = 50);
     }
 }

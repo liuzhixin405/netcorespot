@@ -206,5 +206,30 @@ namespace CryptoSpot.Infrastructure.BgServices
                 _logger.LogError(ex, "Failed to push last trade & mid price for {Symbol}", symbol);
             }
         }
+
+        public async Task PushTradeDataAsync(string symbol, MarketTradeDto trade)
+        {
+            try
+            {
+                var groupName = $"trades_{symbol}";
+                var tradeData = new
+                {
+                    id = trade.Id,
+                    symbol = trade.Symbol,
+                    price = trade.Price,
+                    quantity = trade.Quantity,
+                    executedAt = trade.ExecutedAt,
+                    isBuyerMaker = trade.IsBuyerMaker,
+                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                };
+                await _hubContext.Clients.Group(groupName).SendAsync("TradeUpdate", tradeData);
+                _logger.LogInformation("✅ [SignalR] 推送成交到组 {GroupName}: TradeId={TradeId}, Price={Price}, Quantity={Quantity}", 
+                    groupName, trade.Id, trade.Price, trade.Quantity);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to push trade data for {Symbol}", symbol);
+            }
+        }
     }
 }

@@ -43,10 +43,9 @@ export class TradingApi extends BaseApi {
     });
   }
 
-  // 获取最近成交记录 (后端当前无公共市场成交接口; TODO: 若后端提供公共 trades 接口再调整)
+  // 获取最近成交记录 (市场公开数据)
   async getRecentTrades(symbol: string, limit: number = 20): Promise<Trade[]> {
-    // 暂时指向用户成交或保留原不可用路径; 这里先返回用户成交列表筛选符号
-    return this.get<Trade[]>(`${TRADING_BASE}/trades`, { params: { symbol, limit } });
+    return this.get<Trade[]>(`${TRADING_BASE}/market/trades/${symbol}`, { params: { limit } });
   }
 
   // 提交交易订单

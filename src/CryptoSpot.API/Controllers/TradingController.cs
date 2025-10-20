@@ -192,5 +192,16 @@ namespace CryptoSpot.API.Controllers
             var result = await _tradingService.GetOrderBookDepthAsync(symbol, depth);
             return result.Success ? Ok(result) : BadRequest(result);
         }
+
+        // 市场最近成交 (公开数据)
+        [HttpGet("market/trades/{symbol}")]
+        [AllowAnonymous]
+        public async Task<ActionResult<ApiResponseDto<IEnumerable<MarketTradeDto>>>> GetMarketRecentTrades(
+            string symbol, 
+            [FromQuery] int limit = 50)
+        {
+            var result = await _tradingService.GetMarketRecentTradesAsync(symbol, limit);
+            return result.Success ? Ok(result) : BadRequest(result);
+        }
     }
 }

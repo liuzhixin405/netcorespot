@@ -39,6 +39,9 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         // 订单簿相关
         Task<ApiResponseDto<OrderBookDepthDto>> GetOrderBookDepthAsync(string symbol, int depth = 20);
 
+        // 市场公开数据
+        Task<ApiResponseDto<IEnumerable<MarketTradeDto>>> GetMarketRecentTradesAsync(string symbol, int limit = 50);
+
         // 订单测试
         Task<ApiResponseDto<TestOrderResultDto>> TestOrderAsync(int userId, CreateOrderRequestDto request);
 

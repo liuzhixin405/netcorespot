@@ -461,6 +461,24 @@ namespace CryptoSpot.Infrastructure.Services
 
         #endregion
 
+        #region 市场公开数据
+
+        public async Task<ApiResponseDto<IEnumerable<MarketTradeDto>>> GetMarketRecentTradesAsync(string symbol, int limit = 50)
+        {
+            try
+            {
+                var result = await _tradeService.GetMarketRecentTradesAsync(symbol, limit);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting market recent trades for {Symbol}", symbol);
+                return ApiResponseDto<IEnumerable<MarketTradeDto>>.CreateError("获取市场成交记录失败");
+            }
+        }
+
+        #endregion
+
         #region 订单测试相关
 
         public async Task<ApiResponseDto<TestOrderResultDto>> TestOrderAsync(int userId, CreateOrderRequestDto request)

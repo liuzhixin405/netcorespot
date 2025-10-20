@@ -7,6 +7,7 @@ namespace CryptoSpot.Application.Abstractions.Repositories
         Task<IEnumerable<Trade>> GetTradesByUserIdAsync(int userId, string? symbol = null, int limit = 100);
         Task<IEnumerable<Trade>> GetTradesByTradingPairIdAsync(int tradingPairId, int limit = 100);
         Task<IEnumerable<Trade>> GetRecentTradesAsync(string? symbol = null, int limit = 50);
+        Task<IEnumerable<Trade>> GetRecentTradesByPairIdAsync(int tradingPairId, int limit = 50);
         Task<IEnumerable<Trade>> GetTradesByTimeRangeAsync(DateTime startTime, DateTime endTime, string? symbol = null);
         Task<TradeStatistics> GetTradeStatisticsAsync(int? userId = null, string? symbol = null, DateTime? startTime = null, DateTime? endTime = null);
         Task<IEnumerable<Trade>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100);

@@ -24,6 +24,7 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IServiceScopeFactory _serviceScopeFactory; // 改用 IServiceScopeFactory
         private readonly ILogger<OrderMatchingEngine> _logger;
         private readonly IDtoMappingService _mapping;
+        private readonly IMarketMakerRegistry _marketMakerRegistry;
 
         // 用于防止并发匹配的锁
         private readonly Dictionary<string, SemaphoreSlim> _symbolLocks = new();
@@ -35,7 +36,8 @@ namespace CryptoSpot.Infrastructure.Services
             ITradingPairService tradingPairService,
             IServiceScopeFactory serviceScopeFactory, // 改用 IServiceScopeFactory
             ILogger<OrderMatchingEngine> logger,
-            IDtoMappingService mapping)
+            IDtoMappingService mapping,
+            IMarketMakerRegistry marketMakerRegistry)
         {
             _orderStore = orderStore;
             _tradeService = tradeService;
@@ -44,6 +46,7 @@ namespace CryptoSpot.Infrastructure.Services
             _serviceScopeFactory = serviceScopeFactory; // 改用 IServiceScopeFactory
             _logger = logger;
             _mapping = mapping;
+            _marketMakerRegistry = marketMakerRegistry;
         }
 
         // 新接口实现：接收下单请求 DTO
@@ -764,6 +767,47 @@ namespace CryptoSpot.Infrastructure.Services
                         CreatedAt = ts,
                         UpdatedAt = ts
                     };
+
+                    // 推送实时成交数据
+                    try
+                    {
+                        // 只过滤掉双方都是系统用户的成交,至少一方是真实用户就推送
+                        var isBuyerMaker = _marketMakerRegistry.IsMaker(tradeDomain.BuyerId);
+                        var isSellerMaker = _marketMakerRegistry.IsMaker(tradeDomain.SellerId);
+                        
+                        // 只要有一方是真实用户就推送
+                        if (!(isBuyerMaker && isSellerMaker))
+                        {
+                            using var scope = _serviceScopeFactory.CreateScope();
+                            var realTimePushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                            var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(buyOrder.TradingPairId);
+                            if (tradingPair.Success && tradingPair.Data != null)
+                            {
+                                var marketTrade = new MarketTradeDto
+                                {
+                                    Id = dto.Id,
+                                    Symbol = tradingPair.Data.Symbol,
+                                    Price = dto.Price,
+                                    Quantity = dto.Quantity,
+                                    ExecutedAt = dto.ExecutedAt,
+                                    IsBuyerMaker = sellOrder.Type == OrderType.Limit // 卖单是限价单则买方是taker
+                                };
+                                await realTimePushService.PushTradeDataAsync(tradingPair.Data.Symbol, marketTrade);
+                                _logger.LogInformation("✅ [OrderMatchingEngine] 推送成交数据: TradeId={TradeId}, Symbol={Symbol}, Price={Price}, Quantity={Quantity}, BuyerIsMaker={BuyerIsMaker}, SellerIsMaker={SellerIsMaker}", 
+                                    dto.TradeId, tradingPair.Data.Symbol, dto.Price, dto.Quantity, isBuyerMaker, isSellerMaker);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogInformation("⏭️ [OrderMatchingEngine] 跳过系统用户内部成交: BuyerId={BuyerId}, SellerId={SellerId} (双方都是系统用户)", 
+                                tradeDomain.BuyerId, tradeDomain.SellerId);
+                        }
+                    }
+                    catch (Exception pushEx)
+                    {
+                        _logger.LogWarning(pushEx, "推送成交数据失败，但交易已完成");
+                    }
+
                     return tradeDomain;
                 }
                 else

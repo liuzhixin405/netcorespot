@@ -168,6 +168,23 @@ namespace CryptoSpot.Infrastructure.Hubs
             await Clients.Caller.SendAsync("TickerUnsubscribed", symbol);
         }
 
+        // 订阅实时成交数据
+        public async Task SubscribeTrades(string symbol)
+        {
+            var group = $"trades_{symbol}";
+            await Groups.AddToGroupAsync(Context.ConnectionId, group);
+            _logger.LogInformation("✅ [TradingHub] 客户端 {ConnectionId} 订阅成交数据: {Group}", Context.ConnectionId, group);
+            await Clients.Caller.SendAsync("TradesSubscribed", symbol);
+        }
+
+        public async Task UnsubscribeTrades(string symbol)
+        {
+            var group = $"trades_{symbol}";
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, group);
+            _logger.LogInformation("❌ [TradingHub] 客户端 {ConnectionId} 取消订阅成交数据: {Group}", Context.ConnectionId, group);
+            await Clients.Caller.SendAsync("TradesUnsubscribed", symbol);
+        }
+
         public override async Task OnConnectedAsync()
         {
             await Clients.Caller.SendAsync("Connected", Context.ConnectionId);

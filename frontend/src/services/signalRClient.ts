@@ -352,6 +352,57 @@ export class SignalRClient {
     }
   }
 
+  // 订阅实时成交数据
+  async subscribeTrades(
+    symbol: string,
+    onTradeUpdate: (trade: any) => void,
+    onError?: (error: any) => void
+  ): Promise<() => void> {
+    try {
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+        const connected = await this.connect();
+        if (!connected || !this.connection) {
+          throw new Error('SignalR连接失败');
+        }
+      }
+
+      // 确保连接存在且已连接
+      if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+        throw new Error('SignalR连接状态异常');
+      }
+
+      // 创建命名的处理器,避免被off移除
+      const handler = (response: any) => {
+        if ((window as any).__SR_DEBUG) console.log('[SignalR] TradeUpdate', response);
+        onTradeUpdate(response);
+      };
+
+      // 添加成交数据接收处理器 (不先off,允许多个订阅者)
+      this.connection.on('TradeUpdate', handler);
+
+      // 发送订阅请求
+      await this.connection.invoke('SubscribeTrades', symbol);
+      console.log(`[SignalR] Subscribed to trades for ${symbol}`);
+
+      // 返回取消订阅函数
+      return async () => {
+        try {
+          if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
+            await this.connection.invoke('UnsubscribeTrades', symbol);
+            this.connection.off('TradeUpdate', handler); // 只移除这个特定的处理器
+          }
+        } catch {
+          // 取消订阅失败，忽略错误
+        }
+      };
+
+    } catch (error) {
+      console.error('[SignalR] Subscribe trades failed:', error);
+      if (onError) onError(error);
+      return () => {};
+    }
+  }
+
   // 获取连接状态
   isConnected(): boolean {
     return this.connection?.state === signalR.HubConnectionState.Connected;

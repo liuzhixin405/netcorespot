@@ -37,6 +37,15 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
         return await _dbSet.Where(t => t.TradingPairId == tradingPairId).OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
     }
 
+    public async Task<IEnumerable<Trade>> GetRecentTradesByPairIdAsync(int tradingPairId, int limit = 50)
+    {
+        return await _dbSet
+            .Where(t => t.TradingPairId == tradingPairId)
+            .OrderByDescending(t => t.ExecutedAt)
+            .Take(limit)
+            .ToListAsync();
+    }
+
     public async Task<IEnumerable<Trade>> GetTradesByUserIdAsync(int userId, string? symbol = null, int limit = 100)
     {
         var query = _dbSet.Where(t => t.BuyerId == userId || t.SellerId == userId);

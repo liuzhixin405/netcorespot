@@ -14,5 +14,6 @@ namespace CryptoSpot.Application.Abstractions.Services.RealTime
         Task PushOrderBookDeltaAsync(string symbol, List<OrderBookLevelDto> bidChanges, List<OrderBookLevelDto> askChanges);
         Task PushExternalOrderBookSnapshotAsync(string symbol, IReadOnlyList<OrderBookLevelDto> bids, IReadOnlyList<OrderBookLevelDto> asks, long timestamp);
         Task PushLastTradeAndMidPriceAsync(string symbol, decimal? lastPrice, decimal? lastQuantity, decimal? bestBid, decimal? bestAsk, decimal? midPrice, long timestamp);
+        Task PushTradeDataAsync(string symbol, MarketTradeDto trade);
     }
 }
