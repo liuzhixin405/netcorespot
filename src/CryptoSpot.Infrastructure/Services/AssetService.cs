@@ -290,12 +290,6 @@ namespace CryptoSpot.Infrastructure.Services
             return await _assetRepository.AddAsync(asset);
         }
 
-        private async Task<Asset> GetOrCreateAsync(int userId, string symbol)
-        {
-            var existing = await GetUserAssetInternalAsync(userId, symbol);
-            return existing ?? await CreateUserAssetInternalAsync(userId, symbol);
-        }
-
         private async Task<bool> HasSufficientBalanceInternalAsync(int userId, string symbol, decimal amount, bool includeFrozen = false)
         {
             var asset = await GetUserAssetInternalAsync(userId, symbol);
@@ -306,7 +300,8 @@ namespace CryptoSpot.Infrastructure.Services
 
         private async Task<bool> FreezeAssetInternalAsync(int userId, string symbol, decimal amount)
         {
-            var asset = await GetOrCreateAsync(userId, symbol);
+            var asset = await GetUserAssetInternalAsync(userId, symbol);
+            if (asset == null) return false; // 资产不存在,冻结失败
             if (asset.Available < amount) return false;
             asset.Available -= amount;
             asset.Frozen += amount;
@@ -317,7 +312,8 @@ namespace CryptoSpot.Infrastructure.Services
 
         private async Task<bool> UnfreezeAssetInternalAsync(int userId, string symbol, decimal amount)
         {
-            var asset = await GetOrCreateAsync(userId, symbol);
+            var asset = await GetUserAssetInternalAsync(userId, symbol);
+            if (asset == null) return false; // 资产不存在,解冻失败
             if (asset.Frozen < amount) return false;
             asset.Frozen -= amount;
             asset.Available += amount;
@@ -328,29 +324,52 @@ namespace CryptoSpot.Infrastructure.Services
 
         private async Task<bool> DeductAssetInternalAsync(int userId, string symbol, decimal amount, bool fromFrozen = false)
         {
-            var asset = await GetOrCreateAsync(userId, symbol);
-            if (fromFrozen)
+            try
             {
-                if (asset.Frozen < amount) return false;
-                asset.Frozen -= amount;
+                // 使用原子操作避免并发冲突
+                int affectedRows;
+                if (fromFrozen)
+                {
+                    affectedRows = await _assetRepository.AtomicDeductFrozenAsync(userId, symbol, amount);
+                }
+                else
+                {
+                    affectedRows = await _assetRepository.AtomicDeductAvailableAsync(userId, symbol, amount);
+                }
+                
+                // 如果影响行数为 0,说明资产不足或不存在
+                return affectedRows > 0;
             }
-            else
+            catch (Exception ex)
             {
-                if (asset.Available < amount) return false;
-                asset.Available -= amount;
+                _logger.LogError(ex, "扣除资产失败: UserId={UserId}, Symbol={Symbol}, Amount={Amount}, FromFrozen={FromFrozen}", 
+                    userId, symbol, amount, fromFrozen);
+                return false;
             }
-            asset.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await _assetRepository.UpdateAsync(asset);
-            return true;
         }
 
         private async Task<bool> AddAssetInternalAsync(int userId, string symbol, decimal amount)
         {
-            var asset = await GetOrCreateAsync(userId, symbol);
-            asset.Available += amount;
-            asset.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await _assetRepository.UpdateAsync(asset);
-            return true;
+            try
+            {
+                // 使用原子操作避免并发冲突
+                var affectedRows = await _assetRepository.AtomicAddAvailableAsync(userId, symbol, amount);
+                
+                // 如果影响行数为 0,说明资产不存在,需要创建
+                if (affectedRows == 0)
+                {
+                    // 只有在增加资产时才允许自动创建(充值场景)
+                    await CreateUserAssetInternalAsync(userId, symbol, available: amount);
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "增加资产失败: UserId={UserId}, Symbol={Symbol}, Amount={Amount}", 
+                    userId, symbol, amount);
+                return false;
+            }
         }
         #endregion
     }

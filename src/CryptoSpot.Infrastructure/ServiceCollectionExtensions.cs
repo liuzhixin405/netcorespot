@@ -60,8 +60,8 @@ namespace CryptoSpot.Infrastructure
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));
             services.AddSingleton<IMarketMakerRegistry, MarketMakerRegistry>();
 
-            // 注册领域服务（核心业务逻辑）- Transient，无状态
-            services.AddTransient<OrderMatchingEngine>();
+            // 注册领域服务（核心业务逻辑）已移至 Program.cs 统一注册
+            // services.AddTransient<OrderMatchingEngine>(); // ❌ 已删除重复注册
             return services;
         }
 

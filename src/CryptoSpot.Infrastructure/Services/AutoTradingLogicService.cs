@@ -299,4 +299,5 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
     }
+
 }

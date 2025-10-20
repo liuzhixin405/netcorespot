@@ -11,6 +11,11 @@ namespace CryptoSpot.Application.Abstractions.Repositories
         Task<bool> UnfreezeAssetAsync(int userId, string symbol, decimal amount);
         Task<AssetStatistics> GetAssetStatisticsAsync(int userId);
         Task<Asset?> GetUserAssetAsync(int userId, string symbol);
+        
+        // 原子操作方法 - 使用数据库级别的更新避免并发冲突
+        Task<int> AtomicDeductFrozenAsync(int userId, string symbol, decimal amount);
+        Task<int> AtomicAddAvailableAsync(int userId, string symbol, decimal amount);
+        Task<int> AtomicDeductAvailableAsync(int userId, string symbol, decimal amount);
     }
 
     public class AssetStatistics

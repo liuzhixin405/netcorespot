@@ -21,7 +21,7 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly ITradeService _tradeService;
         private readonly IAssetService _assetService;
         private readonly ITradingPairService _tradingPairService;
-        private readonly IServiceProvider _serviceProvider;
+        private readonly IServiceScopeFactory _serviceScopeFactory; // 改用 IServiceScopeFactory
         private readonly ILogger<OrderMatchingEngine> _logger;
         private readonly IDtoMappingService _mapping;
 
@@ -33,7 +33,7 @@ namespace CryptoSpot.Infrastructure.Services
             ITradeService tradeService,
             IAssetService assetService,
             ITradingPairService tradingPairService,
-            IServiceProvider serviceProvider,
+            IServiceScopeFactory serviceScopeFactory, // 改用 IServiceScopeFactory
             ILogger<OrderMatchingEngine> logger,
             IDtoMappingService mapping)
         {
@@ -41,7 +41,7 @@ namespace CryptoSpot.Infrastructure.Services
             _tradeService = tradeService;
             _assetService = assetService;
             _tradingPairService = tradingPairService;
-            _serviceProvider = serviceProvider;
+            _serviceScopeFactory = serviceScopeFactory; // 改用 IServiceScopeFactory
             _logger = logger;
             _mapping = mapping;
         }
@@ -221,7 +221,8 @@ namespace CryptoSpot.Infrastructure.Services
             {
                 try
                 {
-                    var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
+                    using var scope = _serviceScopeFactory.CreateScope();
+                    var realTimeDataPushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
                     if (bidDeltaLevels.Count > 0 || askDeltaLevels.Count > 0)
                     {
                         // 将 Domain level 转换为 DTO level
@@ -276,8 +277,13 @@ namespace CryptoSpot.Infrastructure.Services
                 
                 try
                 {
-                    // 获取活跃的买单和卖单，包括pending状态的订单
-                    var activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
+                    // 创建新的作用域来获取订单数据,避免 DbContext 生命周期问题
+                    IEnumerable<Order> activeOrders;
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var orderStore = scope.ServiceProvider.GetRequiredService<IMatchingOrderStore>();
+                        activeOrders = await orderStore.GetActiveOrdersAsync(symbol);
+                    }
                     
                     // 首先处理所有pending状态的订单
                     var pendingOrders = activeOrders
@@ -290,27 +296,35 @@ namespace CryptoSpot.Infrastructure.Services
                         
                         foreach (var pendingOrder in pendingOrders)
                         {
-                            if (pendingOrder.Type == OrderType.Limit)
+                            using (var scope = _serviceScopeFactory.CreateScope())
                             {
-                                // 限价单激活
-                                await _orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Active);
-                                pendingOrder.Status = OrderStatus.Active;
-                                _logger.LogInformation("✅ 激活pending限价单: OrderId={OrderId}, UserId={UserId}, Price={Price}", 
-                                    pendingOrder.OrderId, pendingOrder.UserId, pendingOrder.Price);
-                            }
-                            else if (pendingOrder.Type == OrderType.Market)
-                            {
-                                // 市价单如果还在pending，说明创建时没有立即匹配，应该取消
-                                // 或者尝试立即匹配一次，如果还是不行就取消
-                                _logger.LogWarning("⚠️ 发现pending市价单，将尝试匹配或取消: OrderId={OrderId}", pendingOrder.OrderId);
-                                await _orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Cancelled);
-                                pendingOrder.Status = OrderStatus.Cancelled;
+                                var orderStore = scope.ServiceProvider.GetRequiredService<IMatchingOrderStore>();
+                                
+                                if (pendingOrder.Type == OrderType.Limit)
+                                {
+                                    // 限价单激活
+                                    await orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Active);
+                                    pendingOrder.Status = OrderStatus.Active;
+                                    _logger.LogInformation("✅ 激活pending限价单: OrderId={OrderId}, UserId={UserId}, Price={Price}", 
+                                        pendingOrder.OrderId, pendingOrder.UserId, pendingOrder.Price);
+                                }
+                                else if (pendingOrder.Type == OrderType.Market)
+                                {
+                                    // 市价单如果还在pending，说明创建时没有立即匹配，应该取消
+                                    _logger.LogWarning("⚠️ 发现pending市价单，将尝试匹配或取消: OrderId={OrderId}", pendingOrder.OrderId);
+                                    await orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Cancelled);
+                                    pendingOrder.Status = OrderStatus.Cancelled;
+                                }
                             }
                         }
                     }
                     
                     // 重新获取订单列表，确保状态是最新的
-                    activeOrders = await _orderStore.GetActiveOrdersAsync(symbol);
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var orderStore = scope.ServiceProvider.GetRequiredService<IMatchingOrderStore>();
+                        activeOrders = await orderStore.GetActiveOrdersAsync(symbol);
+                    }
                     
                     var buyOrders = activeOrders
                         .Where(o => o.Side == OrderSide.Buy && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled) && o.Type == OrderType.Limit)
@@ -330,10 +344,12 @@ namespace CryptoSpot.Infrastructure.Services
                     // 匹配订单
                     foreach (var buyOrder in buyOrders)
                     {
+                        // 使用内存中的 RemainingQuantity (已经通过 AsNoTracking 获取最新快照)
                         if (buyOrder.RemainingQuantity <= 0) continue;
 
                         foreach (var sellOrder in sellOrders)
                         {
+                            // 使用内存中的 RemainingQuantity (已经通过 AsNoTracking 获取最新快照)
                             if (sellOrder.RemainingQuantity <= 0) continue;
                             
                             // 检查价格是否匹配
@@ -345,8 +361,23 @@ namespace CryptoSpot.Infrastructure.Services
                                 // 检查是否可以匹配（不能自成交，除非是系统账号）
                                 if (await CanMatchOrderAsync(buyOrder, sellOrder))
                                 {
-                                    _logger.LogInformation("✅ 订单可以匹配，开始执行交易");
-                                    var trade = await CreateTradeAsync(buyOrder, sellOrder, sellOrder.Price ?? 0, Math.Min(buyOrder.RemainingQuantity, sellOrder.RemainingQuantity));
+                                    var matchQuantity = Math.Min(buyOrder.RemainingQuantity, sellOrder.RemainingQuantity);
+                                    var matchPrice = sellOrder.Price ?? 0;
+                                    
+                                    // 关键检查: 防止负数或零数量交易
+                                    if (matchQuantity <= 0)
+                                    {
+                                        _logger.LogWarning("⚠️ 计算出的匹配数量无效: 买单剩余={BuyRemaining}, 卖单剩余={SellRemaining}, 匹配数量={MatchQuantity}", 
+                                            buyOrder.RemainingQuantity, sellOrder.RemainingQuantity, matchQuantity);
+                                        continue; // 跳过此次匹配
+                                    }
+                                    
+                                    _logger.LogInformation("✅ 订单可以匹配，开始执行交易: 买单={BuyOrderId}(User={BuyUserId},剩余={BuyRemaining}), 卖单={SellOrderId}(User={SellUserId},剩余={SellRemaining}), 价格={Price}, 数量={Quantity}", 
+                                        buyOrder.OrderId, buyOrder.UserId, buyOrder.RemainingQuantity, 
+                                        sellOrder.OrderId, sellOrder.UserId, sellOrder.RemainingQuantity,
+                                        matchPrice, matchQuantity);
+                                    
+                                    var trade = await CreateTradeAsync(buyOrder, sellOrder, matchPrice, matchQuantity);
                                     if (trade != null)
                                     {
                                         trades.Add(trade);
@@ -356,10 +387,18 @@ namespace CryptoSpot.Infrastructure.Services
                                         // 立即更新订单状态
                                         await UpdateOrderAfterTrade(buyOrder, trade.Quantity);
                                         await UpdateOrderAfterTrade(sellOrder, trade.Quantity);
+                                        
+                                        // 关键优化: 如果买单已完全成交,跳出内层循环
+                                        if (buyOrder.RemainingQuantity <= 0)
+                                        {
+                                            _logger.LogInformation("✅ 买单已完全成交,跳出内层循环: OrderId={OrderId}", buyOrder.OrderId);
+                                            break; // 跳出内层循环,继续处理下一个买单
+                                        }
                                     }
                                     else
                                     {
-                                        _logger.LogWarning("❌ 交易执行失败");
+                                        _logger.LogError("❌ 交易执行失败: 买单={BuyOrderId}(User={BuyUserId}), 卖单={SellOrderId}(User={SellUserId}), 请检查上方错误日志", 
+                                            buyOrder.OrderId, buyOrder.UserId, sellOrder.OrderId, sellOrder.UserId);
                                     }
                                 }
                                 else
@@ -384,7 +423,8 @@ namespace CryptoSpot.Infrastructure.Services
                         // 推送订单簿更新
                         try
                         {
-                            var realTimeDataPushService = _serviceProvider.GetRequiredService<IRealTimeDataPushService>();
+                            using var scope = _serviceScopeFactory.CreateScope();
+                            var realTimeDataPushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
                             var depthSnapshot = await GetOrderBookDepthDomainAsync(symbol, 20);
                             var depthDto = new OrderBookDepthDto
                             {
@@ -419,14 +459,36 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                order.FilledQuantity += executedQuantity;
+                // 关键验证: 防止超量成交
+                if (executedQuantity <= 0)
+                {
+                    _logger.LogWarning("⚠️ 尝试更新订单但成交数量无效: OrderId={OrderId}, ExecutedQuantity={ExecutedQuantity}", 
+                        order.OrderId, executedQuantity);
+                    return;
+                }
+                
+                var newFilledQuantity = order.FilledQuantity + executedQuantity;
+                
+                // 防止超量成交
+                if (newFilledQuantity > order.Quantity)
+                {
+                    _logger.LogError("⚠️ 订单超量成交: OrderId={OrderId}, Quantity={Quantity}, FilledQuantity={FilledQuantity}, ExecutedQuantity={ExecutedQuantity}", 
+                        order.OrderId, order.Quantity, order.FilledQuantity, executedQuantity);
+                    // 调整为最大可成交数量
+                    executedQuantity = order.Quantity - order.FilledQuantity;
+                    if (executedQuantity <= 0) return; // 已经完全成交,不再更新
+                    newFilledQuantity = order.Quantity;
+                }
+                
+                order.FilledQuantity = newFilledQuantity;
                 
                 if (order.FilledQuantity >= order.Quantity)
                 {
                     // 完全成交
                     await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.Filled, order.FilledQuantity);
                     order.Status = OrderStatus.Filled;
-                    _logger.LogInformation("订单完全成交: OrderId={OrderId}", order.OrderId);
+                    _logger.LogInformation("订单完全成交: OrderId={OrderId}, FilledQuantity={FilledQuantity}/{Quantity}", 
+                        order.OrderId, order.FilledQuantity, order.Quantity);
                 }
                 else
                 {
@@ -704,11 +766,18 @@ namespace CryptoSpot.Infrastructure.Services
                     };
                     return tradeDomain;
                 }
-                return null;
+                else
+                {
+                    // 交易失败,记录详细错误信息
+                    _logger.LogError("交易执行失败: BuyOrderId={BuyOrderId}, SellOrderId={SellOrderId}, Price={Price}, Quantity={Quantity}, Error={Error}", 
+                        buyOrder.Id, sellOrder.Id, price, quantity, tradeResp.Error ?? "Unknown");
+                    return null;
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "创建交易记录时出错(委托交易服务)");
+                _logger.LogError(ex, "创建交易记录时出错(委托交易服务): BuyOrderId={BuyOrderId}, SellOrderId={SellOrderId}", 
+                    buyOrder.Id, sellOrder.Id);
                 throw; // 向上抛出，避免静默失败
             }
         }

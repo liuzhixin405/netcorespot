@@ -76,4 +76,35 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
             AssetBalances = list.ToDictionary(a => a.Symbol, a => a.Available + a.Frozen)
         };
     }
+
+    // 原子操作 - 直接使用 SQL 更新,避免 EF Core 并发冲突
+    public async Task<int> AtomicDeductFrozenAsync(int userId, string symbol, decimal amount)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return await _context.Database.ExecuteSqlRawAsync(
+            @"UPDATE Assets 
+              SET Frozen = Frozen - {0}, UpdatedAt = {1} 
+              WHERE UserId = {2} AND Symbol = {3} AND Frozen >= {0}",
+            amount, now, userId, symbol);
+    }
+
+    public async Task<int> AtomicAddAvailableAsync(int userId, string symbol, decimal amount)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return await _context.Database.ExecuteSqlRawAsync(
+            @"UPDATE Assets 
+              SET Available = Available + {0}, UpdatedAt = {1} 
+              WHERE UserId = {2} AND Symbol = {3}",
+            amount, now, userId, symbol);
+    }
+
+    public async Task<int> AtomicDeductAvailableAsync(int userId, string symbol, decimal amount)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return await _context.Database.ExecuteSqlRawAsync(
+            @"UPDATE Assets 
+              SET Available = Available - {0}, UpdatedAt = {1} 
+              WHERE UserId = {2} AND Symbol = {3} AND Available >= {0}",
+            amount, now, userId, symbol);
+    }
 }

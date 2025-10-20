@@ -157,6 +157,74 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                             }
                         }
                     }
+                    else if (command.Type == OrderType.Market)
+                    {
+                        if (command.Side == OrderSide.Buy)
+                        {
+                            // 市价买单: 获取当前最低卖价(Ask)估算需要冻结的报价资产
+                            // 如果没有卖单,使用一个保守估算(如用户全部可用余额,或拒绝订单)
+                            var orderBook = await _orderMatchingEngine.GetOrderBookDepthAsync(command.Symbol, 1);
+                            decimal estimatedPrice = 0;
+                            if (orderBook != null && orderBook.Asks.Any())
+                            {
+                                estimatedPrice = orderBook.Asks.First().Price;
+                            }
+                            else
+                            {
+                                // 没有卖单,无法市价买入
+                                return new SubmitOrderResult { Success = false, ErrorMessage = "当前没有卖单,无法提交市价买单" };
+                            }
+
+                            var estimatedNotional = RoundDown(command.Quantity * estimatedPrice * 1.01m, tradingPair.PricePrecision); // 1.01倍作为缓冲
+                            if (estimatedNotional <= 0)
+                                return new SubmitOrderResult { Success = false, ErrorMessage = "市价买单估算金额为0" };
+
+                            var assetResp = await _assetService.GetUserAssetAsync(command.UserId, tradingPair.QuoteAsset);
+                            if (assetResp.Success && assetResp.Data != null)
+                            {
+                                var available = assetResp.Data.Available;
+                                if (available < estimatedNotional)
+                                {
+                                    errorMsg = $"余额不足，可用: {available:F4} {tradingPair.QuoteAsset}, 预估需要: {estimatedNotional:F4} {tradingPair.QuoteAsset}";
+                                    freezeOk = false;
+                                }
+                                else
+                                {
+                                    var freezeResp = await _assetService.FreezeAssetAsync(command.UserId, new AssetOperationRequestDto { Symbol = tradingPair.QuoteAsset, Amount = estimatedNotional });
+                                    freezeOk = freezeResp.Success && freezeResp.Data;
+                                }
+                            }
+                            else
+                            {
+                                freezeOk = false;
+                                errorMsg = $"未找到 {tradingPair.QuoteAsset} 资产";
+                            }
+                        }
+                        else if (command.Side == OrderSide.Sell)
+                        {
+                            // 市价卖单: 直接冻结要卖出的基础资产数量
+                            var assetResp = await _assetService.GetUserAssetAsync(command.UserId, tradingPair.BaseAsset);
+                            if (assetResp.Success && assetResp.Data != null)
+                            {
+                                var available = assetResp.Data.Available;
+                                if (available < command.Quantity)
+                                {
+                                    errorMsg = $"余额不足，可用: {available:F8} {tradingPair.BaseAsset}, 需要: {command.Quantity:F8} {tradingPair.BaseAsset}";
+                                    freezeOk = false;
+                                }
+                                else
+                                {
+                                    var freezeResp = await _assetService.FreezeAssetAsync(command.UserId, new AssetOperationRequestDto { Symbol = tradingPair.BaseAsset, Amount = command.Quantity });
+                                    freezeOk = freezeResp.Success && freezeResp.Data;
+                                }
+                            }
+                            else
+                            {
+                                freezeOk = false;
+                                errorMsg = $"未找到 {tradingPair.BaseAsset} 资产";
+                            }
+                        }
+                    }
 
                     if (!freezeOk)
                     {

@@ -21,7 +21,9 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
 
     public async Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null)
     {
-        IQueryable<Order> query = _dbSet.Include(o => o.TradingPair)
+        IQueryable<Order> query = _dbSet
+            .AsNoTracking() // 不跟踪实体,避免并发冲突
+            .Include(o => o.TradingPair)
             .Where(o => o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled || o.Status == OrderStatus.Pending);
         if (!string.IsNullOrEmpty(symbol))
         {
