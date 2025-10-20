@@ -6,6 +6,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.RealTime; // migrated
 using CryptoSpot.Application.DTOs.MarketData;
 using CryptoSpot.Application.DTOs.Trading;
+using CryptoSpot.Application.DTOs.Users;
 using CryptoSpot.Application.Mapping;
 
 namespace CryptoSpot.Infrastructure.BgServices
@@ -229,6 +230,49 @@ namespace CryptoSpot.Infrastructure.BgServices
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to push trade data for {Symbol}", symbol);
+            }
+        }
+
+        public async Task PushUserOrderUpdateAsync(int userId, OrderDto order)
+        {
+            try
+            {
+                var userGroup = $"user_{userId}";
+                await _hubContext.Clients.Group(userGroup).SendAsync("OrderUpdate", order);
+                _logger.LogInformation("✅ [SignalR] 推送订单更新到用户 {UserId}: OrderId={OrderId}, Status={Status}", 
+                    userId, order.OrderId, order.Status);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to push order update to user {UserId}", userId);
+            }
+        }
+
+        public async Task PushUserTradeAsync(int userId, TradeDto trade)
+        {
+            try
+            {
+                var userGroup = $"user_{userId}";
+                await _hubContext.Clients.Group(userGroup).SendAsync("UserTradeUpdate", trade);
+                _logger.LogInformation("✅ [SignalR] 推送用户成交到用户 {UserId}: TradeId={TradeId}", userId, trade.TradeId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to push trade to user {UserId}", userId);
+            }
+        }
+
+        public async Task PushUserAssetUpdateAsync(int userId, IEnumerable<AssetDto> assets)
+        {
+            try
+            {
+                var userGroup = $"user_{userId}";
+                await _hubContext.Clients.Group(userGroup).SendAsync("AssetUpdate", assets);
+                _logger.LogInformation("✅ [SignalR] 推送资产更新到用户 {UserId}: {Count} 个资产", userId, assets.Count());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to push asset update to user {UserId}", userId);
             }
         }
     }

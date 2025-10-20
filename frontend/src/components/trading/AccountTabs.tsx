@@ -188,7 +188,48 @@ const AccountTabs: React.FC = () => {
   };
 
   useEffect(() => { loadData(); }, [user]);
-  useEffect(() => { const id = setInterval(loadData, 10000); return () => clearInterval(id); }, [user]);
+  
+  // 监听实时推送事件
+  useEffect(() => {
+    const handleUserTradeUpdate = (event: Event) => {
+      const trade = (event as CustomEvent).detail;
+      console.log('📊 [AccountTabs] 收到用户成交推送事件:', trade);
+      setTrades(prev => [trade, ...prev].slice(0, 50)); // 保留最新50条
+      loadData(); // 全量刷新以确保数据一致性
+    };
+
+    const handleOrderUpdate = (event: Event) => {
+      const order = (event as CustomEvent).detail;
+      console.log('📝 [AccountTabs] 收到订单更新推送事件:', order);
+      loadData(); // 订单状态变化需要全量刷新
+    };
+
+    const handleAssetUpdate = (event: Event) => {
+      const assets = (event as CustomEvent).detail;
+      console.log('💰 [AccountTabs] 收到资产更新推送事件:', assets);
+      if (Array.isArray(assets)) {
+        setAssets(assets);
+      } else {
+        loadData(); // 如果格式不对就全量刷新
+      }
+    };
+
+    window.addEventListener('user-trade-update', handleUserTradeUpdate);
+    window.addEventListener('user-order-update', handleOrderUpdate);
+    window.addEventListener('user-asset-update', handleAssetUpdate);
+
+    console.log('👂 [AccountTabs] 已注册自定义事件监听器');
+
+    return () => {
+      window.removeEventListener('user-trade-update', handleUserTradeUpdate);
+      window.removeEventListener('user-order-update', handleOrderUpdate);
+      window.removeEventListener('user-asset-update', handleAssetUpdate);
+      console.log('🧹 [AccountTabs] 已移除事件监听器');
+    };
+  }, []);
+
+  // 定期轮询作为备份机制
+  useEffect(() => { const id = setInterval(loadData, 30000); return () => clearInterval(id); }, [user]);
 
   const statusMap: Record<string, 'pending' | 'active' | 'partial' | 'filled' | 'cancelled'> = {
     Pending: 'pending',

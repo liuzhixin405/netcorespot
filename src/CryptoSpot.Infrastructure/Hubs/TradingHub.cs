@@ -185,6 +185,23 @@ namespace CryptoSpot.Infrastructure.Hubs
             await Clients.Caller.SendAsync("TradesUnsubscribed", symbol);
         }
 
+        // 订阅用户个人数据(订单、成交、资产)
+        public async Task SubscribeUserData(int userId)
+        {
+            var userGroup = $"user_{userId}";
+            await Groups.AddToGroupAsync(Context.ConnectionId, userGroup);
+            _logger.LogInformation("✅ [TradingHub] 客户端 {ConnectionId} 订阅用户数据: UserId={UserId}", Context.ConnectionId, userId);
+            await Clients.Caller.SendAsync("UserDataSubscribed", userId);
+        }
+
+        public async Task UnsubscribeUserData(int userId)
+        {
+            var userGroup = $"user_{userId}";
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, userGroup);
+            _logger.LogInformation("❌ [TradingHub] 客户端 {ConnectionId} 取消订阅用户数据: UserId={UserId}", Context.ConnectionId, userId);
+            await Clients.Caller.SendAsync("UserDataUnsubscribed", userId);
+        }
+
         public override async Task OnConnectedAsync()
         {
             await Clients.Caller.SendAsync("Connected", Context.ConnectionId);

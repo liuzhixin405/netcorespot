@@ -783,6 +783,7 @@ namespace CryptoSpot.Infrastructure.Services
                             var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(buyOrder.TradingPairId);
                             if (tradingPair.Success && tradingPair.Data != null)
                             {
+                                // 1. 推送市场公开成交数据
                                 var marketTrade = new MarketTradeDto
                                 {
                                     Id = dto.Id,
@@ -793,6 +794,45 @@ namespace CryptoSpot.Infrastructure.Services
                                     IsBuyerMaker = sellOrder.Type == OrderType.Limit // 卖单是限价单则买方是taker
                                 };
                                 await realTimePushService.PushTradeDataAsync(tradingPair.Data.Symbol, marketTrade);
+                                
+                                // 2. 推送给买方用户(如果是真实用户)
+                                if (!isBuyerMaker && buyOrder.UserId.HasValue)
+                                {
+                                    var buyerTradeDto = new TradeDto
+                                    {
+                                        Id = dto.Id,
+                                        TradeId = dto.TradeId,
+                                        BuyOrderId = dto.BuyOrderId,
+                                        SellOrderId = dto.SellOrderId,
+                                        BuyerId = dto.BuyerId,
+                                        SellerId = dto.SellerId,
+                                        Price = dto.Price,
+                                        Quantity = dto.Quantity,
+                                        ExecutedAt = dto.ExecutedAt,
+                                        Side = Domain.Entities.OrderSide.Buy
+                                    };
+                                    await realTimePushService.PushUserTradeAsync(buyOrder.UserId.Value, buyerTradeDto);
+                                }
+                                
+                                // 3. 推送给卖方用户(如果是真实用户)
+                                if (!isSellerMaker && sellOrder.UserId.HasValue)
+                                {
+                                    var sellerTradeDto = new TradeDto
+                                    {
+                                        Id = dto.Id,
+                                        TradeId = dto.TradeId,
+                                        BuyOrderId = dto.BuyOrderId,
+                                        SellOrderId = dto.SellOrderId,
+                                        BuyerId = dto.BuyerId,
+                                        SellerId = dto.SellerId,
+                                        Price = dto.Price,
+                                        Quantity = dto.Quantity,
+                                        ExecutedAt = dto.ExecutedAt,
+                                        Side = Domain.Entities.OrderSide.Sell
+                                    };
+                                    await realTimePushService.PushUserTradeAsync(sellOrder.UserId.Value, sellerTradeDto);
+                                }
+                                
                                 _logger.LogInformation("✅ [OrderMatchingEngine] 推送成交数据: TradeId={TradeId}, Symbol={Symbol}, Price={Price}, Quantity={Quantity}, BuyerIsMaker={BuyerIsMaker}, SellerIsMaker={SellerIsMaker}", 
                                     dto.TradeId, tradingPair.Data.Symbol, dto.Price, dto.Quantity, isBuyerMaker, isSellerMaker);
                             }
@@ -865,6 +905,39 @@ namespace CryptoSpot.Infrastructure.Services
                             order.OrderId, totalExecuted, order.Quantity - totalExecuted);
                         await _orderStore.UpdateOrderStatusAsync(order.Id, OrderStatus.PartiallyFilled, totalExecuted);
                         order.Status = OrderStatus.PartiallyFilled;
+                    }
+                }
+                
+                // 推送订单状态更新
+                if (order.UserId.HasValue)
+                {
+                    try
+                    {
+                        using var scope = _serviceScopeFactory.CreateScope();
+                        var realTimePushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                        var tradingPair = await _tradingPairService.GetTradingPairByIdAsync(order.TradingPairId);
+                        var orderDto = new OrderDto
+                        {
+                            Id = order.Id,
+                            OrderId = order.OrderId,
+                            UserId = order.UserId.Value,
+                            Symbol = tradingPair.Success && tradingPair.Data != null ? tradingPair.Data.Symbol : "",
+                            Side = order.Side,
+                            Type = order.Type,
+                            Price = order.Price,
+                            Quantity = order.Quantity,
+                            FilledQuantity = order.FilledQuantity,
+                            Status = order.Status,
+                            CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(order.CreatedAt).DateTime,
+                            UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(order.UpdatedAt).DateTime
+                        };
+                        await realTimePushService.PushUserOrderUpdateAsync(order.UserId.Value, orderDto);
+                        _logger.LogInformation("✅ [OrderMatchingEngine] 推送订单状态更新: OrderId={OrderId}, Status={Status}, UserId={UserId}", 
+                            order.OrderId, order.Status, order.UserId.Value);
+                    }
+                    catch (Exception pushEx)
+                    {
+                        _logger.LogWarning(pushEx, "推送订单状态失败，但状态已更新: OrderId={OrderId}", order.OrderId);
                     }
                 }
             }

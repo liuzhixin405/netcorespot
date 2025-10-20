@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { TrendingUp, TrendingDown, Activity, Clock, BarChart3 } from 'lucide-react';
 import TradingHeader from '../components/trading/TradingHeader';
@@ -7,6 +7,8 @@ import OrderBook from '../components/trading/OrderBook';
 import TradeForm from '../components/trading/TradeForm';
 import RecentTrades from '../components/trading/RecentTrades';
 import AccountTabs from '../components/trading/AccountTabs';
+import { useAuth } from '../contexts/AuthContext';
+import { signalRClient } from '../services/signalRClient';
 
 const TradingContainer = styled.div`
   display: grid;
@@ -94,6 +96,84 @@ const MiddleRightSection = styled.div`
 const Trading: React.FC = () => {
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT');
   const [timeframe, setTimeframe] = useState('1m');
+  const { user, isAuthenticated } = useAuth();
+
+  // 订阅用户数据推送
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) {
+      console.log('🔒 [Trading] 用户未登录，跳过SignalR订阅');
+      return;
+    }
+
+    console.log(`🔌 [Trading] 开始订阅用户数据: userId=${user.id}`);
+    
+    let connection: any = null;
+    
+    // 监听用户成交更新
+    const handleUserTrade = (trade: any) => {
+      console.log('📊 [Trading] 收到用户成交推送:', trade);
+      window.dispatchEvent(new CustomEvent('user-trade-update', { detail: trade }));
+    };
+
+    // 监听订单状态更新
+    const handleOrderUpdate = (order: any) => {
+      console.log('� [Trading] 收到订单状态推送:', order);
+      window.dispatchEvent(new CustomEvent('user-order-update', { detail: order }));
+    };
+
+    // 监听资产更新
+    const handleAssetUpdate = (assets: any) => {
+      console.log('� [Trading] 收到资产更新推送:', assets);
+      window.dispatchEvent(new CustomEvent('user-asset-update', { detail: assets }));
+    };
+    
+    // 先建立SignalR连接
+    const initConnection = async () => {
+      try {
+        const connected = await signalRClient.connect();
+        if (!connected) {
+          console.error('❌ [Trading] SignalR连接失败');
+          return;
+        }
+        
+        console.log('✅ [Trading] SignalR连接成功');
+        
+        connection = signalRClient.getConnection();
+        if (!connection) {
+          console.error('❌ [Trading] SignalR连接对象不存在');
+          return;
+        }
+
+        // 订阅用户数据组
+        await connection.invoke('SubscribeUserData', user.id);
+        console.log(`✅ [Trading] 成功订阅用户数据: userId=${user.id}`);
+
+        // 注册事件监听器
+        connection.on('UserTradeUpdate', handleUserTrade);
+        connection.on('OrderUpdate', handleOrderUpdate);
+        connection.on('AssetUpdate', handleAssetUpdate);
+
+        console.log('👂 [Trading] 已注册SignalR事件监听器');
+      } catch (err) {
+        console.error('❌ [Trading] 初始化SignalR失败:', err);
+      }
+    };
+
+    initConnection();
+
+    // 清理函数
+    return () => {
+      if (connection) {
+        console.log(`🧹 [Trading] 取消订阅用户数据: userId=${user.id}`);
+        connection.invoke('UnsubscribeUserData', user.id).catch((err: any) => {
+          console.error('❌ [Trading] 取消订阅失败:', err);
+        });
+        connection.off('UserTradeUpdate', handleUserTrade);
+        connection.off('OrderUpdate', handleOrderUpdate);
+        connection.off('AssetUpdate', handleAssetUpdate);
+      }
+    };
+  }, [isAuthenticated, user?.id]);
 
   React.useEffect(()=>{
     // 临时开启调试

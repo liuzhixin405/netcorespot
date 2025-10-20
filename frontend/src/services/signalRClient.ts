@@ -38,19 +38,19 @@ export class SignalRClient {
     }
 
     this.isConnecting = true;
+    
+    const signalRUrl = process.env.REACT_APP_SIGNALR_URL || 'https://localhost:5001/tradingHub';
 
     try {
       const token = localStorage.getItem('token');
       
-      const signalRUrl = process.env.REACT_APP_SIGNALR_URL || 'https://localhost:5001/tradingHub';
+      console.log('[SignalR] 尝试连接到:', signalRUrl);
       
       this.connection = new signalR.HubConnectionBuilder()
         .withUrl(signalRUrl, {
           accessTokenFactory: () => token || '',
-          transport: signalR.HttpTransportType.WebSockets, // 强制只用 WebSocket
-          skipNegotiation: true // 跳过协商
+          // 允许自动协商传输方式(WebSockets, ServerSentEvents, LongPolling)
         })
-        .withHubProtocol(new signalR.JsonHubProtocol())
         .withAutomaticReconnect()
         .configureLogging(signalR.LogLevel.Information)
         .build();
@@ -105,17 +105,25 @@ export class SignalRClient {
       });
 
       await this.connection.start();
-      console.log('[SignalR] Connected via WebSocket');
+      console.log('[SignalR] ✅ 连接成功! URL:', signalRUrl);
+      console.log('[SignalR] 连接ID:', this.connection.connectionId);
       this.reconnectAttempts = 0;
       this.isConnecting = false;
       
       return true;
     } catch (error) {
+      console.error('[SignalR] ❌ 连接失败:', error);
+      console.error('[SignalR] 尝试连接的URL:', signalRUrl);
+      console.error('[SignalR] 错误详情:', error instanceof Error ? error.message : error);
+      
       this.isConnecting = false;
       this.reconnectAttempts++;
       
       if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        console.log(`[SignalR] 将在3秒后重试 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
         setTimeout(() => this.connect(), 3000);
+      } else {
+        console.error('[SignalR] ❌ 达到最大重试次数,放弃连接');
       }
       
       return false;
@@ -406,6 +414,11 @@ export class SignalRClient {
   // 获取连接状态
   isConnected(): boolean {
     return this.connection?.state === signalR.HubConnectionState.Connected;
+  }
+
+  // 获取底层连接对象
+  getConnection(): signalR.HubConnection | null {
+    return this.connection;
   }
 
   // 断开连接
