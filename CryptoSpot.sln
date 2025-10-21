@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CryptoSpot.Bus", "src\Crypt
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CryptoSpot.Persistence", "src\CryptoSpot.Persistence\CryptoSpot.Persistence.csproj", "{71036DD0-5BF4-AE4C-F1D3-D173A1ABCC4E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnusedCodeScanner", "src\UnusedCodeScanner\UnusedCodeScanner.csproj", "{B20C668D-C184-4D02-95EB-19EC23EAD3A2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -113,6 +115,18 @@ Global
 		{71036DD0-5BF4-AE4C-F1D3-D173A1ABCC4E}.Release|x64.Build.0 = Release|Any CPU
 		{71036DD0-5BF4-AE4C-F1D3-D173A1ABCC4E}.Release|x86.ActiveCfg = Release|Any CPU
 		{71036DD0-5BF4-AE4C-F1D3-D173A1ABCC4E}.Release|x86.Build.0 = Release|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Debug|x64.Build.0 = Debug|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Debug|x86.Build.0 = Debug|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Release|x64.ActiveCfg = Release|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Release|x64.Build.0 = Release|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Release|x86.ActiveCfg = Release|Any CPU
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -120,6 +134,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{4855B07D-30C2-4101-9804-EF4A5A872D5B} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{D02F4A0D-2761-64FC-E5EA-4AE66D54CE77} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{B20C668D-C184-4D02-95EB-19EC23EAD3A2} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {8C018EC1-63D1-4236-A74B-E9D68970C3F7}

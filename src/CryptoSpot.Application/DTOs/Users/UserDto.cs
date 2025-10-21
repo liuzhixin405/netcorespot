@@ -116,14 +116,6 @@ namespace CryptoSpot.Application.DTOs.Users
     /// <summary>
     /// 用户列表响应DTO
     /// </summary>
-    public class UserListResponseDto
-    {
-        public IEnumerable<UserDto> Users { get; set; } = new List<UserDto>();
-        public int TotalCount { get; set; }
-        public int PageNumber { get; set; }
-        public int PageSize { get; set; }
-    }
-
     /// <summary>
     /// 创建用户请求DTO
     /// </summary>

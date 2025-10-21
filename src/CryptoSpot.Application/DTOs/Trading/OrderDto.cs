@@ -144,11 +144,4 @@ namespace CryptoSpot.Application.DTOs.Trading
     /// <summary>
     /// 订单列表响应DTO
     /// </summary>
-    public class OrderListResponseDto
-    {
-        public IEnumerable<OrderDto> Orders { get; set; } = new List<OrderDto>();
-        public int TotalCount { get; set; }
-        public int PageNumber { get; set; }
-        public int PageSize { get; set; }
-    }
 }

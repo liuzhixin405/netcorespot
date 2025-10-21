@@ -79,13 +79,6 @@ namespace CryptoSpot.Application.DTOs.Users
     /// <summary>
     /// 用户资产列表响应DTO
     /// </summary>
-    public class UserAssetsResponseDto
-    {
-        public IEnumerable<AssetDto> Assets { get; set; } = new List<AssetDto>();
-        public int TotalCount { get; set; }
-        public decimal? TotalUsdtValue { get; set; }
-    }
-
     /// <summary>
     /// 资产操作请求DTO
     /// </summary>

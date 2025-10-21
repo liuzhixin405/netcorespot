@@ -46,7 +46,6 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         Task<ApiResponseDto<TestOrderResultDto>> TestOrderAsync(int userId, CreateOrderRequestDto request);
 
         // 批量操作
-        Task<ApiResponseDto<IEnumerable<OrderDto>>> GetOrderHistoryAsync(int userId, PagedRequestDto request);
-        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(int userId, PagedRequestDto request);
+        // Removed unused paged history methods: GetOrderHistoryAsync / GetTradeHistoryAsync (not externally referenced)
     }
 }

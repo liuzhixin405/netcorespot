@@ -83,46 +83,6 @@ namespace CryptoSpot.Application.DTOs.MarketData
     /// <summary>
     /// K线历史数据响应DTO
     /// </summary>
-    public class KLineHistoryResponseDto
-    {
-        public bool Success { get; set; }
-        public IEnumerable<KLineDataDto> Data { get; set; } = new List<KLineDataDto>();
-        public string Symbol { get; set; } = string.Empty;
-        public string Interval { get; set; } = string.Empty;
-        public int Count { get; set; }
-        public string? Message { get; set; }
-    }
-
-    /// <summary>
-    /// 最新K线数据响应DTO
-    /// </summary>
-    public class KLineLatestResponseDto
-    {
-        public bool Success { get; set; }
-        public KLineDataDto? Data { get; set; }
-        public string? Message { get; set; }
-    }
-
-    /// <summary>
-    /// 支持的交易对列表响应DTO
-    /// </summary>
-    public class KLineSymbolsResponseDto
-    {
-        public bool Success { get; set; }
-        public IEnumerable<string> Data { get; set; } = new List<string>();
-        public string? Message { get; set; }
-    }
-
-    /// <summary>
-    /// 支持的时间间隔响应DTO
-    /// </summary>
-    public class KLineIntervalsResponseDto
-    {
-        public bool Success { get; set; }
-        public IEnumerable<string> Data { get; set; } = new List<string>();
-        public string? Message { get; set; }
-    }
-
     /// <summary>
     /// K线数据统计DTO
     /// </summary>

@@ -338,22 +338,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetOrderHistoryAsync(int userId, PagedRequestDto request)
-        {
-            try
-            {
-                var resp = await _orderService.GetUserOrdersDtoAsync(userId, null, request.PageSize * request.PageNumber);
-                if (!resp.Success || resp.Data == null)
-                    return ApiResponseDto<IEnumerable<OrderDto>>.CreateError(resp.Error ?? "获取订单历史失败", resp.ErrorCode);
-                var paged = resp.Data.Skip((request.PageNumber - 1) * request.PageSize).Take(request.PageSize).ToList();
-                return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(paged);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting order history for user {UserId}", userId);
-                return ApiResponseDto<IEnumerable<OrderDto>>.CreateError("获取订单历史失败");
-            }
-        }
+        // Removed unused GetOrderHistoryAsync
 
         #endregion
 
@@ -386,7 +371,8 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     return ApiResponseDto<IEnumerable<TradeDto>>.CreateError(orderResp.Error ?? "订单不存在", orderResp.ErrorCode);
                 }
-                var resp = await _tradeService.GetOrderTradesAsync(orderId);
+                // 接口方法已精简，改用 GetTradesByOrderIdAsync (仍保留交易记录查询能力)
+                var resp = await _tradeService.GetTradesByOrderIdAsync(orderId);
                 if (!resp.Success || resp.Data == null)
                 {
                     return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("获取订单交易失败");
@@ -528,24 +514,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         #region 批量操作相关
 
-        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(int userId, PagedRequestDto request)
-        {
-            try
-            {
-                var resp = await _tradeService.GetTradeHistoryAsync(userId, null);
-                if (!resp.Success || resp.Data == null)
-                {
-                    return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("获取交易历史失败");
-                }
-                var paged = resp.Data.Skip((request.PageNumber - 1) * request.PageSize).Take(request.PageSize).ToList();
-                return ApiResponseDto<IEnumerable<TradeDto>>.CreateSuccess(paged);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting trade history for user {UserId}", userId);
-                return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("获取交易历史失败");
-            }
-        }
+        // Removed unused paged trade history
         #endregion
     }
 }

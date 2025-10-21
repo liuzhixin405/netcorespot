@@ -14,14 +14,12 @@ namespace CryptoSpot.Infrastructure.BgServices
     public class SignalRDataPushService : IRealTimeDataPushService
     {
         private readonly IHubContext<TradingHub> _hubContext;
-        private readonly IOrderMatchingEngine _orderMatchingEngine;
         private readonly ILogger<SignalRDataPushService> _logger;
         private readonly IDtoMappingService _mapping;
 
-        public SignalRDataPushService(IHubContext<TradingHub> hubContext, IOrderMatchingEngine orderMatchingEngine, ILogger<SignalRDataPushService> logger, IDtoMappingService mapping)
+        public SignalRDataPushService(IHubContext<TradingHub> hubContext,ILogger<SignalRDataPushService> logger, IDtoMappingService mapping)
         {
             _hubContext = hubContext;
-            _orderMatchingEngine = orderMatchingEngine;
             _logger = logger;
             _mapping = mapping;
         }

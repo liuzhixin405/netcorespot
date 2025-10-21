@@ -94,12 +94,6 @@ namespace CryptoSpot.Application.DTOs.Trading
     /// <summary>
     /// 交易对列表响应DTO
     /// </summary>
-    public class TradingPairListResponseDto
-    {
-        public IEnumerable<TradingPairDto> TradingPairs { get; set; } = new List<TradingPairDto>();
-        public int TotalCount { get; set; }
-    }
-
     /// <summary>
     /// 交易对简要信息DTO（用于下拉列表等）
     /// </summary>

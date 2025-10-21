@@ -59,33 +59,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<AssetSummaryDto>> GetUserAssetSummaryAsync(int userId)
-        {
-            try
-            {
-                var list = (await GetUserAssetsInternalAsync(userId)).ToList();
-                var summary = new AssetSummaryDto
-                {
-                    TotalValue = list.Sum(a => a.Total),
-                    AvailableValue = list.Sum(a => a.Available),
-                    FrozenValue = list.Sum(a => a.Frozen),
-                    AssetTypes = list.Count(a => a.Total > 0),
-                    LastUpdated = DateTime.UtcNow
-                };
-                return ApiResponseDto<AssetSummaryDto>.CreateSuccess(summary);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting user asset summary for user {UserId}", userId);
-                return ApiResponseDto<AssetSummaryDto>.CreateError("获取用户资产汇总失败");
-            }
-        }
-
-        public Task<ApiResponseDto<IEnumerable<AssetDto>>> GetSystemAssetsAsync()
-            => Task.FromResult(ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(Enumerable.Empty<AssetDto>(), "系统资产功能暂未实现"));
-
-        public Task<ApiResponseDto<AssetDto?>> GetSystemAssetAsync(string symbol)
-            => Task.FromResult(ApiResponseDto<AssetDto?>.CreateSuccess(null, "系统资产功能暂未实现"));
+        // Removed unused: GetUserAssetSummaryAsync / GetSystemAssetsAsync / GetSystemAssetAsync
 
         public async Task<ApiResponseDto<bool>> AddAssetAsync(int userId, AssetOperationRequestDto request)
         {
@@ -185,67 +159,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public Task<ApiResponseDto<bool>> RefillSystemAssetAsync(string symbol, decimal amount)
-            => Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "系统资产补充功能暂未实现"));
-
-        public Task<ApiResponseDto<bool>> UpdateSystemAssetConfigAsync(string symbol, decimal minReserve, decimal targetBalance, bool autoRefillEnabled)
-            => Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "系统资产配置功能暂未实现"));
-
-        public async Task<ApiResponseDto<decimal>> GetTotalAssetValueAsync(int userId, string quoteCurrency = "USDT")
-        {
-            try
-            {
-                var assets = await GetUserAssetsInternalAsync(userId);
-                return ApiResponseDto<decimal>.CreateSuccess(assets.Sum(a => a.Total));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting total asset value for user {UserId}", userId);
-                return ApiResponseDto<decimal>.CreateError("获取资产总价值失败");
-            }
-        }
-
-        public async Task<ApiResponseDto<IEnumerable<AssetDto>>> GetAssetsAboveThresholdAsync(int userId, decimal threshold)
-        {
-            try
-            {
-                var assets = (await GetUserAssetsInternalAsync(userId)).Where(a => a.Total >= threshold);
-                return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(_mappingService.MapToDto(assets));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting assets above threshold for user {UserId}", userId);
-                return ApiResponseDto<IEnumerable<AssetDto>>.CreateError("获取资产失败");
-            }
-        }
-
-        public async Task<ApiResponseDto<bool>> ValidateAssetOperationAsync(int userId, string symbol, decimal amount, bool includeFrozen = false)
-        {
-            try
-            {
-                var ok = await HasSufficientBalanceInternalAsync(userId, symbol, amount, includeFrozen);
-                return ApiResponseDto<bool>.CreateSuccess(ok);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error validating asset operation for user {UserId}", userId);
-                return ApiResponseDto<bool>.CreateError("资产操作验证失败");
-            }
-        }
-
-        public async Task<ApiResponseDto<bool>> CheckAssetExistsAsync(int userId, string symbol)
-        {
-            try
-            {
-                var asset = await GetUserAssetInternalAsync(userId, symbol);
-                return ApiResponseDto<bool>.CreateSuccess(asset != null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error checking asset exists for user {UserId} symbol {Symbol}", userId, symbol);
-                return ApiResponseDto<bool>.CreateError("检查资产失败");
-            }
-        }
+        // Removed unused extended query / system asset methods
 
         public async Task<ApiResponseDto<bool>> InitializeUserAssetsAsync(int userId, Dictionary<string, decimal> initialBalances)
         {

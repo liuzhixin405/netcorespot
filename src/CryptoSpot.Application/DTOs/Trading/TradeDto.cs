@@ -90,14 +90,6 @@ namespace CryptoSpot.Application.DTOs.Trading
     /// <summary>
     /// 交易历史响应DTO
     /// </summary>
-    public class TradeHistoryResponseDto
-    {
-        public IEnumerable<TradeDto> Trades { get; set; } = new List<TradeDto>();
-        public int TotalCount { get; set; }
-        public int PageNumber { get; set; }
-        public int PageSize { get; set; }
-    }
-
     /// <summary>
     /// 用户交易统计DTO
     /// </summary>

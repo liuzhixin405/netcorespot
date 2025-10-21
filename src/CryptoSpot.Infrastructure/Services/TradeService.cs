@@ -183,19 +183,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<TradeDto?>> GetTradeByIdAsync(long tradeId)
-        {
-            try
-            {
-                var trade = await _tradeRepository.GetByIdAsync((int)tradeId);
-                return ApiResponseDto<TradeDto?>.CreateSuccess(trade == null ? null : _mapping.MapToDto(trade));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "获取交易记录失败: TradeId={TradeId}", tradeId);
-                return ApiResponseDto<TradeDto?>.CreateError("获取交易记录失败");
-            }
-        }
+        // Removed unused trade detail / volume / price range APIs; re-added order trade queries for TradingService
 
         public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradesByOrderIdAsync(int orderId)
         {
@@ -212,39 +200,6 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         public Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(int orderId) => GetTradesByOrderIdAsync(orderId);
-
-        public async Task<ApiResponseDto<decimal>> GetTradingVolumeAsync(string symbol, TimeSpan timeRange)
-        {
-            try
-            {
-                var startTime = DateTimeOffset.UtcNow.Add(-timeRange).ToUnixTimeMilliseconds();
-                var trades = await _tradeRepository.FindAsync(t => t.ExecutedAt >= startTime);
-                var volume = trades.Sum(t => t.Price * t.Quantity);
-                return ApiResponseDto<decimal>.CreateSuccess(volume);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "获取交易量失败: Symbol={Symbol}", symbol);
-                return ApiResponseDto<decimal>.CreateError("获取交易量失败");
-            }
-        }
-
-        public async Task<ApiResponseDto<(decimal high, decimal low)>> GetPriceRangeAsync(string symbol, TimeSpan timeRange)
-        {
-            try
-            {
-                var startTime = DateTimeOffset.UtcNow.Add(-timeRange).ToUnixTimeMilliseconds();
-                var trades = await _tradeRepository.FindAsync(t => t.ExecutedAt >= startTime);
-                if (!trades.Any()) return ApiResponseDto<(decimal, decimal)>.CreateSuccess((0, 0));
-                var prices = trades.Select(t => t.Price);
-                return ApiResponseDto<(decimal, decimal)>.CreateSuccess((prices.Max(), prices.Min()));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "获取价格区间失败: Symbol={Symbol}", symbol);
-                return ApiResponseDto<(decimal, decimal)>.CreateError("获取价格区间失败");
-            }
-        }
 
         public async Task<ApiResponseDto<IEnumerable<MarketTradeDto>>> GetMarketRecentTradesAsync(string symbol, int limit = 50)
         {

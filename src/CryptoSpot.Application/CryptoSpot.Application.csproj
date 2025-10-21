@@ -17,8 +17,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <Folder Include="UseCases\" />
-    <Folder Include="DomainCommands\" />
+    <!-- 已清理未使用 UseCases/Auth 与旧 DomainCommands，占位移除 -->
   </ItemGroup>
   <!-- 清理占位/空 V2 文件：防止编译混乱 -->
   <ItemGroup>
