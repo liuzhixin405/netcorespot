@@ -42,7 +42,7 @@ export class SignalRClient {
     this.connectPromise = new Promise<boolean>(async (resolve) => {
       try {
         const token = localStorage.getItem('token');
-        console.log('[SignalR] 尝试连接到:', signalRUrl);
+  // log removed
 
         this.connection = new signalR.HubConnectionBuilder()
           .withUrl(signalRUrl, {
@@ -57,58 +57,52 @@ export class SignalRClient {
             if ((window as any).__SR_DEBUG) console.log('[SignalR][EVENT]', event, ...args);
           });
         };
-        ['PriceSubscribed','KLineSubscribed','OrderBookSubscribed','Error'].forEach(attachDebugHandler);
+        // 注册订阅/取消订阅 ACK 事件的空处理器，避免 SignalR 输出 "No client method ... found" 警告
+        [
+          'PriceSubscribed','PriceUnsubscribed',
+          'KLineSubscribed','KLineUnsubscribed',
+          'OrderBookSubscribed','OrderBookUnsubscribed',
+          'TickerSubscribed','TickerUnsubscribed',
+          'TradesSubscribed','TradesUnsubscribed',
+          'UserDataSubscribed','UserDataUnsubscribed',
+          'Error'
+        ].forEach(attachDebugHandler);
 
-        (window as any).__SR_DEBUG_API = {
-          enable: () => { (window as any).__SR_DEBUG = true; console.log('[SignalR] Debug enabled'); },
-            disable: () => { delete (window as any).__SR_DEBUG; console.log('[SignalR] Debug disabled'); },
-            conn: () => this.connection,
-            resubPrice: async () => { if (this.subscribedPriceSymbols.length) await this.connection!.invoke('SubscribePriceData', this.subscribedPriceSymbols); },
-            resubK: async () => { for (const k of this.subscribedKLines) await this.connection!.invoke('SubscribeKLineData', k.symbol, k.interval); },
-            resubOB: async () => { for (const o of this.subscribedOrderBooks) await this.connection!.invoke('SubscribeOrderBook', o.symbol, o.depth); }
-        };
+        (window as any).__SR_DEBUG_API = undefined;
 
         this.connection.onclose((error?: Error) => {
-          console.warn('[SignalR] WebSocket closed', error);
           this.isConnecting = false;
           this.connectPromise = null;
         });
-        this.connection.onreconnecting((error?: Error) => {
-          console.warn('[SignalR] Reconnecting WebSocket...', error?.message);
-        });
+        this.connection.onreconnecting((error?: Error) => { });
         this.connection.onreconnected(async (connectionId?: string) => {
-          console.log('[SignalR] Reconnected, id=', connectionId);
           this.reconnectAttempts = 0;
           try {
             if (this.subscribedPriceSymbols.length) await this.connection!.invoke('SubscribePriceData', this.subscribedPriceSymbols);
             for (const k of this.subscribedKLines) await this.connection!.invoke('SubscribeKLineData', k.symbol, k.interval);
             for (const ob of this.subscribedOrderBooks) await this.connection!.invoke('SubscribeOrderBook', ob.symbol, ob.depth ?? 20);
-          } catch (e) { console.warn('[SignalR] Re-subscribe after reconnect failed', e); }
+          } catch (e) { }
         });
 
         await this.connection.start();
         const cost = Date.now() - startTime;
-        console.log('[SignalR] ✅ 连接成功:', signalRUrl, `(${cost}ms)`);
-        console.log('[SignalR] 连接ID:', this.connection.connectionId);
+  // connected
         this.reconnectAttempts = 0;
         this.isConnecting = false;
         const ok = true; resolve(ok);
       } catch (error: any) {
         const msg = error?.message || String(error);
         // 分类错误
-        if (msg.includes('404')) console.error('[SignalR] ❌ 连接失败: 404 (检查 Hub 路径 /tradingHub 是否正确, 后端是否启动 HTTPS)');
-        else if (msg.includes('Failed to fetch') || msg.includes('TypeError')) console.error('[SignalR] ❌ 网络错误/证书问题: 可能是自签名证书未信任或跨域/CORS 未配置');
-        else if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) console.error('[SignalR] ❌ 未授权: token 可能缺失或无效');
-        else console.error('[SignalR] ❌ 连接失败:', msg);
+  // suppress log
 
         this.isConnecting = false;
         this.connectPromise = null;
         this.reconnectAttempts++;
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
-          console.log(`[SignalR] 将在 3 秒后重试 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+          // retry notice removed
           setTimeout(() => this.connect(), 3000);
         } else {
-          console.error('[SignalR] ❌ 达到最大重试次数, 放弃自动重连');
+          // give up notice removed
         }
         resolve(false);
       }
@@ -140,7 +134,7 @@ export class SignalRClient {
       // 设置实时K线更新处理器（修复第二参数 isNewKLine 未读取问题）
       this.connection.off('KLineUpdate');
       this.connection.on('KLineUpdate', (payload: any, isNew?: boolean) => {
-        if ((window as any).__SR_DEBUG) console.log('[SignalR] KLineUpdate raw=', payload, 'isNewArg=', isNew);
+  // debug removed
         const response = payload; // 兼容旧变量名
         if (response && response.timestamp) {
           const klineData: KLineData = {
@@ -201,17 +195,12 @@ export class SignalRClient {
       }
 
       // 调试: 订阅前输出
-      if ((window as any).__SR_DEBUG) {
-        console.log('[SignalR] Subscribing price symbols=', symbols);
-      }
+      // removed debug
 
       // 设置价格更新处理器：仅使用后端实际推送的 PriceUpdate 事件
       // 清理旧的重复/无效监听（之前额外监听了不存在的 PriceData 事件）
       this.connection.off('PriceUpdate');
-      this.connection.on('PriceUpdate', (response: any) => {
-        if ((window as any).__SR_DEBUG) console.log('[SignalR] PriceUpdate', response);
-        onPriceUpdate(response);
-      });
+      this.connection.on('PriceUpdate', (response: any) => { onPriceUpdate(response); });
 
       // 发送订阅请求
       await this.connection.invoke('SubscribePriceData', symbols);
@@ -259,15 +248,8 @@ export class SignalRClient {
       this.connection.off('OrderBookData');
       this.connection.off('OrderBookUpdate');
       
-      this.connection.on('OrderBookData', (response: any) => {
-        if ((window as any).__SR_DEBUG) console.log('[SignalR] OrderBookData', response);
-        onOrderBookData(response);
-      });
-      
-      this.connection.on('OrderBookUpdate', (response: any) => {
-        if ((window as any).__SR_DEBUG) console.log('[SignalR] OrderBookUpdate', response);
-        onOrderBookData(response);
-      });
+      this.connection.on('OrderBookData', (response: any) => { onOrderBookData(response); });
+      this.connection.on('OrderBookUpdate', (response: any) => { onOrderBookData(response); });
 
       // 发送订阅请求
       await this.connection.invoke('SubscribeOrderBook', symbol, 20);
@@ -317,10 +299,7 @@ export class SignalRClient {
       // 设置ticker数据接收处理器
       this.connection.off('LastTradeAndMid');
       
-      this.connection.on('LastTradeAndMid', (response: any) => {
-        if ((window as any).__SR_DEBUG) console.log('[SignalR] LastTradeAndMid', response);
-        onTickerData(response);
-      });
+      this.connection.on('LastTradeAndMid', (response: any) => { onTickerData(response); });
 
       // 发送订阅请求
       await this.connection.invoke('SubscribeTicker', symbol);
@@ -362,17 +341,14 @@ export class SignalRClient {
       }
 
       // 创建命名的处理器,避免被off移除
-      const handler = (response: any) => {
-        if ((window as any).__SR_DEBUG) console.log('[SignalR] TradeUpdate', response);
-        onTradeUpdate(response);
-      };
+      const handler = (response: any) => { onTradeUpdate(response); };
 
       // 添加成交数据接收处理器 (不先off,允许多个订阅者)
       this.connection.on('TradeUpdate', handler);
 
       // 发送订阅请求
       await this.connection.invoke('SubscribeTrades', symbol);
-      console.log(`[SignalR] Subscribed to trades for ${symbol}`);
+  // subscribed trades
 
       // 返回取消订阅函数
       return async () => {
@@ -388,7 +364,7 @@ export class SignalRClient {
       };
 
     } catch (error) {
-      console.error('[SignalR] Subscribe trades failed:', error);
+  // subscribe trades failed suppressed
       if (onError) onError(error);
       return () => {};
     }

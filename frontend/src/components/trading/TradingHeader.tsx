@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { ChevronDown } from 'lucide-react';
-import { useSignalRPriceData } from '../../hooks/useSignalRPriceData';
+import { useMergedTickerData } from '../../hooks/useMergedTickerData';
 
 const Header = styled.div`
   height: 56px;
@@ -128,22 +128,16 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
 }) => {
   // 使用SignalR实时价格数据 (只订阅当前选中符号, 不再订阅全部以减少无关推送)
   const availableSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
-  const { priceData, isConnected } = useSignalRPriceData([symbol]);
-  
-  const currentData = priceData[symbol] || {
-    symbol,
-    price: 0,
-    change24h: 0,
-    volume24h: 0,
-    high24h: 0,
-    low24h: 0,
-    timestamp: 0
-  } as any;
-  if ((window as any).__SR_DEBUG) console.log('[Header] symbol=', symbol, 'priceDataEntry=', currentData);
-  
-  const isPositive = (currentData.change24h || 0) >= 0;
-  const changePercent24h = (currentData.change24h || 0) * 100; // 小数 -> 百分比
+  const { data: merged, isConnected } = useMergedTickerData(symbol);
+  const currentData = merged || { symbol, lastPrice:0, change24h:0, volume24h:0, high24h:0, low24h:0, timestamp:0 };
+
+  const hasPriceFrame = currentData.change24h !== undefined || currentData.volume24h !== undefined || currentData.high24h !== undefined;
+  const isPositive = (currentData.change24h ?? 0) >= 0;
+  const changePercent24h = (currentData.change24h ?? 0) * 100; // 小数 -> 百分比
   const pct = isFinite(changePercent24h) ? changePercent24h : 0;
+
+  // 调试：打印原始帧以确认 24h 字段是否为 0 / undefined
+  // debug removed
 
   return (
     <Header>
@@ -164,11 +158,11 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
         <PriceInfo>
           <PriceItem>
             <Price isPositive={isPositive}>
-              {currentData.price > 0 ? currentData.price.toLocaleString() : '--'}
+              {currentData.lastPrice && currentData.lastPrice > 0 ? currentData.lastPrice.toLocaleString() : '--'}
               {isConnected && <span style={{ fontSize: '0.6rem', color: '#00b35f', marginLeft: 4 }}>●</span>}
             </Price>
             <PriceLabel>
-              {currentData.price > 0 ? `¥${(currentData.price * 7.1).toLocaleString()}` : '¥--'}
+              {currentData.lastPrice && currentData.lastPrice > 0 ? `¥${(currentData.lastPrice * 7.1).toLocaleString()}` : '¥--'}
             </PriceLabel>
           </PriceItem>
         </PriceInfo>
@@ -177,21 +171,29 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
       <StatsGrid>
         <StatItem>
           <StatValue color={isPositive ? '#3fb950' : '#f85149'}>
-            {currentData.price>0?`${isPositive?'+':''}${pct.toFixed(2)}%`:'--'}
+            {currentData.lastPrice && currentData.lastPrice>0 && currentData.change24h !== undefined
+              ? `${isPositive?'+':''}${pct.toFixed(2)}%`
+              : (hasPriceFrame ? '0.00%' : '--')}
           </StatValue>
           <StatLabel>24h</StatLabel>
         </StatItem>
         <StatItem>
-          <StatValue>{currentData.high24h > 0 ? currentData.high24h.toFixed(0) : '--'}</StatValue>
+          <StatValue title={currentData.high24h !== undefined ? String(currentData.high24h) : ''}>
+            {currentData.high24h !== undefined ? currentData.high24h.toFixed( currentData.high24h > 10 ? 0 : 4) : '--'}
+          </StatValue>
           <StatLabel>24h高</StatLabel>
         </StatItem>
         <StatItem>
-          <StatValue>{currentData.low24h > 0 ? currentData.low24h.toFixed(0) : '--'}</StatValue>
+          <StatValue title={currentData.low24h !== undefined ? String(currentData.low24h) : ''}>
+            {currentData.low24h !== undefined ? currentData.low24h.toFixed( currentData.low24h > 10 ? 0 : 4) : '--'}
+          </StatValue>
           <StatLabel>24h低</StatLabel>
         </StatItem>
         <StatItem>
-          <StatValue>{currentData.volume24h > 0 ? currentData.volume24h.toFixed(0) : '--'}</StatValue>
-          <StatLabel>24h量</StatLabel>
+          <StatValue title={currentData.volume24h !== undefined ? String(currentData.volume24h) : ''}>
+            {currentData.volume24h !== undefined ? (currentData.volume24h >= 1 ? currentData.volume24h.toFixed(0) : currentData.volume24h.toFixed(2)) : '--'}
+          </StatValue>
+            <StatLabel>24h量</StatLabel>
         </StatItem>
       </StatsGrid>
     </Header>

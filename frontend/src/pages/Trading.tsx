@@ -94,7 +94,18 @@ const MiddleRightSection = styled.div`
 `;
 
 const Trading: React.FC = () => {
-  const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT');
+  // 支持从 URL (?symbol=XXX) 或 localStorage 还原用户上次选择的交易对，默认回退 BTCUSDT
+  const [selectedSymbol, setSelectedSymbol] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlSymbol = params.get('symbol')?.toUpperCase();
+      const stored = localStorage.getItem('lastSymbol') || '';
+      const candidate = urlSymbol || stored;
+      // 简单合法性校验（可根据可用列表再严一点）
+      if (candidate && /^[A-Z0-9]{4,15}$/.test(candidate)) return candidate;
+    } catch {}
+    return 'BTCUSDT';
+  });
   const [timeframe, setTimeframe] = useState('1m');
   const { user, isAuthenticated } = useAuth();
 
@@ -190,7 +201,17 @@ const Trading: React.FC = () => {
           <div style={{ background:'#161b22', border:'1px solid #30363d', overflow:'hidden' }}>
             <TradingHeader 
               symbol={selectedSymbol}
-              onSymbolChange={setSelectedSymbol}
+              onSymbolChange={(sym: string) => {
+                setSelectedSymbol(sym);
+                try { localStorage.setItem('lastSymbol', sym); } catch {}
+                // 同步更新 URL (保持其它查询参数) - 可选
+                try {
+                  const params = new URLSearchParams(window.location.search);
+                  params.set('symbol', sym);
+                  const newUrl = `${window.location.pathname}?${params.toString()}`;
+                  window.history.replaceState(null, '', newUrl);
+                } catch {}
+              }}
             />
           </div>
           <ChartSection>

@@ -83,25 +83,14 @@ export function useUserDataStream(): UseUserDataStreamResult {
     conn.off('AssetUpdate');
 
     // 注册
-    conn.on('OrderUpdate', (order: any) => {
-      if ((window as any).__SR_DEBUG) console.log('[useUserDataStream] OrderUpdate raw=', order);
-      upsertOrder(order as Order);
-    });
-    conn.on('UserTradeUpdate', (trade: any) => {
-      if ((window as any).__SR_DEBUG) console.log('[useUserDataStream] UserTradeUpdate raw=', trade);
-      addTrade(trade as Trade);
-    });
-    conn.on('AssetUpdate', (assetList: any) => {
-      if ((window as any).__SR_DEBUG) console.log('[useUserDataStream] AssetUpdate raw=', assetList);
-      if (Array.isArray(assetList)) handleAssetSnapshot(assetList as Asset[]);
-    });
+    conn.on('OrderUpdate', (order: any) => { upsertOrder(order as Order); });
+    conn.on('UserTradeUpdate', (trade: any) => { addTrade(trade as Trade); });
+    conn.on('AssetUpdate', (assetList: any) => { if (Array.isArray(assetList)) handleAssetSnapshot(assetList as Asset[]); });
 
     try {
       await conn.invoke('SubscribeUserData', user.id);
       setIsSubscribed(true);
-    } catch (e) {
-      console.error('[useUserDataStream] SubscribeUserData failed', e);
-    }
+    } catch (e) { }
   }, [isAuthenticated, user?.id, upsertOrder, addTrade, handleAssetSnapshot]);
 
   useEffect(() => {

@@ -95,6 +95,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pairMeta, setPairMeta] = useState<TradingPairMeta | null>(null);
+  // 是否隐藏微尘成交（默认隐藏）
+  const [hideDust, setHideDust] = useState(true);
+  // 统计被隐藏的微尘条目数量（用于提示）
+  const [hiddenDustCount, setHiddenDustCount] = useState(0);
 
   useEffect(() => {
     const fetchTrades = async () => {
@@ -123,7 +127,6 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
             else if (symbol.startsWith('SOL')) { qp = 2; minQ = 0.01; pp = 3; }
             setPairMeta({ symbol, quantityPrecision: qp, minQuantity: minQ, pricePrecision: pp });
         }
-        console.log(`[RecentTrades] 获取到 ${symbol} 的成交数据:`, data);
         
         // 确保数据包含所需字段
         const formattedData = data.map((t: any) => ({
@@ -134,10 +137,9 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
           executedAt: t.executedAt,
           isBuyerMaker: t.isBuyerMaker ?? false
         }));
-        console.log(`[RecentTrades] 格式化后的数据:`, formattedData);
         setTrades(formattedData);
       } catch (err) {
-        console.error('获取成交数据失败:', err);
+  // fetch error suppressed
         setError('加载失败');
       } finally {
         setLoading(false);
@@ -153,7 +155,6 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
 
     const setupSignalR = async () => {
       try {
-        console.log(`[RecentTrades] 开始设置SignalR订阅: ${symbol}`);
         
         // 启用SignalR调试
         if (!(window as any).__SR_DEBUG) {
@@ -164,7 +165,6 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
         unsubscribe = await signalRClient.subscribeTrades(
           symbol,
           (trade: any) => {
-            console.log('[RecentTrades] 🎉 接收到实时成交:', trade);
             if (trade.symbol === symbol) {
               setTrades(prev => {
                 // 添加新成交到列表顶部，保持最多50条
@@ -176,22 +176,20 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
                   executedAt: trade.executedAt,
                   isBuyerMaker: trade.isBuyerMaker
                 };
-                console.log('[RecentTrades] ✅ 添加成交到列表:', newTrade);
                 const newList = [newTrade, ...prev].slice(0, 50);
-                console.log('[RecentTrades] 📊 当前成交列表数量:', newList.length);
                 return newList;
               });
             } else {
-              console.log(`[RecentTrades] ⚠️ 忽略其他交易对的成交: ${trade.symbol} (当前订阅: ${symbol})`);
+              // ignore other symbol
             }
           },
           (error) => {
-            console.error('❌ [RecentTrades] 订阅成交数据失败:', error);
+            // subscribe error suppressed
           }
         );
-        console.log(`[RecentTrades] ✅ SignalR订阅设置完成: ${symbol}`);
+  // subscription done
       } catch (err) {
-        console.error('❌ [RecentTrades] 设置SignalR订阅失败:', err);
+  // setup failed suppressed
       }
     };
 
@@ -199,7 +197,7 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
 
     // 清理函数
     return () => {
-      console.log(`[RecentTrades] 🧹 清理SignalR订阅: ${symbol}`);
+  // cleanup
       if (unsubscribe) {
         unsubscribe();
       }
@@ -232,10 +230,76 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
     return p.toFixed(pairMeta.pricePrecision ?? 2);
   };
 
+  // 计算 dust 阈值（minQuantity * 0.1，可根据需要调整或做成配置）
+  const dustThreshold = pairMeta ? pairMeta.minQuantity * 0.1 : 0;
+
+  // 判断是否为微尘成交
+  const isDust = (t: Trade) => {
+    if (!pairMeta) return false; // 尚未有元数据不判定为 dust
+    return t.quantity > 0 && t.quantity < dustThreshold;
+  };
+
+  // 根据 hideDust 过滤
+  const displayedTrades = trades.filter(t => {
+    const dust = isDust(t);
+    return hideDust ? !dust : true;
+  });
+
+  // 更新隐藏条数（当 trades / hideDust 改变时）
+  useEffect(() => {
+    if (!hideDust) {
+      setHiddenDustCount(0);
+      return;
+    }
+    if (!pairMeta) {
+      setHiddenDustCount(0);
+      return;
+    }
+    const cnt = trades.reduce((acc, t) => acc + (isDust(t) ? 1 : 0), 0);
+    setHiddenDustCount(cnt);
+  }, [trades, hideDust, pairMeta]);
+
+  const ToggleBar = (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '0.4rem 0.75rem',
+      borderBottom: '1px solid #21262d',
+      background: '#1b2026'
+    }}>
+      <div style={{ display: 'flex', flexDirection: 'column', fontSize: '0.65rem', color: '#7d8590' }}>
+        <span>
+          阈值: {dustThreshold ? dustThreshold.toPrecision(2) : '-'} ({pairMeta?.minQuantity ? 'minQty x 0.1' : '推断中'})
+        </span>
+        {hideDust && hiddenDustCount > 0 && (
+          <span style={{ color: '#9e6bff' }}>已隐藏 {hiddenDustCount} 条微尘</span>
+        )}
+      </div>
+      <button
+        style={{
+          background: hideDust ? '#30363d' : '#238636',
+            color: '#f0f6fc',
+            border: '1px solid #30363d',
+            borderRadius: 4,
+            cursor: 'pointer',
+            fontSize: '0.65rem',
+            padding: '0.25rem 0.5rem',
+            lineHeight: 1
+        }}
+        onClick={() => setHideDust(v => !v)}
+        title={hideDust ? '显示所有包含极小数量的成交' : '隐藏数量极小(微尘)的成交'}
+      >
+        {hideDust ? '显示微尘' : '隐藏微尘'}
+      </button>
+    </div>
+  );
+
   return (
     <RecentTradesContainer>
       <Header>实时成交</Header>
       
+      {ToggleBar}
       <TradesList>
         {loading && trades.length === 0 ? (
           <EmptyState>
@@ -245,17 +309,24 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
           <EmptyState>
             <div>{error}</div>
           </EmptyState>
-        ) : trades.length > 0 ? (
-          trades.map((trade) => {
+        ) : displayedTrades.length > 0 ? (
+          displayedTrades.map((trade) => {
             const qtyDisplay = formatQty(trade.quantity);
             const priceDisplay = formatPrice(trade.price);
+            const dust = isDust(trade);
             return (
-              <TradeRow key={`${trade.id}-${trade.executedAt}`} title={`数量: ${trade.quantity} 价格: ${trade.price}`}>
+              <TradeRow
+                key={`${trade.id}-${trade.executedAt}`}
+                title={`数量: ${trade.quantity} 价格: ${trade.price}${dust ? ' (微尘)' : ''}`}
+                style={dust ? { opacity: 0.6 } : undefined}
+              >
                 <TimeColumn>{formatTime(trade.executedAt)}</TimeColumn>
                 <PriceColumn isBuy={!trade.isBuyerMaker}>
                   {priceDisplay}
                 </PriceColumn>
-                <AmountColumn>{qtyDisplay}</AmountColumn>
+                <AmountColumn>
+                  {qtyDisplay}{dust && !hideDust ? '*' : ''}
+                </AmountColumn>
               </TradeRow>
             );
           })

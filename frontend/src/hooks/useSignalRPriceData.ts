@@ -35,10 +35,11 @@ export const useSignalRPriceData = (
   // 稳定化symbols数组
   const stableSymbols = useMemo(() => symbols, [symbols.join(',')]);
   const [symbolsKey, setSymbolsKey] = useState('');
+  // 记录最近一次订阅的符号集合，用于断线后快速重放
+  const lastSubscribedRef = useRef<string>('');
 
   // 处理价格更新
   const handlePriceUpdate = useCallback((priceUpdate: any) => {
-    if ((window as any).__SR_DEBUG) console.log('[Hook][Price] update raw=', priceUpdate);
     if(!priceUpdate || !priceUpdate.symbol) return;
     // change24h 后端为小数 (0.0123 = +1.23%)
     const rawChange = Number(priceUpdate.change24h);
@@ -73,8 +74,7 @@ export const useSignalRPriceData = (
   }, []);
 
   // 启动SignalR价格订阅
-  const startPriceSubscription = useCallback(async () => {
-    if ((window as any).__SR_DEBUG) console.log('[Hook][Price] start subscription symbols=', stableSymbols);
+  const startPriceSubscription = useCallback(async (force = false) => {
     if (!stableSymbols || stableSymbols.length === 0) return;
 
     // 计算需要新增和需要移除的符号
@@ -85,7 +85,7 @@ export const useSignalRPriceData = (
     desired.forEach(s => { if (!subscribedRef.current.has(s)) toAdd.push(s); });
 
     // 如果没有变化且已有数据, 不重复订阅
-    if (toAdd.length === 0 && toRemove.length === 0 && Object.keys(priceData).length > 0) {
+    if (!force && toAdd.length === 0 && toRemove.length === 0 && Object.keys(priceData).length > 0) {
       setLoading(false);
       setIsConnected(signalRClient.isConnected());
       return;
@@ -94,6 +94,7 @@ export const useSignalRPriceData = (
     try {
       // 取消不需要的
       if (toRemove.length && unsubscribeRef.current) {
+        // 只在确实有剔除时执行一次空订阅来触发后端取消（可改进为单独 UnsubscribePriceData）
         try { await signalRClient.subscribePriceData([], ()=>{}); } catch {}
         toRemove.forEach(r => subscribedRef.current.delete(r));
       }
@@ -108,6 +109,7 @@ export const useSignalRPriceData = (
         // 这里不直接覆盖 unsubscribeRef (允许多次叠加)。简化起见, 仍然保留最后一次
         unsubscribeRef.current = unsubscribe;
         toAdd.forEach(a => subscribedRef.current.add(a));
+        lastSubscribedRef.current = stableSymbols.join(',');
       }
 
       setLoading(false);
@@ -121,13 +123,16 @@ export const useSignalRPriceData = (
 
   // 手动重连
   const reconnect = useCallback(() => {
-    startPriceSubscription();
+    const last = lastSubscribedRef.current;
+    startPriceSubscription(true);
   }, [startPriceSubscription]);
 
   // 检测symbols变化并启动订阅
   useEffect(() => {
     const newSymbolsKey = stableSymbols.join(',');
     if (newSymbolsKey && newSymbolsKey !== symbolsKey) {
+      setSymbolsKey(newSymbolsKey);
+      lastSubscribedRef.current = newSymbolsKey;
       startPriceSubscription();
     }
   }, [stableSymbols, symbolsKey, startPriceSubscription]);
@@ -146,8 +151,8 @@ export const useSignalRPriceData = (
   useEffect(() => {
     if (!symbolsKey) return;
     const timer = setTimeout(() => {
-      // 若仍无数据则保持 isConnected 状态但提示
       if (Object.keys(priceData).length === 0) {
+  // timeout warn suppressed
         setIsConnected(signalRClient.isConnected());
         setLoading(false);
       }
