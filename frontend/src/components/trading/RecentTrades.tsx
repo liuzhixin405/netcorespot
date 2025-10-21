@@ -83,17 +83,46 @@ interface Trade {
   isBuyerMaker: boolean;
 }
 
+interface TradingPairMeta {
+  symbol: string;
+  quantityPrecision: number;
+  minQuantity: number;
+  pricePrecision: number;
+}
+
 const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pairMeta, setPairMeta] = useState<TradingPairMeta | null>(null);
 
   useEffect(() => {
     const fetchTrades = async () => {
       try {
         setLoading(true);
         setError(null);
-        const data = await tradingApi.getRecentTrades(symbol, 50);
+        // 并行获取交易对信息与最近成交
+        const [pairResp, tradesResp] = await Promise.all([
+          // 复用 tradingApi （假设存在 getTradingPairInfo 方法；若不存在可后续实现）
+          (tradingApi as any).getTradingPairInfo ? (tradingApi as any).getTradingPairInfo(symbol) : Promise.resolve(null),
+          tradingApi.getRecentTrades(symbol, 50)
+        ]);
+        const data = tradesResp;
+        if (pairResp && pairResp.success && pairResp.data) {
+          setPairMeta({
+            symbol: pairResp.data.symbol,
+            quantityPrecision: pairResp.data.quantityPrecision ?? 4,
+            minQuantity: pairResp.data.minQuantity ?? 0.0001,
+            pricePrecision: pairResp.data.pricePrecision ?? 2
+          });
+        } else {
+          // 回退：根据 symbol 粗略推断
+            let qp = 4; let minQ = 0.0001; let pp = 2;
+            if (symbol.startsWith('BTC')) { qp = 5; minQ = 0.00001; }
+            else if (symbol.startsWith('ETH')) { qp = 3; minQ = 0.001; }
+            else if (symbol.startsWith('SOL')) { qp = 2; minQ = 0.01; pp = 3; }
+            setPairMeta({ symbol, quantityPrecision: qp, minQuantity: minQ, pricePrecision: pp });
+        }
         console.log(`[RecentTrades] 获取到 ${symbol} 的成交数据:`, data);
         
         // 确保数据包含所需字段
@@ -186,6 +215,23 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
     });
   };
 
+  const formatQty = (q: number) => {
+    if (!pairMeta) return q.toFixed(4);
+    const precision = pairMeta.quantityPrecision ?? 4;
+    const minVisible = 1 / Math.pow(10, precision); // 最小刻度
+    if (q === 0) return '0';
+    if (q > 0 && q < minVisible) {
+      // 显示为 <最小刻度 并在 title 中给全量
+      return `<${minVisible.toFixed(precision)}`;
+    }
+    return q.toFixed(precision);
+  };
+
+  const formatPrice = (p: number) => {
+    if (!pairMeta) return p.toFixed(2);
+    return p.toFixed(pairMeta.pricePrecision ?? 2);
+  };
+
   return (
     <RecentTradesContainer>
       <Header>实时成交</Header>
@@ -200,15 +246,19 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
             <div>{error}</div>
           </EmptyState>
         ) : trades.length > 0 ? (
-          trades.map((trade) => (
-            <TradeRow key={`${trade.id}-${trade.executedAt}`}>
-              <TimeColumn>{formatTime(trade.executedAt)}</TimeColumn>
-              <PriceColumn isBuy={!trade.isBuyerMaker}>
-                {trade.price.toFixed(2)}
-              </PriceColumn>
-              <AmountColumn>{trade.quantity.toFixed(4)}</AmountColumn>
-            </TradeRow>
-          ))
+          trades.map((trade) => {
+            const qtyDisplay = formatQty(trade.quantity);
+            const priceDisplay = formatPrice(trade.price);
+            return (
+              <TradeRow key={`${trade.id}-${trade.executedAt}`} title={`数量: ${trade.quantity} 价格: ${trade.price}`}>
+                <TimeColumn>{formatTime(trade.executedAt)}</TimeColumn>
+                <PriceColumn isBuy={!trade.isBuyerMaker}>
+                  {priceDisplay}
+                </PriceColumn>
+                <AmountColumn>{qtyDisplay}</AmountColumn>
+              </TradeRow>
+            );
+          })
         ) : (
           <EmptyState>
             <div>暂无成交数据</div>
