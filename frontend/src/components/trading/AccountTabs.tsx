@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { Clock, History, CheckCircle, Wallet } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { tradingService } from '../../services/tradingService';
+import { useUserDataStream } from '../../hooks/useUserDataStream';
 import { Order, Trade, Asset } from '../../types';
 
 const Container = styled.div`
@@ -162,10 +163,14 @@ const AccountTabs: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'current' | 'history' | 'trades' | 'assets'>('current');
   const { user } = useAuth();
 
+  // 用 hook 管理实时数据
+  const { currentOrders, historyOrders, userTrades, assets, isSubscribed } = useUserDataStream();
   const [orders, setOrders] = useState<Order[]>([]);
   const [openOrders, setOpenOrders] = useState<Order[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [assets, setAssets] = useState<Asset[]>([]);
+  // 首次加载未收到实时推送时的资产快照占位
+  const [seededAssets, setSeededAssets] = useState<Asset[]>([]);
+  // assets 已由 hook 提供，保留本地变量用于兼容原渲染逻辑
   const [loading, setLoading] = useState(false);
 
   const loadData = async () => {
@@ -181,7 +186,10 @@ const AccountTabs: React.FC = () => {
       setOrders(all);
       setOpenOrders(open.length ? open : all.filter(o => ['pending','active','partial'].includes(o.status)));
       setTrades(tradeList);
-      setAssets(assetList);
+      // 若当前还没有实时推送资产，则用首次请求的结果填充占位
+      if (assets.length === 0 && seededAssets.length === 0 && assetList.length > 0) {
+        setSeededAssets(assetList as Asset[]);
+      }
     } finally {
       setLoading(false);
     }
@@ -189,44 +197,34 @@ const AccountTabs: React.FC = () => {
 
   useEffect(() => { loadData(); }, [user]);
   
-  // 监听实时推送事件
+  // 根据实时流更新本地展示列表（避免频繁全量刷新）
   useEffect(() => {
-    const handleUserTradeUpdate = (event: Event) => {
-      const trade = (event as CustomEvent).detail;
-      console.log('📊 [AccountTabs] 收到用户成交推送事件:', trade);
-      setTrades(prev => [trade, ...prev].slice(0, 50)); // 保留最新50条
-      loadData(); // 全量刷新以确保数据一致性
-    };
+    // 合并 hook 提供的实时数据与初始加载数据
+    // 订单：currentOrders 与 historyOrders 补充到 orders/openOrders
+    if (currentOrders.length > 0 || historyOrders.length > 0) {
+      // 重新构造 orders 列表：实时 current + history + 初始剩余
+      const terminalIds = new Set(historyOrders.map(o => o.id));
+      const nonTerminal = currentOrders;
+      const combined = [...nonTerminal, ...historyOrders];
+      setOrders(prev => {
+        // 去重并保留最近
+        const map = new Map<number, Order>();
+        [...combined, ...prev].forEach(o => { map.set(o.id, o); });
+        return Array.from(map.values()).slice(0, 400);
+      });
+      setOpenOrders(nonTerminal);
+    }
+  }, [currentOrders, historyOrders]);
 
-    const handleOrderUpdate = (event: Event) => {
-      const order = (event as CustomEvent).detail;
-      console.log('📝 [AccountTabs] 收到订单更新推送事件:', order);
-      loadData(); // 订单状态变化需要全量刷新
-    };
-
-    const handleAssetUpdate = (event: Event) => {
-      const assets = (event as CustomEvent).detail;
-      console.log('💰 [AccountTabs] 收到资产更新推送事件:', assets);
-      if (Array.isArray(assets)) {
-        setAssets(assets);
-      } else {
-        loadData(); // 如果格式不对就全量刷新
-      }
-    };
-
-    window.addEventListener('user-trade-update', handleUserTradeUpdate);
-    window.addEventListener('user-order-update', handleOrderUpdate);
-    window.addEventListener('user-asset-update', handleAssetUpdate);
-
-    console.log('👂 [AccountTabs] 已注册自定义事件监听器');
-
-    return () => {
-      window.removeEventListener('user-trade-update', handleUserTradeUpdate);
-      window.removeEventListener('user-order-update', handleOrderUpdate);
-      window.removeEventListener('user-asset-update', handleAssetUpdate);
-      console.log('🧹 [AccountTabs] 已移除事件监听器');
-    };
-  }, []);
+  useEffect(() => {
+    if (userTrades.length > 0) {
+      setTrades(prev => {
+        const map = new Map<number, Trade>();
+        [...userTrades, ...prev].forEach(t => map.set(t.id, t));
+        return Array.from(map.values()).slice(0, 200);
+      });
+    }
+  }, [userTrades]);
 
   // 定期轮询作为备份机制
   useEffect(() => { const id = setInterval(loadData, 30000); return () => clearInterval(id); }, [user]);
@@ -259,7 +257,7 @@ const AccountTabs: React.FC = () => {
 
     switch (activeTab) {
       case 'current': {
-        const list = openOrders;
+  const list = openOrders.length ? openOrders : currentOrders;
         return (
           <AuthenticatedContent>
             <DataTable>
@@ -290,7 +288,7 @@ const AccountTabs: React.FC = () => {
         );
       }
       case 'history': {
-        const history = orders.filter(o => ['filled','cancelled'].includes(o.status));
+  const history = historyOrders.length ? historyOrders : orders.filter(o => ['filled','cancelled'].includes(o.status));
         return (
           <AuthenticatedContent>
             <DataTable>
@@ -361,7 +359,7 @@ const AccountTabs: React.FC = () => {
                 <div>总额</div>
               </TableHeader>
               <TableBody>
-                {assets.length > 0 ? assets.map(a => (
+                {(assets.length > 0 ? assets : seededAssets).length > 0 ? (assets.length > 0 ? assets : seededAssets).map(a => (
                   <TableRow key={a.symbol}>
                     <div style={{ fontWeight: 'bold' }}>{a.symbol}</div>
                     <div>{a.available}</div>
@@ -393,7 +391,7 @@ const AccountTabs: React.FC = () => {
           onClick={() => setActiveTab('current')}
         >
           <Clock size={14} />
-          当前委托
+          当前委托{isSubscribed ? '' : ' (未订阅)'}
         </Tab>
         <Tab 
           active={activeTab === 'history'} 

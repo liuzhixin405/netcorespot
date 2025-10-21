@@ -17,17 +17,20 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IDtoMappingService _mappingService;
         private readonly ILogger<AssetService> _logger;
+        private readonly CryptoSpot.Application.Abstractions.Services.RealTime.IRealTimeDataPushService _realTimePush;
 
         public AssetService(
             IAssetRepository assetRepository,
             IUnitOfWork unitOfWork,
             IDtoMappingService mappingService,
-            ILogger<AssetService> logger)
+            ILogger<AssetService> logger,
+            CryptoSpot.Application.Abstractions.Services.RealTime.IRealTimeDataPushService realTimePush)
         {
             _assetRepository = assetRepository;
             _unitOfWork = unitOfWork;
             _mappingService = mappingService;
             _logger = logger;
+            _realTimePush = realTimePush;
         }
 
         #region DTO 接口实现
@@ -66,6 +69,7 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 var ok = await AddAssetInternalAsync(userId, request.Symbol, request.Amount);
+                if (ok) await PushUserAssetsSnapshotAsync(userId);
                 return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产增加成功" : "资产增加失败");
             }
             catch (Exception ex)
@@ -80,6 +84,7 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 var ok = await DeductAssetInternalAsync(userId, request.Symbol, request.Amount);
+                if (ok) await PushUserAssetsSnapshotAsync(userId);
                 return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产扣除成功" : "资产扣除失败");
             }
             catch (Exception ex)
@@ -94,6 +99,7 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 var ok = await FreezeAssetInternalAsync(userId, request.Symbol, request.Amount);
+                if (ok) await PushUserAssetsSnapshotAsync(userId);
                 return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产冻结成功" : "资产冻结失败");
             }
             catch (Exception ex)
@@ -108,6 +114,7 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 var ok = await UnfreezeAssetInternalAsync(userId, request.Symbol, request.Amount);
+                if (ok) await PushUserAssetsSnapshotAsync(userId);
                 return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产解冻成功" : "资产解冻失败");
             }
             catch (Exception ex)
@@ -122,6 +129,7 @@ namespace CryptoSpot.Infrastructure.Services
             try
             {
                 var ok = await DeductAssetInternalAsync(userId, request.Symbol, request.Amount, fromFrozen: true);
+                if (ok) await PushUserAssetsSnapshotAsync(userId);
                 return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "冻结资产消耗成功" : "冻结资产消耗失败");
             }
             catch (Exception ex)
@@ -150,6 +158,11 @@ namespace CryptoSpot.Infrastructure.Services
                         return ApiResponseDto<bool>.CreateSuccess(false, "转账失败，已回滚");
                     }
                 }
+                if (deduct)
+                {
+                    await PushUserAssetsSnapshotAsync(fromUserId);
+                    await PushUserAssetsSnapshotAsync(request.ToUserId);
+                }
                 return ApiResponseDto<bool>.CreateSuccess(deduct, deduct ? "转账成功" : "转账失败");
             }
             catch (Exception ex)
@@ -169,6 +182,7 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     await AddAssetInternalAsync(userId, kv.Key, kv.Value);
                 }
+                await PushUserAssetsSnapshotAsync(userId);
                 return ApiResponseDto<bool>.CreateSuccess(true, "初始化成功");
             }
             catch (Exception ex)
@@ -283,6 +297,22 @@ namespace CryptoSpot.Infrastructure.Services
                 _logger.LogError(ex, "增加资产失败: UserId={UserId}, Symbol={Symbol}, Amount={Amount}", 
                     userId, symbol, amount);
                 return false;
+            }
+        }
+        
+        // 推送该用户最新资产快照
+        private async Task PushUserAssetsSnapshotAsync(int userId)
+        {
+            try
+            {
+                var assets = await GetUserAssetsInternalAsync(userId);
+                var dto = _mappingService.MapToDto(assets);
+                await _realTimePush.PushUserAssetUpdateAsync(userId, dto);
+                _logger.LogDebug("[AssetService] 已推送用户资产更新: UserId={UserId}, Count={Count}", userId, dto.Count());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "推送用户资产更新失败: UserId={UserId}", userId);
             }
         }
         #endregion
