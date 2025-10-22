@@ -318,20 +318,26 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                                     var last = GetDecimal(d, "last");
                                     var high = GetDecimal(d, "high24h");
                                     var low = GetDecimal(d, "low24h");
-                                    var volQuote = GetDecimal(d, "volCcy24h");
+                                    // 使用 vol24h（基础货币交易量）而不是 volCcy24h（计价货币交易量）
+                                    var volume24h = GetDecimal(d, "vol24h");
                                     var open24h = GetDecimal(d, "open24h");
                                     decimal changePercent = 0m;
                                     if (open24h > 0)
                                     {
                                         changePercent = (last - open24h) / open24h;
                                     }
-                                    var ticker = new MarketTicker(symbol,
-                                        last,
-                                        high,
-                                        low,
-                                        volQuote,
-                                        changePercent,
-                                        GetLong(d, "ts"));
+                                    var ticker = new MarketTicker(
+                                        Symbol: symbol,
+                                        Last: last,
+                                        High24h: high,
+                                        Low24h: low,
+                                        Volume24h: volume24h,
+                                        ChangePercent: changePercent,
+                                        Ts: GetLong(d, "ts"));
+                                    
+                                    _logger.LogDebug("📊 OKX Ticker: {Symbol} Price={Last} Change={Change:P2} Vol={Vol}", 
+                                        symbol, last, changePercent, volume24h);
+                                    
                                     OnTicker?.Invoke(ticker);
                                 }
                                 break;

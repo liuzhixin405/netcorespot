@@ -4,7 +4,10 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users; // IMarketMakerRegistry
 using CryptoSpot.Domain.Entities; // MarketMakerOptions
 using CryptoSpot.Infrastructure.Repositories; // 新增 RawAccess
+using CryptoSpot.Infrastructure.Repositories.Redis; // ✅ Redis Repository
 using CryptoSpot.Infrastructure.Services;
+using CryptoSpot.Infrastructure.BgService; // ✅ 后台服务
+using CryptoSpot.Infrastructure.BgServices; // ✅ 批处理服务
 using CryptoSpot.Persistence.Data;
 using CryptoSpot.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -23,15 +26,20 @@ namespace CryptoSpot.Infrastructure
         public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
         {
             var connectionString = configuration.GetConnectionString("DefaultConnection");
+            // ✅ MySQL 连接池大幅缩小（因为运行时只有同步服务访问 MySQL）
             services.AddDbContextPool<ApplicationDbContext>(options =>
             {
                 options.UseMySql(connectionString, ServerVersion.Parse("8.0"), mysqlOptions =>
                 {
-                    mysqlOptions.EnableRetryOnFailure(3, TimeSpan.FromSeconds(30), null);
-                    mysqlOptions.CommandTimeout(60);
+                    mysqlOptions.EnableRetryOnFailure(
+                        maxRetryCount: 3,
+                        maxRetryDelay: TimeSpan.FromSeconds(5),
+                        errorNumbersToAdd: null);
+                    mysqlOptions.CommandTimeout(30);
                 });
+                options.EnableSensitiveDataLogging(false);
                 options.EnableThreadSafetyChecks(false);
-            }, poolSize: 20);
+            }, poolSize: 30); // ✅ 降低到 30（原来 100，因为现在主要操作在 Redis）
 
             // Repositories & UoW
             services.AddScoped<IUserRepository, UserRepository>();
@@ -60,8 +68,22 @@ namespace CryptoSpot.Infrastructure
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));
             services.AddSingleton<IMarketMakerRegistry, MarketMakerRegistry>();
 
-            // 注册领域服务（核心业务逻辑）已移至 Program.cs 统一注册
-            // services.AddTransient<OrderMatchingEngine>(); // ❌ 已删除重复注册
+            // ===== ✅ Redis-First 架构：Redis Repository 注册 =====
+            services.AddSingleton<RedisOrderRepository>();
+            services.AddSingleton<RedisAssetRepository>();
+            
+            // ===== ✅ Redis-First 架构：后台服务注册 =====
+            // 1. 数据加载服务（启动时从 MySQL 加载到 Redis）
+            services.AddHostedService<RedisDataLoaderService>();
+            
+            // 2. Redis → MySQL 同步服务（每 10 秒批量同步）
+            // ✅ 已修复所有实体属性映射问题，现在启用
+            services.AddHostedService<RedisMySqlSyncService>();
+            
+            // ✅ 保留批处理服务（MarketDataStreamRelayService 需要它来避免MySQL并发冲突）
+            services.AddSingleton<PriceUpdateBatchService>();
+            services.AddHostedService(sp => sp.GetRequiredService<PriceUpdateBatchService>());
+            
             return services;
         }
 

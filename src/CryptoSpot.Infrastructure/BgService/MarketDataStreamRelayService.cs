@@ -32,17 +32,20 @@ namespace CryptoSpot.Infrastructure.BgServices
         private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _lastKLineState = new();
         private const int KLineMinPushIntervalMs = 1500;
         private readonly IDtoMappingService _mapping; // 新增
+        private readonly PriceUpdateBatchService _batchService; // 批处理服务
 
         public MarketDataStreamRelayService(
             ILogger<MarketDataStreamRelayService> logger,
             IServiceScopeFactory scopeFactory,
             IEnumerable<IMarketDataStreamProvider> streamProviders,
-            IDtoMappingService mapping) // 新增参数
+            IDtoMappingService mapping, // 新增参数
+            PriceUpdateBatchService batchService) // 批处理服务
         {
             _logger = logger;
             _scopeFactory = scopeFactory;
             _streamProviders = streamProviders;
             _mapping = mapping; // 赋值
+            _batchService = batchService; // 赋值
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -153,32 +156,19 @@ namespace CryptoSpot.Infrastructure.BgServices
                     timestamp = t.Ts
                 };
 
-                if (priceService != null)
+                // ✅ 改为批处理队列提交（非阻塞，避免并发冲突）
+                // 只有当价格或涨跌幅有明显变化时才更新数据库
+                if (state.LastPushMs == 0 || 
+                    Math.Abs(t.Last - state.Price) / state.Price > 0.0001m || 
+                    Math.Abs(t.ChangePercent - state.Change) > 0.0001m)
                 {
-                    var symbol = t.Symbol;
-                    var last = t.Last;
-                    var change = t.ChangePercent;
-                    var vol = t.Volume24h;
-                    var high = t.High24h;
-                    var low = t.Low24h;
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            using var persistScope = _scopeFactory.CreateScope();
-                            var scopedPriceService = persistScope.ServiceProvider.GetRequiredService<IPriceDataService>();
-                            await scopedPriceService.UpdateTradingPairPriceAsync(symbol, last, change, vol, high, low);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "价格持久化任务失败 {Symbol}", symbol);
-                        }
-                    }, CancellationToken.None);
+                    _batchService.TryEnqueue(t.Symbol, t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h);
                 }
 
                 await push.PushPriceDataAsync(t.Symbol, priceData);
                 _lastTickerState[t.Symbol] = (t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h, nowMs, hash);
-                _logger.LogDebug("Ticker Relay 推送完成 {Symbol} price={Price} change={Change}", t.Symbol, t.Last, t.ChangePercent);
+                _logger.LogInformation("✅ Ticker Relay 推送完成 {Symbol} price={Price} change={Change:P2} vol={Vol} high={High} low={Low}", 
+                    t.Symbol, t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h);
             }
             catch (Exception ex)
             {

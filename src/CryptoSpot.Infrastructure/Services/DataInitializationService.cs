@@ -42,6 +42,8 @@ namespace CryptoSpot.Infrastructure.Services
                 await InitializeTradingPairsAsync();
                 await InitializeSystemUsersAsync();
                 await InitializeSystemAssetsAsync();
+                await InitializeTestUsersAsync();
+                await InitializeTestUserAssetsAsync();
 
                 _logger.LogInformation("数据初始化完成");
             }
@@ -194,6 +196,131 @@ namespace CryptoSpot.Infrastructure.Services
                     {
                         await _assetRepository.AddAsync(asset);
                         _logger.LogInformation("创建做市商 {MakerId} 系统资产: {Symbol} - {Amount}", makerId, asset.Symbol, asset.Available);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 初始化测试用户
+        /// </summary>
+        private async Task InitializeTestUsersAsync()
+        {
+            var testUsers = new[]
+            {
+                new User
+                {
+                    Username = "test_user_1",
+                    Type = UserType.Regular,
+                    Description = "测试用户1",
+                    IsActive = true,
+                    IsAutoTradingEnabled = false,
+                    MaxRiskRatio = 0.3m,
+                    DailyTradingLimit = 10000m,
+                    DailyTradedAmount = 0m
+                },
+                new User
+                {
+                    Username = "test_user_2",
+                    Type = UserType.Regular,
+                    Description = "测试用户2",
+                    IsActive = true,
+                    IsAutoTradingEnabled = false,
+                    MaxRiskRatio = 0.3m,
+                    DailyTradingLimit = 10000m,
+                    DailyTradedAmount = 0m
+                },
+                new User
+                {
+                    Username = "test_user_3",
+                    Type = UserType.Regular,
+                    Description = "测试用户3",
+                    IsActive = true,
+                    IsAutoTradingEnabled = false,
+                    MaxRiskRatio = 0.3m,
+                    DailyTradingLimit = 10000m,
+                    DailyTradedAmount = 0m
+                }
+            };
+
+            foreach (var user in testUsers)
+            {
+                var existing = await _userRepository.FindAsync(u => u.Username == user.Username);
+                if (!existing.Any())
+                {
+                    await _userRepository.AddAsync(user);
+                    _logger.LogInformation("创建测试用户: {Username}", user.Username);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 初始化测试用户资产
+        /// </summary>
+        private async Task InitializeTestUserAssetsAsync()
+        {
+            var testUserNames = new[] { "test_user_1", "test_user_2", "test_user_3" };
+            
+            foreach (var username in testUserNames)
+            {
+                var user = (await _userRepository.FindAsync(u => u.Username == username)).FirstOrDefault();
+                if (user == null)
+                {
+                    _logger.LogWarning("测试用户 {Username} 不存在，跳过资产初始化", username);
+                    continue;
+                }
+
+                var testAssets = new[]
+                {
+                    new Asset 
+                    { 
+                        UserId = user.Id, 
+                        Symbol = "USDT", 
+                        Available = 10000m, 
+                        Frozen = 0m, 
+                        MinReserve = 0m, 
+                        TargetBalance = 10000m, 
+                        AutoRefillEnabled = false 
+                    },
+                    new Asset 
+                    { 
+                        UserId = user.Id, 
+                        Symbol = "BTC", 
+                        Available = 1m, 
+                        Frozen = 0m, 
+                        MinReserve = 0m, 
+                        TargetBalance = 1m, 
+                        AutoRefillEnabled = false 
+                    },
+                    new Asset 
+                    { 
+                        UserId = user.Id, 
+                        Symbol = "ETH", 
+                        Available = 10m, 
+                        Frozen = 0m, 
+                        MinReserve = 0m, 
+                        TargetBalance = 10m, 
+                        AutoRefillEnabled = false 
+                    },
+                    new Asset 
+                    { 
+                        UserId = user.Id, 
+                        Symbol = "SOL", 
+                        Available = 100m, 
+                        Frozen = 0m, 
+                        MinReserve = 0m, 
+                        TargetBalance = 100m, 
+                        AutoRefillEnabled = false 
+                    }
+                };
+
+                foreach (var asset in testAssets)
+                {
+                    var existing = await _assetRepository.FindAsync(a => a.UserId == asset.UserId && a.Symbol == asset.Symbol);
+                    if (!existing.Any())
+                    {
+                        await _assetRepository.AddAsync(asset);
+                        _logger.LogInformation("创建测试用户 {Username} 资产: {Symbol} - {Amount}", username, asset.Symbol, asset.Available);
                     }
                 }
             }
