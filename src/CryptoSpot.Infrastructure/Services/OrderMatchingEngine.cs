@@ -289,6 +289,8 @@ namespace CryptoSpot.Infrastructure.Services
                     }
                     
                     // 首先处理所有pending状态的订单
+                    // 注意: pending订单在这里不应该直接激活，而是应该先尝试撮合
+                    // 如果撮合成功，推送成交数据；如果撮合失败，才激活进入订单簿
                     var pendingOrders = activeOrders
                         .Where(o => o.Status == OrderStatus.Pending)
                         .ToList();
@@ -296,52 +298,27 @@ namespace CryptoSpot.Infrastructure.Services
                     if (pendingOrders.Any())
                     {
                         _logger.LogInformation("发现 {Count} 个pending订单待处理: {Symbol}", pendingOrders.Count, symbol);
-                        
-                        foreach (var pendingOrder in pendingOrders)
-                        {
-                            using (var scope = _serviceScopeFactory.CreateScope())
-                            {
-                                var orderStore = scope.ServiceProvider.GetRequiredService<IMatchingOrderStore>();
-                                
-                                if (pendingOrder.Type == OrderType.Limit)
-                                {
-                                    // 限价单激活
-                                    await orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Active);
-                                    pendingOrder.Status = OrderStatus.Active;
-                                    _logger.LogInformation("✅ 激活pending限价单: OrderId={OrderId}, UserId={UserId}, Price={Price}", 
-                                        pendingOrder.OrderId, pendingOrder.UserId, pendingOrder.Price);
-                                }
-                                else if (pendingOrder.Type == OrderType.Market)
-                                {
-                                    // 市价单如果还在pending，说明创建时没有立即匹配，应该取消
-                                    _logger.LogWarning("⚠️ 发现pending市价单，将尝试匹配或取消: OrderId={OrderId}", pendingOrder.OrderId);
-                                    await orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Cancelled);
-                                    pendingOrder.Status = OrderStatus.Cancelled;
-                                }
-                            }
-                        }
                     }
                     
-                    // 重新获取订单列表，确保状态是最新的
-                    using (var scope = _serviceScopeFactory.CreateScope())
-                    {
-                        var orderStore = scope.ServiceProvider.GetRequiredService<IMatchingOrderStore>();
-                        activeOrders = await orderStore.GetActiveOrdersAsync(symbol);
-                    }
-                    
+                    // 将pending订单也纳入撮合范围（包括pending状态）
+                    // 这样pending订单可以直接参与撮合，无需先激活
                     var buyOrders = activeOrders
-                        .Where(o => o.Side == OrderSide.Buy && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled) && o.Type == OrderType.Limit)
+                        .Where(o => o.Side == OrderSide.Buy && 
+                                   (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled || o.Status == OrderStatus.Pending) && 
+                                   o.Type == OrderType.Limit)
                         .OrderByDescending(o => o.Price) // 买单按价格降序
                         .ThenBy(o => o.CreatedAt) // 同价格按时间优先
                         .ToList();
                     
                     var sellOrders = activeOrders
-                        .Where(o => o.Side == OrderSide.Sell && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled) && o.Type == OrderType.Limit)
+                        .Where(o => o.Side == OrderSide.Sell && 
+                                   (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled || o.Status == OrderStatus.Pending) && 
+                                   o.Type == OrderType.Limit)
                         .OrderBy(o => o.Price) // 卖单按价格升序
                         .ThenBy(o => o.CreatedAt) // 同价格按时间优先
                         .ToList();
 
-                    _logger.LogInformation("📊 订单撮合开始: Symbol={Symbol}, 买单数量={BuyCount}, 卖单数量={SellCount}", 
+                    _logger.LogInformation("📊 订单撮合开始: Symbol={Symbol}, 买单数量={BuyCount}(含pending), 卖单数量={SellCount}(含pending)", 
                         symbol, buyOrders.Count, sellOrders.Count);
 
                     // 匹配订单
@@ -419,29 +396,54 @@ namespace CryptoSpot.Infrastructure.Services
                         }
                     }
 
+                    // 处理未成交的pending订单 - 激活并推送到订单簿
+                    using (var scope = _serviceScopeFactory.CreateScope())
+                    {
+                        var orderStore = scope.ServiceProvider.GetRequiredService<IMatchingOrderStore>();
+                        var currentOrders = await orderStore.GetActiveOrdersAsync(symbol);
+                        
+                        // 找出仍然是pending状态的限价单（说明没有成交）
+                        var stillPendingOrders = currentOrders
+                            .Where(o => o.Status == OrderStatus.Pending && o.Type == OrderType.Limit)
+                            .ToList();
+                        
+                        foreach (var pendingOrder in stillPendingOrders)
+                        {
+                            // 激活订单，使其进入订单簿
+                            await orderStore.UpdateOrderStatusAsync(pendingOrder.Id, OrderStatus.Active);
+                            _logger.LogInformation("✅ 激活未成交的pending限价单: OrderId={OrderId}, UserId={UserId}, Price={Price}", 
+                                pendingOrder.OrderId, pendingOrder.UserId, pendingOrder.Price);
+                        }
+                        
+                        // 只有在有订单被激活时才推送订单簿更新
+                        if (stillPendingOrders.Any())
+                        {
+                            try
+                            {
+                                var realTimeDataPushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                                var depthSnapshot = await GetOrderBookDepthDomainAsync(symbol, 20);
+                                var depthDto = new OrderBookDepthDto
+                                {
+                                    Symbol = depthSnapshot.Symbol,
+                                    Timestamp = depthSnapshot.Timestamp,
+                                    Bids = depthSnapshot.Bids.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList(),
+                                    Asks = depthSnapshot.Asks.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList()
+                                };
+                                await realTimeDataPushService.PushOrderBookDataAsync(symbol, depthDto);
+                                _logger.LogInformation("📤 推送订单簿更新（新增{Count}个激活订单）: Symbol={Symbol}", stillPendingOrders.Count, symbol);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "推送订单簿数据失败: Symbol={Symbol}", symbol);
+                            }
+                        }
+                    }
+                    
                     if (trades.Any())
                     {
-                        _logger.LogInformation("为 {Symbol} 匹配了 {TradeCount} 笔交易", symbol, trades.Count);
-                        
-                        // 推送订单簿更新
-                        try
-                        {
-                            using var scope = _serviceScopeFactory.CreateScope();
-                            var realTimeDataPushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
-                            var depthSnapshot = await GetOrderBookDepthDomainAsync(symbol, 20);
-                            var depthDto = new OrderBookDepthDto
-                            {
-                                Symbol = depthSnapshot.Symbol,
-                                Timestamp = depthSnapshot.Timestamp,
-                                Bids = depthSnapshot.Bids.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList(),
-                                Asks = depthSnapshot.Asks.Select(l => new OrderBookLevelDto { Price = l.Price, Quantity = l.Quantity, Total = l.Total, OrderCount = l.OrderCount }).ToList()
-                            };
-                            await realTimeDataPushService.PushOrderBookDataAsync(symbol, depthDto);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "推送订单簿数据失败: Symbol={Symbol}", symbol);
-                        }
+                        _logger.LogInformation("✅ 为 {Symbol} 匹配了 {TradeCount} 笔交易（实时成交推送已在CreateTradeAsync中完成）", symbol, trades.Count);
+                        // 注意: 成交推送已经在 CreateTradeAsync 方法中完成，这里不再重复推送
+                        // pending订单成交后，只推送成交数据，不推送订单簿
                     }
                 }
                 finally
@@ -833,8 +835,9 @@ namespace CryptoSpot.Infrastructure.Services
                                     await realTimePushService.PushUserTradeAsync(sellOrder.UserId.Value, sellerTradeDto);
                                 }
                                 
-                                _logger.LogInformation("✅ [OrderMatchingEngine] 推送成交数据: TradeId={TradeId}, Symbol={Symbol}, Price={Price}, Quantity={Quantity}, BuyerIsMaker={BuyerIsMaker}, SellerIsMaker={SellerIsMaker}", 
+                                _logger.LogInformation("✅ [OrderMatchingEngine] 推送实时成交数据: TradeId={TradeId}, Symbol={Symbol}, Price={Price}, Quantity={Quantity}, BuyerIsMaker={BuyerIsMaker}, SellerIsMaker={SellerIsMaker}", 
                                     dto.TradeId, tradingPair.Data.Symbol, dto.Price, dto.Quantity, isBuyerMaker, isSellerMaker);
+                                _logger.LogInformation("💡 注意: pending订单成交后只推送成交数据，不推送订单簿（订单已完全成交不会进入订单簿）");
                             }
                         }
                         else
