@@ -5,6 +5,7 @@ using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Redis;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 
 namespace CryptoSpot.Infrastructure.Services;
@@ -17,7 +18,7 @@ public class RedisOrderMatchingEngine
     private readonly RedisOrderRepository _redisOrders;
     private readonly RedisAssetRepository _redisAssets;
     private readonly IRedisCache _redis;
-    private readonly IRealTimeDataPushService _realTimePush;
+    private readonly IServiceProvider _serviceProvider; // ✅ 使用 IServiceProvider 解决 Scoped 依赖问题
     private readonly ILogger<RedisOrderMatchingEngine> _logger;
     private readonly Dictionary<string, SemaphoreSlim> _symbolLocks = new();
     private const string TRADE_ID_KEY = "global:trade_id";
@@ -26,13 +27,13 @@ public class RedisOrderMatchingEngine
         RedisOrderRepository redisOrders,
         RedisAssetRepository redisAssets,
         IRedisCache redis,
-        IRealTimeDataPushService realTimePush,
+        IServiceProvider serviceProvider, // ✅ 注入 IServiceProvider
         ILogger<RedisOrderMatchingEngine> logger)
     {
         _redisOrders = redisOrders;
         _redisAssets = redisAssets;
         _redis = redis;
-        _realTimePush = realTimePush;
+        _serviceProvider = serviceProvider; // ✅ 保存 IServiceProvider
         _logger = logger;
     }
 
@@ -288,8 +289,8 @@ public class RedisOrderMatchingEngine
         // 保存成交记录到 Redis
         await SaveTradeToRedis(trade, symbol);
 
-        // 推送成交数据到 SignalR (暂时注释掉,因为IRealTimeDataPushService没有PushTradeAsync方法)
-        // await _realTimePush.PushTradeAsync(...);
+        // ✅ 推送成交数据到 SignalR (使用 Scoped Service)
+        await PushTradeToUsersAsync(buyUserId, sellUserId, trade, symbol);
 
         _logger.LogInformation("💰 成交: TradeId={TradeId} {Symbol} {Price}x{Quantity}, 买方={BuyUserId}, 卖方={SellUserId}",
             tradeId, symbol, price, quantity, buyUserId, sellUserId);
@@ -396,6 +397,9 @@ public class RedisOrderMatchingEngine
         return (baseCurrency, quoteCurrency);
     }
 
+    /// <summary>
+    /// 推送订单簿更新 (使用 Scoped Service)
+    /// </summary>
     private async Task PushOrderBookUpdate(string symbol)
     {
         try
@@ -414,11 +418,59 @@ public class RedisOrderMatchingEngine
                 Quantity = x.quantity
             }).ToList();
 
-            await _realTimePush.PushExternalOrderBookSnapshotAsync(symbol, bidDtos, askDtos, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            // ✅ 使用 IServiceProvider 创建 scope 获取 Scoped service
+            using (var scope = _serviceProvider.CreateScope())
+            {
+                var realTimePush = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
+                if (realTimePush != null)
+                {
+                    await realTimePush.PushExternalOrderBookSnapshotAsync(symbol, bidDtos, askDtos, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                }
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ 推送订单簿失败: {Symbol}", symbol);
+        }
+    }
+
+    /// <summary>
+    /// 推送成交记录到买卖双方用户 (使用 Scoped Service)
+    /// </summary>
+    private async Task PushTradeToUsersAsync(int buyUserId, int sellUserId, Trade trade, string symbol)
+    {
+        try
+        {
+            // ✅ 使用 IServiceProvider 创建 scope 获取 Scoped service
+            using (var scope = _serviceProvider.CreateScope())
+            {
+                var realTimePush = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
+                if (realTimePush != null)
+                {
+                    var tradeDto = new TradeDto
+                    {
+                        Id = trade.Id,
+                        Symbol = symbol,
+                        Price = trade.Price,
+                        Quantity = trade.Quantity,
+                        BuyOrderId = trade.BuyOrderId,
+                        SellOrderId = trade.SellOrderId,
+                        BuyerId = buyUserId,
+                        SellerId = sellUserId,
+                        ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.ExecutedAt).DateTime, // ✅ ExecutedAt 是 DateTime
+                        TotalValue = trade.Price * trade.Quantity
+                    };
+
+                    // 推送给买方
+                    await realTimePush.PushUserTradeAsync(buyUserId, tradeDto);
+                    // 推送给卖方
+                    await realTimePush.PushUserTradeAsync(sellUserId, tradeDto);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ 推送成交记录失败: TradeId={TradeId}", trade.Id);
         }
     }
 

@@ -86,6 +86,10 @@ builder.Services.AddScoped<IPriceDataService, PriceDataService>(); // 价格聚�
 // ✅ 新的 Redis 撮合引擎（所有操作在Redis中）
 builder.Services.AddSingleton<RedisOrderMatchingEngine>();
 
+// ✅ Redis 撮合引擎适配器（实现 IOrderMatchingEngine 接口）
+// 所有注入 IOrderMatchingEngine 的地方将自动使用 Redis-First 架构
+builder.Services.AddScoped<IOrderMatchingEngine, RedisOrderMatchingEngineAdapter>();
+
 // 实时推送与缓存
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
 builder.Services.AddSingleton<IOrderBookSnapshotCache, OrderBookSnapshotCache>();

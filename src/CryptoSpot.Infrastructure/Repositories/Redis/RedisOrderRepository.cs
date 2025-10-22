@@ -37,6 +37,15 @@ public class RedisOrderRepository
 
     #endregion
 
+    #region 底层 Redis 访问
+
+    /// <summary>
+    /// 获取底层 Redis IDatabase 实例（用于高级操作）
+    /// </summary>
+    public IDatabase GetDatabase() => _db;
+
+    #endregion
+
     #region 订单创建
 
     /// <summary>
@@ -78,23 +87,22 @@ public class RedisOrderRepository
     private async Task SaveOrderToRedisAsync(DomainOrder order, string symbol)
     {
         var key = $"order:{order.Id}";
-        var hashEntries = new Dictionary<string, string>
-        {
-            ["id"] = order.Id.ToString(),
-            ["userId"] = order.UserId?.ToString() ?? "",
-            ["tradingPairId"] = order.TradingPairId.ToString(),
-            ["symbol"] = symbol,
-            ["side"] = ((int)order.Side).ToString(),
-            ["type"] = ((int)order.Type).ToString(),
-            ["price"] = order.Price?.ToString() ?? "0",
-            ["quantity"] = order.Quantity.ToString(),
-            ["filledQuantity"] = order.FilledQuantity.ToString(),
-            ["status"] = ((int)order.Status).ToString(),
-            ["createdAt"] = order.CreatedAt.ToString(),
-            ["updatedAt"] = order.UpdatedAt.ToString()
-        };
-
-        await _redis.HMSetAsync(key, hashEntries.ToArray());
+        
+        // ✅ IRedisCache.HMSetAsync 需要 params object[] (键值对交替)
+        await _redis.HMSetAsync(key,
+            "id", order.Id.ToString(),
+            "userId", order.UserId?.ToString() ?? "",
+            "tradingPairId", order.TradingPairId.ToString(),
+            "symbol", symbol,
+            "side", ((int)order.Side).ToString(),
+            "type", ((int)order.Type).ToString(),
+            "price", order.Price?.ToString() ?? "0",
+            "quantity", order.Quantity.ToString(),
+            "filledQuantity", order.FilledQuantity.ToString(),
+            "status", ((int)order.Status).ToString(),
+            "createdAt", order.CreatedAt.ToString(),
+            "updatedAt", order.UpdatedAt.ToString()
+        );
     }
 
     #endregion
