@@ -81,15 +81,15 @@ public class RedisDataLoaderService : IHostedService
         foreach (var user in users)
         {
             var key = $"user:{user.Id}";
-            var hashEntries = new Dictionary<string, string>
+            var hashEntries = new List<HashEntry>
             {
-                ["id"] = user.Id.ToString(),
-                ["username"] = user.Username,
-                ["passwordHash"] = user.PasswordHash ?? "",
-                ["email"] = user.Email ?? "",
-                ["createdAt"] = user.CreatedAt.ToString()
+                new HashEntry("id", user.Id.ToString()),
+                new HashEntry("username", user.Username),
+                new HashEntry("passwordHash", user.PasswordHash ?? ""),
+                new HashEntry("email", user.Email ?? ""),
+                new HashEntry("createdAt", user.CreatedAt.ToString())
             };
-
+            
             await _redis.HMSetAsync(key, hashEntries.ToArray());
             count++;
         }
@@ -109,16 +109,16 @@ public class RedisDataLoaderService : IHostedService
         foreach (var asset in assets)
         {
             var key = $"asset:{asset.UserId}:{asset.Symbol}";
-            var hashEntries = new Dictionary<string, string>
+            var hashEntries = new List<HashEntry>
             {
-                ["userId"] = asset.UserId?.ToString() ?? "",
-                ["symbol"] = asset.Symbol,
-                ["availableBalance"] = ((long)(asset.Available * PRECISION)).ToString(),
-                ["frozenBalance"] = ((long)(asset.Frozen * PRECISION)).ToString(),
-                ["createdAt"] = asset.CreatedAt.ToString(),
-                ["updatedAt"] = asset.UpdatedAt.ToString()
+                new HashEntry("userId", asset.UserId?.ToString() ?? ""),
+                new HashEntry("symbol", asset.Symbol),
+                new HashEntry("availableBalance", ((long)(asset.Available * PRECISION)).ToString()),
+                new HashEntry("frozenBalance", ((long)(asset.Frozen * PRECISION)).ToString()),
+                new HashEntry("createdAt", asset.CreatedAt.ToString()),
+                new HashEntry("updatedAt", asset.UpdatedAt.ToString())
             };
-
+            
             await _redis.HMSetAsync(key, hashEntries.ToArray());
 
             // 添加到用户资产索引
@@ -141,20 +141,20 @@ public class RedisDataLoaderService : IHostedService
         foreach (var pair in pairs)
         {
             var key = $"trading_pair:{pair.Symbol}";
-            var hashEntries = new Dictionary<string, string>
+            var hashEntries = new List<HashEntry>
             {
-                ["id"] = pair.Id.ToString(),
-                ["symbol"] = pair.Symbol,
-                ["baseAsset"] = pair.BaseAsset,
-                ["quoteAsset"] = pair.QuoteAsset,
-                ["price"] = pair.Price.ToString(),
-                ["change24h"] = pair.Change24h.ToString(),
-                ["volume24h"] = pair.Volume24h.ToString(),
-                ["high24h"] = pair.High24h.ToString(),
-                ["low24h"] = pair.Low24h.ToString(),
-                ["lastUpdated"] = pair.LastUpdated.ToString()
+                new HashEntry("id", pair.Id.ToString()),
+                new HashEntry("symbol", pair.Symbol),
+                new HashEntry("baseAsset", pair.BaseAsset),
+                new HashEntry("quoteAsset", pair.QuoteAsset),
+                new HashEntry("price", pair.Price.ToString()),
+                new HashEntry("change24h", pair.Change24h.ToString()),
+                new HashEntry("volume24h", pair.Volume24h.ToString()),
+                new HashEntry("high24h", pair.High24h.ToString()),
+                new HashEntry("low24h", pair.Low24h.ToString()),
+                new HashEntry("lastUpdated", pair.LastUpdated.ToString())
             };
-
+            
             await _redis.HMSetAsync(key, hashEntries.ToArray());
 
             // 添加到交易对列表
@@ -183,23 +183,30 @@ public class RedisDataLoaderService : IHostedService
 
         foreach (var order in activeOrders)
         {
+            // 跳过没有交易对的订单
+            if (order.TradingPair == null)
+            {
+                _logger.LogWarning("⚠️ 跳过订单 {OrderId}: TradingPair 为空", order.Id);
+                continue;
+            }
+
             var key = $"order:{order.Id}";
             var symbol = order.TradingPair.Symbol;
 
-            var hashEntries = new Dictionary<string, string>
+            var hashEntries = new List<HashEntry>
             {
-                ["id"] = order.Id.ToString(),
-                ["userId"] = order.UserId?.ToString() ?? "",
-                ["tradingPairId"] = order.TradingPairId.ToString(),
-                ["symbol"] = symbol,
-                ["side"] = ((int)order.Side).ToString(),
-                ["type"] = ((int)order.Type).ToString(),
-                ["price"] = order.Price?.ToString() ?? "0",
-                ["quantity"] = order.Quantity.ToString(),
-                ["filledQuantity"] = order.FilledQuantity.ToString(),
-                ["status"] = ((int)order.Status).ToString(),
-                ["createdAt"] = order.CreatedAt.ToString(),
-                ["updatedAt"] = order.UpdatedAt.ToString()
+                new HashEntry("id", order.Id.ToString()),
+                new HashEntry("userId", order.UserId?.ToString() ?? ""),
+                new HashEntry("tradingPairId", order.TradingPairId.ToString()),
+                new HashEntry("symbol", symbol),
+                new HashEntry("side", ((int)order.Side).ToString()),
+                new HashEntry("type", ((int)order.Type).ToString()),
+                new HashEntry("price", order.Price?.ToString() ?? "0"),
+                new HashEntry("quantity", order.Quantity.ToString()),
+                new HashEntry("filledQuantity", order.FilledQuantity.ToString()),
+                new HashEntry("status", ((int)order.Status).ToString()),
+                new HashEntry("createdAt", order.CreatedAt.ToString()),
+                new HashEntry("updatedAt", order.UpdatedAt.ToString())
             };
 
             await _redis.HMSetAsync(key, hashEntries.ToArray());

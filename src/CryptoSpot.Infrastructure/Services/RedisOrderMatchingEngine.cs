@@ -302,15 +302,15 @@ public class RedisOrderMatchingEngine
     {
         var key = $"trade:{trade.Id}";
         await _redis.HMSetAsync(key,
-            "id", trade.Id,
-            "tradingPairId", trade.TradingPairId, // ✅ tradingPairId 不是 symbol
-            "buyOrderId", trade.BuyOrderId,
-            "sellOrderId", trade.SellOrderId,
+            "id", trade.Id.ToString(),
+            "tradingPairId", trade.TradingPairId.ToString(),
+            "buyOrderId", trade.BuyOrderId.ToString(),
+            "sellOrderId", trade.SellOrderId.ToString(),
             "price", trade.Price.ToString("F8"),
             "quantity", trade.Quantity.ToString("F8"),
-            "buyerId", trade.BuyerId,      // ✅ buyerId 不是 buyerUserId
-            "sellerId", trade.SellerId,    // ✅ sellerId 不是 sellerUserId
-            "executedAt", trade.ExecutedAt); // ✅ executedAt 不是 timestamp
+            "buyerId", trade.BuyerId.ToString(),
+            "sellerId", trade.SellerId.ToString(),
+            "executedAt", trade.ExecutedAt.ToString());
 
         // 添加到成交历史列表（最多保留 1000 条）
         await _redis.ListLeftPushAsync($"trades:{symbol}", trade.Id.ToString());

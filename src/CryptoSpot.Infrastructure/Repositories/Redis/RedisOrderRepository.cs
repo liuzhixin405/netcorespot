@@ -88,21 +88,23 @@ public class RedisOrderRepository
     {
         var key = $"order:{order.Id}";
         
-        // ✅ IRedisCache.HMSetAsync 需要 params object[] (键值对交替)
-        await _redis.HMSetAsync(key,
-            "id", order.Id.ToString(),
-            "userId", order.UserId?.ToString() ?? "",
-            "tradingPairId", order.TradingPairId.ToString(),
-            "symbol", symbol,
-            "side", ((int)order.Side).ToString(),
-            "type", ((int)order.Type).ToString(),
-            "price", order.Price?.ToString() ?? "0",
-            "quantity", order.Quantity.ToString(),
-            "filledQuantity", order.FilledQuantity.ToString(),
-            "status", ((int)order.Status).ToString(),
-            "createdAt", order.CreatedAt.ToString(),
-            "updatedAt", order.UpdatedAt.ToString()
-        );
+        var hashEntries = new List<HashEntry>
+        {
+            new HashEntry("id", order.Id.ToString()),
+            new HashEntry("userId", order.UserId?.ToString() ?? ""),
+            new HashEntry("tradingPairId", order.TradingPairId.ToString()),
+            new HashEntry("symbol", symbol),
+            new HashEntry("side", ((int)order.Side).ToString()),
+            new HashEntry("type", ((int)order.Type).ToString()),
+            new HashEntry("price", order.Price?.ToString() ?? "0"),
+            new HashEntry("quantity", order.Quantity.ToString()),
+            new HashEntry("filledQuantity", order.FilledQuantity.ToString()),
+            new HashEntry("status", ((int)order.Status).ToString()),
+            new HashEntry("createdAt", order.CreatedAt.ToString()),
+            new HashEntry("updatedAt", order.UpdatedAt.ToString())
+        };
+
+        await _redis.HMSetAsync(key, hashEntries.ToArray());
     }
 
     #endregion

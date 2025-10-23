@@ -213,14 +213,14 @@ public class RedisAssetRepository
     {
         var key = $"asset:{asset.UserId}:{asset.Symbol}";
 
-        var hashEntries = new Dictionary<string, string>
+        var hashEntries = new List<HashEntry>
         {
-            ["userId"] = asset.UserId?.ToString() ?? "",
-            ["symbol"] = asset.Symbol,
-            ["availableBalance"] = ((long)(asset.Available * PRECISION)).ToString(),
-            ["frozenBalance"] = ((long)(asset.Frozen * PRECISION)).ToString(),
-            ["createdAt"] = asset.CreatedAt.ToString(),
-            ["updatedAt"] = asset.UpdatedAt.ToString()
+            new HashEntry("userId", asset.UserId?.ToString() ?? ""),
+            new HashEntry("symbol", asset.Symbol),
+            new HashEntry("availableBalance", ((long)(asset.Available * PRECISION)).ToString()),
+            new HashEntry("frozenBalance", ((long)(asset.Frozen * PRECISION)).ToString()),
+            new HashEntry("createdAt", asset.CreatedAt.ToString()),
+            new HashEntry("updatedAt", asset.UpdatedAt.ToString())
         };
 
         await _redis.HMSetAsync(key, hashEntries.ToArray());
