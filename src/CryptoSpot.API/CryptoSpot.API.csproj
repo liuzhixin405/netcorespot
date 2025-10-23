@@ -20,9 +20,4 @@
    
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Temporarily disable OrderV2Controller until refactored for Redis-First -->
-    <Compile Remove="Controllers\OrderV2Controller.cs" />
-  </ItemGroup>
-
 </Project>

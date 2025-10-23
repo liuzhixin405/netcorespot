@@ -61,7 +61,7 @@ public class OrderController : ControllerBase
             var order = new Order
             {
                 UserId = userId,
-                Symbol = request.Symbol.ToUpper(),
+       
                 Side = request.Side.ToLower() == "buy" ? OrderSide.Buy : OrderSide.Sell,
                 Type = request.Type.ToLower() == "market" ? OrderType.Market : OrderType.Limit,
                 Price = request.Price,
@@ -71,7 +71,7 @@ public class OrderController : ControllerBase
             };
 
             // 下单并撮合（完全在 Redis 中）
-            var createdOrder = await _matchingEngine.PlaceOrderAsync(order);
+            var createdOrder = await _matchingEngine.PlaceOrderAsync(order,request.Symbol);
 
             return Ok(new
             {
@@ -79,7 +79,7 @@ public class OrderController : ControllerBase
                 data = new
                 {
                     orderId = createdOrder.Id,
-                    symbol = createdOrder.Symbol,
+
                     side = createdOrder.Side.ToString(),
                     type = createdOrder.Type.ToString(),
                     price = createdOrder.Price,
@@ -120,7 +120,7 @@ public class OrderController : ControllerBase
                 data = orders.Select(o => new
                 {
                     orderId = o.Id,
-                    symbol = o.Symbol,
+
                     side = o.Side.ToString(),
                     type = o.Type.ToString(),
                     price = o.Price,
@@ -162,7 +162,7 @@ public class OrderController : ControllerBase
                 data = new
                 {
                     orderId = order.Id,
-                    symbol = order.Symbol,
+               
                     side = order.Side.ToString(),
                     type = order.Type.ToString(),
                     price = order.Price,
@@ -186,12 +186,12 @@ public class OrderController : ControllerBase
     #region 取消订单
 
     [HttpDelete("{orderId}")]
-    public async Task<IActionResult> CancelOrder(int orderId)
+    public async Task<IActionResult> CancelOrder(int orderId,string symbol)
     {
         try
         {
             var userId = GetCurrentUserId();
-            var success = await _matchingEngine.CancelOrderAsync(orderId, userId);
+            var success = await _matchingEngine.CancelOrderAsync(orderId, userId,symbol);
 
             if (!success)
             {
@@ -224,10 +224,10 @@ public class OrderController : ControllerBase
                 success = true,
                 data = assets.Select(a => new
                 {
-                    currency = a.Currency,
-                    availableBalance = a.AvailableBalance,
-                    frozenBalance = a.FrozenBalance,
-                    totalBalance = a.AvailableBalance + a.FrozenBalance
+                    currency = a.Symbol,
+                    availableBalance = a.Available,
+                    frozenBalance = a.Frozen,
+                    totalBalance = a.Available + a.Frozen
                 }).ToList()
             });
         }
