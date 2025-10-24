@@ -27,8 +27,8 @@ namespace CryptoSpot.Infrastructure
         {
             var connectionString = configuration.GetConnectionString("DefaultConnection");
             
-            // 注册 DbContext 工厂（专用于后台服务和多线程场景）
-            services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
+            // 提取 DbContext 配置逻辑（避免重复代码）
+            Action<DbContextOptionsBuilder> configureDbContext = options =>
             {
                 options.UseMySql(connectionString, ServerVersion.Parse("8.0"), mysqlOptions =>
                 {
@@ -40,22 +40,17 @@ namespace CryptoSpot.Infrastructure
                 });
                 options.EnableSensitiveDataLogging(false);
                 options.EnableThreadSafetyChecks(false);
-            }, poolSize: 30);
+            };
             
-            // 为 Scoped 服务（Repository、UnitOfWork）注册传统 DbContext
-            services.AddDbContextPool<ApplicationDbContext>(options =>
+            // DbContext 工厂（专用于后台服务、单例服务等长生命周期场景）
+            services.AddPooledDbContextFactory<ApplicationDbContext>(configureDbContext, poolSize: 30);
+            
+            // 为 Scoped 服务注册 DbContext（从工厂获取，统一池化管理）
+            services.AddScoped<ApplicationDbContext>(sp =>
             {
-                options.UseMySql(connectionString, ServerVersion.Parse("8.0"), mysqlOptions =>
-                {
-                    mysqlOptions.EnableRetryOnFailure(
-                        maxRetryCount: 3,
-                        maxRetryDelay: TimeSpan.FromSeconds(5),
-                        errorNumbersToAdd: null);
-                    mysqlOptions.CommandTimeout(30);
-                });
-                options.EnableSensitiveDataLogging(false);
-                options.EnableThreadSafetyChecks(false);
-            }, poolSize: 30);
+                var factory = sp.GetRequiredService<IDbContextFactory<ApplicationDbContext>>();
+                return factory.CreateDbContext();
+            });
 
             // Repositories & UoW
             services.AddScoped<IUserRepository, UserRepository>();
