@@ -48,7 +48,20 @@ export function useMergedTickerData(symbol: string): UseMergedReturn {
     if (!symbol) return;
     const price = lastPriceFrameRef.current;
     const ticker = lastTickerFrameRef.current;
-    if (!price && !ticker) return;
+    
+    // ✅ 添加调试日志
+    console.log('[useMergedTickerData] buildMerged 执行:', {
+      symbol,
+      hasPrice: !!price,
+      hasTicker: !!ticker,
+      priceData: price,
+      tickerData: ticker
+    });
+    
+    if (!price && !ticker) {
+      console.log('[useMergedTickerData] buildMerged 跳过: price 和 ticker 都为空');
+      return;
+    }
 
     const ts = Math.max(
       price?.timestamp || 0,
@@ -109,7 +122,23 @@ export function useMergedTickerData(symbol: string): UseMergedReturn {
   }, [symbol]);
 
   const handlePriceUpdate = useCallback((frame: any) => {
-    if (!frame || frame.symbol !== symbol) return;
+    // ✅ 添加调试日志
+    console.log('[useMergedTickerData] PriceUpdate 收到:', {
+      frame,
+      currentSymbol: symbol,
+      frameSymbol: frame?.symbol,
+      match: frame?.symbol === symbol,
+      has24hData: !!(frame?.change24h !== undefined || frame?.volume24h !== undefined)
+    });
+    
+    if (!frame || frame.symbol !== symbol) {
+      console.warn('[useMergedTickerData] PriceUpdate 被过滤:', {
+        reason: !frame ? 'frame为空' : `symbol不匹配 (收到:${frame.symbol}, 期望:${symbol})`
+      });
+      return;
+    }
+    
+    console.log('[useMergedTickerData] PriceUpdate 通过检查，更新 lastPriceFrameRef');
     lastPriceFrameRef.current = frame;
     buildMerged();
   }, [symbol, buildMerged]);
@@ -132,19 +161,35 @@ export function useMergedTickerData(symbol: string): UseMergedReturn {
     setError(null);
 
     try {
+      console.log('[useMergedTickerData] subscribeAll 开始:', symbol);
+      
+      // ✅ 先清理旧订阅和旧数据
+      if (priceUnsubRef.current) { 
+        await priceUnsubRef.current(); 
+        priceUnsubRef.current = null; 
+      }
+      if (tickerUnsubRef.current) { 
+        await tickerUnsubRef.current(); 
+        tickerUnsubRef.current = null; 
+      }
+      
+      // ✅ 清空旧的 ref 数据，避免使用旧交易对的数据
+      lastPriceFrameRef.current = null;
+      lastTickerFrameRef.current = null;
+      
       // PriceUpdate 订阅（单 symbol 写成数组服用现有 API）
-      if (priceUnsubRef.current) { priceUnsubRef.current(); priceUnsubRef.current = null; }
       const pu = await signalRClient.subscribePriceData([symbol], handlePriceUpdate, handleError);
       priceUnsubRef.current = pu;
 
       // LastTradeAndMid 订阅
-      if (tickerUnsubRef.current) { tickerUnsubRef.current(); tickerUnsubRef.current = null; }
       const tu = await signalRClient.subscribeTicker(symbol, handleTickerUpdate, handleError);
       tickerUnsubRef.current = tu;
 
+      console.log('[useMergedTickerData] subscribeAll 完成:', symbol);
       setIsConnected(signalRClient.isConnected());
       setLoading(false);
     } catch (e: any) {
+      console.error('[useMergedTickerData] subscribeAll 失败:', e);
       setError(e.message || '合并订阅失败');
       setLoading(false);
       setIsConnected(false);

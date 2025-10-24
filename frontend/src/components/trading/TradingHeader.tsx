@@ -129,15 +129,24 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
   // 使用SignalR实时价格数据 (只订阅当前选中符号, 不再订阅全部以减少无关推送)
   const availableSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
   const { data: merged, isConnected } = useMergedTickerData(symbol);
+  
+  // ✅ 添加调试日志
+  console.log('[TradingHeader] 渲染数据:', {
+    symbol,
+    merged,
+    isConnected,
+    hasChange24h: merged?.change24h !== undefined,
+    hasVolume24h: merged?.volume24h !== undefined,
+    hasHigh24h: merged?.high24h !== undefined,
+    hasLow24h: merged?.low24h !== undefined
+  });
+  
   const currentData = merged || { symbol, lastPrice:0, change24h:0, volume24h:0, high24h:0, low24h:0, timestamp:0 };
 
   const hasPriceFrame = currentData.change24h !== undefined || currentData.volume24h !== undefined || currentData.high24h !== undefined;
   const isPositive = (currentData.change24h ?? 0) >= 0;
   const changePercent24h = (currentData.change24h ?? 0) * 100; // 小数 -> 百分比
   const pct = isFinite(changePercent24h) ? changePercent24h : 0;
-
-  // 调试：打印原始帧以确认 24h 字段是否为 0 / undefined
-  // debug removed
 
   return (
     <Header>

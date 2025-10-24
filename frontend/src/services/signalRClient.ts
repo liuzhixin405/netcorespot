@@ -197,25 +197,36 @@ export class SignalRClient {
       // 调试: 订阅前输出
       // removed debug
 
-      // 设置价格更新处理器：仅使用后端实际推送的 PriceUpdate 事件
-      // 清理旧的重复/无效监听（之前额外监听了不存在的 PriceData 事件）
-      this.connection.off('PriceUpdate');
-      this.connection.on('PriceUpdate', (response: any) => { onPriceUpdate(response); });
+      // ✅ 修复: 不要每次都 off 所有监听器，而是只添加新的监听器
+      // 使用命名函数以便后续可以精确移除
+      const handler = (response: any) => { 
+        console.log('[SignalR] PriceUpdate 收到:', response);
+        onPriceUpdate(response); 
+      };
+      
+      // 注册监听器（SignalR 会自动处理重复注册）
+      this.connection.on('PriceUpdate', handler);
 
       // 发送订阅请求
       await this.connection.invoke('SubscribePriceData', symbols);
+      console.log('[SignalR] SubscribePriceData 调用完成:', symbols);
 
       // 合并记录
       symbols.forEach(s => { if (!this.subscribedPriceSymbols.includes(s)) this.subscribedPriceSymbols.push(s); });
 
       // 返回取消订阅函数
       return async () => {
+        console.log('[SignalR] 取消订阅 PriceUpdate:', symbols);
         try {
+          // ✅ 先从 SignalR 事件中移除这个特定的 handler
+          this.connection?.off('PriceUpdate', handler);
+          
+          // ✅ 然后通知后端取消订阅
           if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
             await this.connection.invoke('UnsubscribePriceData', symbols);
           }
-        } catch {
-          // 取消订阅失败，忽略错误
+        } catch (err) {
+          console.error('[SignalR] 取消订阅失败:', err);
         }
         this.subscribedPriceSymbols = this.subscribedPriceSymbols.filter(s => !symbols.includes(s));
       };
@@ -296,22 +307,32 @@ export class SignalRClient {
         throw new Error('SignalR连接状态异常');
       }
 
-      // 设置ticker数据接收处理器
-      this.connection.off('LastTradeAndMid');
+      // ✅ 修复: 不要每次都 off 所有监听器，而是只添加新的监听器
+      const handler = (response: any) => { 
+        console.log('[SignalR] LastTradeAndMid 收到:', response);
+        onTickerData(response); 
+      };
       
-      this.connection.on('LastTradeAndMid', (response: any) => { onTickerData(response); });
+      // 注册监听器（SignalR 会自动处理重复注册）
+      this.connection.on('LastTradeAndMid', handler);
 
       // 发送订阅请求
       await this.connection.invoke('SubscribeTicker', symbol);
+      console.log('[SignalR] SubscribeTicker 调用完成:', symbol);
 
       // 返回取消订阅函数
       return async () => {
+        console.log('[SignalR] 取消订阅 LastTradeAndMid:', symbol);
         try {
+          // ✅ 先从 SignalR 事件中移除这个特定的 handler
+          this.connection?.off('LastTradeAndMid', handler);
+          
+          // ✅ 然后通知后端取消订阅
           if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
             await this.connection.invoke('UnsubscribeTicker', symbol);
           }
-        } catch {
-          // 取消订阅失败，忽略错误
+        } catch (err) {
+          console.error('[SignalR] 取消订阅 Ticker 失败:', err);
         }
       };
 

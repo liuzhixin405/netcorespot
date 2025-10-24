@@ -87,6 +87,34 @@ namespace CryptoSpot.Infrastructure.Hubs
             {
                 var groupName = $"price_{symbol}";
                 await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
+                
+                // ✅ 立即推送当前价格数据 (包含 24H 数据)
+                try
+                {
+                    var currentPrice = await _tradingPairService.GetTradingPairAsync(symbol);
+                    if (currentPrice.Success && currentPrice.Data != null)
+                    {
+                        var tp = currentPrice.Data;
+                        var priceData = new
+                        {
+                            symbol = symbol,
+                            price = tp.Price,
+                            change24h = tp.Change24h,      // ✅ 24H 涨跌额
+                            volume24h = tp.Volume24h,      // ✅ 24H 成交量
+                            high24h = tp.High24h,          // ✅ 24H 最高价
+                            low24h = tp.Low24h,            // ✅ 24H 最低价
+                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        };
+                        
+                        await Clients.Caller.SendAsync("PriceUpdate", priceData);
+                        _logger.LogInformation("📤 立即推送当前价格 {Symbol} price={Price} change={Change}", 
+                            symbol, tp.Price, tp.Change24h);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "⚠️ 立即推送当前价格失败 {Symbol}", symbol);
+                }
             }
             
             await Clients.Caller.SendAsync("PriceSubscribed", symbols);
