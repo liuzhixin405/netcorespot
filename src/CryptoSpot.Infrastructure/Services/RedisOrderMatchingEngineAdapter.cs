@@ -36,13 +36,12 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
         {
             var symbol = orderRequest.Symbol.ToUpper();
             
-            // 将 DTO 转换为 Entity (OrderDto 使用枚举类型，无需字符串转换)
             var order = new Order
             {
                 UserId = userId,
-                TradingPairId = 0, // Redis 层会自动处理
-                Side = orderRequest.Side, // ✅ 已经是 OrderSide 枚举
-                Type = orderRequest.Type, // ✅ 已经是 OrderType 枚举
+                TradingPairId = 0,
+                Side = orderRequest.Side,
+                Type = orderRequest.Type,
                 Price = orderRequest.Price,
                 Quantity = orderRequest.Quantity,
                 Status = OrderStatus.Active,
@@ -51,23 +50,21 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
                 UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
 
-            // ✅ 调用 Redis 撮合引擎
             var createdOrder = await _redisEngine.PlaceOrderAsync(order, symbol);
 
-            // 转换回 DTO
             var orderDto = new OrderDto
             {
                 Id = createdOrder.Id,
                 UserId = createdOrder.UserId,
                 Symbol = symbol,
                 TradingPairId = createdOrder.TradingPairId,
-                Side = createdOrder.Side, // ✅ 枚举类型
-                Type = createdOrder.Type, // ✅ 枚举类型
+                Side = createdOrder.Side,
+                Type = createdOrder.Type,
                 Price = createdOrder.Price,
                 Quantity = createdOrder.Quantity,
                 FilledQuantity = createdOrder.FilledQuantity,
                 RemainingQuantity = createdOrder.Quantity - createdOrder.FilledQuantity,
-                Status = createdOrder.Status, // ✅ 枚举类型
+                Status = createdOrder.Status,
                 CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(createdOrder.CreatedAt).DateTime,
                 UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(createdOrder.UpdatedAt).DateTime
             };
@@ -75,7 +72,7 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
             return new OrderMatchResultDto
             {
                 Order = orderDto,
-                Trades = new List<TradeDto>(), // 交易记录已通过 SignalR 推送
+                Trades = new List<TradeDto>(),
                 IsFullyMatched = createdOrder.Status == OrderStatus.Filled,
                 TotalMatchedQuantity = createdOrder.FilledQuantity,
                 AveragePrice = createdOrder.Price ?? 0
@@ -83,7 +80,7 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Redis撮合引擎处理订单失败: {Symbol}", orderRequest.Symbol);
+            _logger.LogError(ex, "Redis matching engine order processing failed: {Symbol}", orderRequest.Symbol);
             throw;
         }
     }
@@ -93,10 +90,8 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
     /// </summary>
     public async Task<List<TradeDto>> MatchOrdersAsync(string symbol)
     {
-        _logger.LogInformation("📊 手动触发撮合: {Symbol} (Redis引擎通常自动撮合)", symbol);
+        _logger.LogInformation("Manual match triggered: {Symbol} (Redis engine auto-matches)", symbol);
         
-        // Redis 引擎在 PlaceOrderAsync 时已自动撮合
-        // 这里返回空列表，表示没有新增撮合
         return new List<TradeDto>();
     }
 
@@ -107,7 +102,6 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
     {
         try
         {
-            // ✅ 从 Redis 获取买卖盘
             var buyOrders = await _redisOrders.GetActiveOrdersAsync(symbol, OrderSide.Buy, depth * 2);
             var sellOrders = await _redisOrders.GetActiveOrdersAsync(symbol, OrderSide.Sell, depth * 2);
 
@@ -141,12 +135,12 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
                 Symbol = symbol,
                 Bids = bids,
                 Asks = asks,
-                Timestamp = DateTime.UtcNow // ✅ OrderBookDepthDto.Timestamp 是 DateTime
+                Timestamp = DateTime.UtcNow
             };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ 获取Redis订单簿失败: {Symbol}", symbol);
+            _logger.LogError(ex, "Failed to get Redis order book: {Symbol}", symbol);
             throw;
         }
     }
@@ -158,30 +152,26 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
     {
         try
         {
-            // ✅ 从 Redis 获取订单以确定 symbol
             var order = await _redisOrders.GetOrderByIdAsync(orderId);
             if (order == null)
             {
-                _logger.LogWarning("⚠️ 订单不存在: {OrderId}", orderId);
+                _logger.LogWarning("Order not found: {OrderId}", orderId);
                 return false;
             }
 
-            // 验证用户权限
             if (userId > 0 && order.UserId != userId)
             {
-                _logger.LogWarning("⚠️ 用户 {UserId} 无权取消订单 {OrderId}", userId, orderId);
+                _logger.LogWarning("User {UserId} unauthorized to cancel order {OrderId}", userId, orderId);
                 return false;
             }
 
-            // 获取 symbol（从 Redis Hash 读取）
             var symbol = await GetSymbolFromOrder(order);
 
-            // ✅ 调用 Redis 撮合引擎取消订单
             return await _redisEngine.CancelOrderAsync(orderId, userId, symbol);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Redis取消订单失败: {OrderId}", orderId);
+            _logger.LogError(ex, "Failed to cancel Redis order: {OrderId}", orderId);
             return false;
         }
     }
@@ -216,7 +206,6 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
     /// </summary>
     private async Task<string> GetSymbolFromOrder(Order order)
     {
-        // ✅ 方案1: 从 Redis Hash 读取 symbol 字段（RedisOrderRepository 已存储）
         var db = _redisOrders.GetDatabase();
         var orderKey = $"order:{order.Id}";
         var symbol = await db.HashGetAsync(orderKey, "symbol");
@@ -226,8 +215,7 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
             return symbol.ToString();
         }
 
-        // 如果 Redis 中没有 symbol 字段，记录警告
-        _logger.LogWarning("⚠️ 订单 {OrderId} 在Redis中没有symbol字段", order.Id);
-        return "BTCUSDT"; // 默认值
+        _logger.LogWarning("Order {OrderId} missing symbol field in Redis", order.Id);
+        return "BTCUSDT";
     }
 }

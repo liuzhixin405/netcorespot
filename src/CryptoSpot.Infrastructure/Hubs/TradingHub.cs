@@ -88,7 +88,6 @@ namespace CryptoSpot.Infrastructure.Hubs
                 var groupName = $"price_{symbol}";
                 await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
                 
-                // ✅ 立即推送当前价格数据 (包含 24H 数据)
                 try
                 {
                     var currentPrice = await _tradingPairService.GetTradingPairAsync(symbol);
@@ -99,21 +98,21 @@ namespace CryptoSpot.Infrastructure.Hubs
                         {
                             symbol = symbol,
                             price = tp.Price,
-                            change24h = tp.Change24h,      // ✅ 24H 涨跌额
-                            volume24h = tp.Volume24h,      // ✅ 24H 成交量
-                            high24h = tp.High24h,          // ✅ 24H 最高价
-                            low24h = tp.Low24h,            // ✅ 24H 最低价
+                            change24h = tp.Change24h,
+                            volume24h = tp.Volume24h,
+                            high24h = tp.High24h,
+                            low24h = tp.Low24h,
                             timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                         };
                         
                         await Clients.Caller.SendAsync("PriceUpdate", priceData);
-                        _logger.LogInformation("📤 立即推送当前价格 {Symbol} price={Price} change={Change}", 
+                        _logger.LogInformation("Push current price: {Symbol} price={Price} change={Change}", 
                             symbol, tp.Price, tp.Change24h);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "⚠️ 立即推送当前价格失败 {Symbol}", symbol);
+                    _logger.LogWarning(ex, "Failed to push current price: {Symbol}", symbol);
                 }
             }
             
@@ -201,7 +200,7 @@ namespace CryptoSpot.Infrastructure.Hubs
         {
             var group = $"trades_{symbol}";
             await Groups.AddToGroupAsync(Context.ConnectionId, group);
-            _logger.LogInformation("✅ [TradingHub] 客户端 {ConnectionId} 订阅成交数据: {Group}", Context.ConnectionId, group);
+            _logger.LogInformation("[TradingHub] Client {ConnectionId} subscribed trades: {Group}", Context.ConnectionId, group);
             await Clients.Caller.SendAsync("TradesSubscribed", symbol);
         }
 
@@ -209,16 +208,15 @@ namespace CryptoSpot.Infrastructure.Hubs
         {
             var group = $"trades_{symbol}";
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, group);
-            _logger.LogInformation("❌ [TradingHub] 客户端 {ConnectionId} 取消订阅成交数据: {Group}", Context.ConnectionId, group);
+            _logger.LogInformation("[TradingHub] Client {ConnectionId} unsubscribed trades: {Group}", Context.ConnectionId, group);
             await Clients.Caller.SendAsync("TradesUnsubscribed", symbol);
         }
 
-        // 订阅用户个人数据(订单、成交、资产)
         public async Task SubscribeUserData(int userId)
         {
             var userGroup = $"user_{userId}";
             await Groups.AddToGroupAsync(Context.ConnectionId, userGroup);
-            _logger.LogInformation("✅ [TradingHub] 客户端 {ConnectionId} 订阅用户数据: UserId={UserId}", Context.ConnectionId, userId);
+            _logger.LogInformation("[TradingHub] Client {ConnectionId} subscribed user data: UserId={UserId}", Context.ConnectionId, userId);
             await Clients.Caller.SendAsync("UserDataSubscribed", userId);
         }
 
@@ -226,7 +224,7 @@ namespace CryptoSpot.Infrastructure.Hubs
         {
             var userGroup = $"user_{userId}";
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, userGroup);
-            _logger.LogInformation("❌ [TradingHub] 客户端 {ConnectionId} 取消订阅用户数据: UserId={UserId}", Context.ConnectionId, userId);
+            _logger.LogInformation("[TradingHub] Client {ConnectionId} unsubscribed user data: UserId={UserId}", Context.ConnectionId, userId);
             await Clients.Caller.SendAsync("UserDataUnsubscribed", userId);
         }
 

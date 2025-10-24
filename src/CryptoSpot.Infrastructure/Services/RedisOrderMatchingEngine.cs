@@ -18,7 +18,7 @@ public class RedisOrderMatchingEngine
     private readonly RedisOrderRepository _redisOrders;
     private readonly RedisAssetRepository _redisAssets;
     private readonly IRedisCache _redis;
-    private readonly IServiceProvider _serviceProvider; // ✅ 使用 IServiceProvider 解决 Scoped 依赖问题
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<RedisOrderMatchingEngine> _logger;
     private readonly Dictionary<string, SemaphoreSlim> _symbolLocks = new();
     private const string TRADE_ID_KEY = "global:trade_id";
@@ -27,13 +27,13 @@ public class RedisOrderMatchingEngine
         RedisOrderRepository redisOrders,
         RedisAssetRepository redisAssets,
         IRedisCache redis,
-        IServiceProvider serviceProvider, // ✅ 注入 IServiceProvider
+        IServiceProvider serviceProvider,
         ILogger<RedisOrderMatchingEngine> logger)
     {
         _redisOrders = redisOrders;
         _redisAssets = redisAssets;
         _redis = redis;
-        _serviceProvider = serviceProvider; // ✅ 保存 IServiceProvider
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -63,13 +63,13 @@ public class RedisOrderMatchingEngine
             }
 
             // 2. 创建订单（写入 Redis）
-            order.Status = OrderStatus.Active; // ✅ Active 不是 Open
+            order.Status = OrderStatus.Active;
             await _redisOrders.CreateOrderAsync(order, symbol);
 
             // 3. 立即撮合
             var trades = await MatchOrderAsync(order, symbol);
 
-            _logger.LogInformation("✅ 下单完成: OrderId={OrderId}, 成交={TradeCount}笔",
+            _logger.LogInformation("Order placed: OrderId={OrderId}, Trades={TradeCount}",
                 order.Id, trades.Count);
 
             return order;
@@ -88,13 +88,13 @@ public class RedisOrderMatchingEngine
         var order = await _redisOrders.GetOrderByIdAsync(orderId);
         if (order == null || order.UserId != userId)
         {
-            _logger.LogWarning("⚠️ 订单不存在或无权限: OrderId={OrderId} UserId={UserId}", orderId, userId);
+            _logger.LogWarning("Order not found or unauthorized: OrderId={OrderId} UserId={UserId}", orderId, userId);
             return false;
         }
 
         if (order.Status != OrderStatus.Active && order.Status != OrderStatus.PartiallyFilled)
         {
-            _logger.LogWarning("⚠️ 订单状态不允许取消: OrderId={OrderId} Status={Status}", orderId, order.Status);
+            _logger.LogWarning("Order status does not allow cancellation: OrderId={OrderId} Status={Status}", orderId, order.Status);
             return false;
         }
 
@@ -115,7 +115,7 @@ public class RedisOrderMatchingEngine
                 await _redisAssets.UnfreezeAssetAsync(userIdValue, currency, unfreezeAmount);
             }
 
-            _logger.LogInformation("✅ 取消订单: OrderId={OrderId}", orderId);
+            _logger.LogInformation("Order cancelled: OrderId={OrderId}", orderId);
 
             // 3. 推送订单簿更新
             await PushOrderBookUpdate(symbol);
@@ -276,20 +276,20 @@ public class RedisOrderMatchingEngine
         var trade = new Trade
         {
             Id = tradeId,
-            TradingPairId = buyOrder.TradingPairId, // ✅ TradingPairId 不是 Symbol
+            TradingPairId = buyOrder.TradingPairId,
             BuyOrderId = buyOrder.Id,
             SellOrderId = sellOrder.Id,
             Price = price,
             Quantity = quantity,
-            BuyerId = buyUserId,      // ✅ BuyerId 不是 BuyerUserId
-            SellerId = sellUserId,    // ✅ SellerId 不是 SellerUserId
-            ExecutedAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds() // ✅ ExecutedAt(long) 不是 Timestamp
+            BuyerId = buyUserId,
+            SellerId = sellUserId,
+            ExecutedAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
         };
 
         // 保存成交记录到 Redis
         await SaveTradeToRedis(trade, symbol);
 
-        // ✅ 推送成交数据到 SignalR (使用 Scoped Service)
+        // 推送成交数据到 SignalR
         await PushTradeToUsersAsync(buyUserId, sellUserId, trade, symbol);
 
         _logger.LogInformation("💰 成交: TradeId={TradeId} {Symbol} {Price}x{Quantity}, 买方={BuyUserId}, 卖方={SellUserId}",
@@ -418,7 +418,6 @@ public class RedisOrderMatchingEngine
                 Quantity = x.quantity
             }).ToList();
 
-            // ✅ 使用 IServiceProvider 创建 scope 获取 Scoped service
             using (var scope = _serviceProvider.CreateScope())
             {
                 var realTimePush = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
@@ -430,7 +429,7 @@ public class RedisOrderMatchingEngine
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ 推送订单簿失败: {Symbol}", symbol);
+            _logger.LogError(ex, "Failed to push order book: {Symbol}", symbol);
         }
     }
 
@@ -441,7 +440,6 @@ public class RedisOrderMatchingEngine
     {
         try
         {
-            // ✅ 使用 IServiceProvider 创建 scope 获取 Scoped service
             using (var scope = _serviceProvider.CreateScope())
             {
                 var realTimePush = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
@@ -457,7 +455,7 @@ public class RedisOrderMatchingEngine
                         SellOrderId = trade.SellOrderId,
                         BuyerId = buyUserId,
                         SellerId = sellUserId,
-                        ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.ExecutedAt).DateTime, // ✅ ExecutedAt 是 DateTime
+                        ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.ExecutedAt).DateTime,
                         TotalValue = trade.Price * trade.Quantity
                     };
 
@@ -470,7 +468,7 @@ public class RedisOrderMatchingEngine
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ 推送成交记录失败: TradeId={TradeId}", trade.Id);
+            _logger.LogError(ex, "Failed to push trade: TradeId={TradeId}", trade.Id);
         }
     }
 

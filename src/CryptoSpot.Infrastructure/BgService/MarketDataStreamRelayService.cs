@@ -30,22 +30,22 @@ namespace CryptoSpot.Infrastructure.BgServices
         private readonly ConcurrentDictionary<string, (decimal Price, decimal Change, decimal Vol, decimal High, decimal Low, long LastPushMs, string Hash)> _lastTickerState = new();
         private const int TickerMinPushIntervalMs = 1000;
         private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _lastKLineState = new();
-        private const int KLineMinPushIntervalMs = 500; // ✅ 降低到500ms提高实时性
-        private readonly IDtoMappingService _mapping; // 新增
-        private readonly PriceUpdateBatchService _batchService; // 批处理服务
+        private const int KLineMinPushIntervalMs = 500;
+        private readonly IDtoMappingService _mapping;
+        private readonly PriceUpdateBatchService _batchService;
 
         public MarketDataStreamRelayService(
             ILogger<MarketDataStreamRelayService> logger,
             IServiceScopeFactory scopeFactory,
             IEnumerable<IMarketDataStreamProvider> streamProviders,
-            IDtoMappingService mapping, // 新增参数
-            PriceUpdateBatchService batchService) // 批处理服务
+            IDtoMappingService mapping,
+            PriceUpdateBatchService batchService)
         {
             _logger = logger;
             _scopeFactory = scopeFactory;
             _streamProviders = streamProviders;
-            _mapping = mapping; // 赋值
-            _batchService = batchService; // 赋值
+            _mapping = mapping;
+            _batchService = batchService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -156,7 +156,6 @@ namespace CryptoSpot.Infrastructure.BgServices
                     timestamp = t.Ts
                 };
 
-                // ✅ 改为批处理队列提交（非阻塞，避免并发冲突）
                 // 只有当价格或涨跌幅有明显变化时才更新数据库
                 if (state.LastPushMs == 0 || 
                     Math.Abs(t.Last - state.Price) / state.Price > 0.0001m || 
@@ -167,7 +166,7 @@ namespace CryptoSpot.Infrastructure.BgServices
 
                 await push.PushPriceDataAsync(t.Symbol, priceData);
                 _lastTickerState[t.Symbol] = (t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h, nowMs, hash);
-                _logger.LogInformation("✅ Ticker Relay 推送完成 {Symbol} price={Price} change={Change:P2} vol={Vol} high={High} low={Low}", 
+                _logger.LogInformation("Ticker relay pushed: {Symbol} price={Price} change={Change:P2} vol={Vol} high={High} low={Low}", 
                     t.Symbol, t.Last, t.ChangePercent, t.Volume24h, t.High24h, t.Low24h);
             }
             catch (Exception ex)
@@ -197,7 +196,8 @@ namespace CryptoSpot.Infrastructure.BgServices
 
                 using var scope = _scopeFactory.CreateScope();
                 var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
-                var snapshotCache = scope.ServiceProvider.GetService<IOrderBookSnapshotCache>();                // 只在真正的快照或首次推送时发送快照，移除定时强制快照
+                var snapshotCache = scope.ServiceProvider.GetService<IOrderBookSnapshotCache>();
+                
                 bool pushAsSnapshot = state.LastPushMs == 0 || delta.IsSnapshot;
                 if (pushAsSnapshot)
                 {
@@ -230,7 +230,6 @@ namespace CryptoSpot.Infrastructure.BgServices
                 using var scope = _scopeFactory.CreateScope();
                 var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
                 
-                // 将 PublicTrade 转换为 MarketTradeDto
                 var tradeDto = new MarketTradeDto
                 {
                     Id = trade.TradeId,
@@ -238,11 +237,11 @@ namespace CryptoSpot.Infrastructure.BgServices
                     Price = trade.Price,
                     Quantity = trade.Quantity,
                     ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.Ts).UtcDateTime,
-                    IsBuyerMaker = trade.Side.ToLower() == "sell" // sell side = buyer is maker
+                    IsBuyerMaker = trade.Side.ToLower() == "sell"
                 };
 
                 await push.PushTradeDataAsync(trade.Symbol, tradeDto);
-                _logger.LogDebug("✅ Trade Relay 推送完成 {Symbol} price={Price} qty={Qty} side={Side}", 
+                _logger.LogDebug("Trade relay pushed: {Symbol} price={Price} qty={Qty} side={Side}", 
                     trade.Symbol, trade.Price, trade.Quantity, trade.Side);
             }
             catch (Exception ex)
@@ -304,7 +303,8 @@ namespace CryptoSpot.Infrastructure.BgServices
                     };
 
                     _ = Task.Run(async () =>
-                    {                        try
+                    {
+                        try
                         {
                             using var persistScope = _scopeFactory.CreateScope();
                             var scopedKLineRepository = persistScope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
@@ -334,7 +334,7 @@ namespace CryptoSpot.Infrastructure.BgServices
                     CloseDateTime = klineEntity.CloseDateTime
                 }, k.IsClosed);
                 _lastKLineState[key] = (hash, nowMs);
-                _logger.LogInformation("✅ KLine Relay 推送 {Symbol} {Interval} open={Open} close={Close} high={High} low={Low} vol={Vol} closed={Closed}", 
+                _logger.LogInformation("KLine relay pushed: {Symbol} {Interval} open={Open} close={Close} high={High} low={Low} vol={Vol} closed={Closed}", 
                     k.Symbol, interval, k.Open, k.Close, k.High, k.Low, k.Volume, k.IsClosed);
             }
             catch (Exception ex)

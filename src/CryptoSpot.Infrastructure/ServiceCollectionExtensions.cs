@@ -3,11 +3,11 @@ using CryptoSpot.Application.Abstractions.Services.MarketData; // K线接口
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users; // IMarketMakerRegistry
 using CryptoSpot.Domain.Entities; // MarketMakerOptions
-using CryptoSpot.Infrastructure.Repositories; // 新增 RawAccess
-using CryptoSpot.Infrastructure.Repositories.Redis; // ✅ Redis Repository
+using CryptoSpot.Infrastructure.Repositories;
+using CryptoSpot.Infrastructure.Repositories.Redis;
 using CryptoSpot.Infrastructure.Services;
-using CryptoSpot.Infrastructure.BgService; // ✅ 后台服务
-using CryptoSpot.Infrastructure.BgServices; // ✅ 批处理服务
+using CryptoSpot.Infrastructure.BgService;
+using CryptoSpot.Infrastructure.BgServices;
 using CryptoSpot.Persistence.Data;
 using CryptoSpot.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -26,7 +26,6 @@ namespace CryptoSpot.Infrastructure
         public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
         {
             var connectionString = configuration.GetConnectionString("DefaultConnection");
-            // ✅ MySQL 连接池大幅缩小（因为运行时只有同步服务访问 MySQL）
             services.AddDbContextPool<ApplicationDbContext>(options =>
             {
                 options.UseMySql(connectionString, ServerVersion.Parse("8.0"), mysqlOptions =>
@@ -39,7 +38,7 @@ namespace CryptoSpot.Infrastructure
                 });
                 options.EnableSensitiveDataLogging(false);
                 options.EnableThreadSafetyChecks(false);
-            }, poolSize: 30); // ✅ 降低到 30（原来 100，因为现在主要操作在 Redis）
+            }, poolSize: 30);
 
             // Repositories & UoW
             services.AddScoped<IUserRepository, UserRepository>();
@@ -64,23 +63,21 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<IMatchingOrderStore, MatchingOrderStore>(); // 注册撮合专用订单存取
 
             services.AddScoped<DataInitializationService>();
-            // 注册多做市配置与注册表
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));
             services.AddSingleton<IMarketMakerRegistry, MarketMakerRegistry>();
 
-            // ===== ✅ Redis-First 架构：Redis Repository 注册 =====
+            // Redis-First 架构：Redis Repository 注册
             services.AddSingleton<RedisOrderRepository>();
             services.AddSingleton<RedisAssetRepository>();
             
-            // ===== ✅ Redis-First 架构：后台服务注册 =====
+            // Redis-First 架构：后台服务注册
             // 1. 数据加载服务（启动时从 MySQL 加载到 Redis）
             services.AddHostedService<RedisDataLoaderService>();
             
-            // 2. Redis → MySQL 同步服务（每 10 秒批量同步）
-            // ✅ 已修复所有实体属性映射问题，现在启用
+            // Redis → MySQL 同步服务
             services.AddHostedService<RedisMySqlSyncService>();
             
-            // ✅ 保留批处理服务（MarketDataStreamRelayService 需要它来避免MySQL并发冲突）
+            // 批处理服务
             services.AddSingleton<PriceUpdateBatchService>();
             services.AddHostedService(sp => sp.GetRequiredService<PriceUpdateBatchService>());
             
@@ -94,29 +91,26 @@ namespace CryptoSpot.Infrastructure
                 var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                 try
                 {
-                    // First try to create database if it doesn't exist
                     context.Database.EnsureCreated();
-                    Console.WriteLine("✅ Database schema created/verified successfully");
+                    Console.WriteLine("Database schema created/verified successfully");
 
-                    // Test connection by querying a simple table
                     var userCount = await context.Users.CountAsync();
-                    Console.WriteLine($"📊 Current user count: {userCount}");
+                    Console.WriteLine($"Current user count: {userCount}");
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"❌ Database setup failed: {ex.Message}");
-                    // Don't throw - let the app continue and fail gracefully on first DB operation
+                    Console.WriteLine($"Database setup failed: {ex.Message}");
                 }
 
                 var dataInitService = scope.ServiceProvider.GetRequiredService<DataInitializationService>();
                 if (await dataInitService.NeedsInitializationAsync())
                 {
                     await dataInitService.InitializeDataAsync();
-                    Console.WriteLine("✅ Data initialization completed");
+                    Console.WriteLine("Data initialization completed");
                 }
                 else
                 {
-                    Console.WriteLine("✅ Data already initialized");
+                    Console.WriteLine("Data already initialized");
                 }
             }
         }
