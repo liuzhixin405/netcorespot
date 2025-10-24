@@ -52,17 +52,28 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                 await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct);
                 var batchSize = Math.Min((int)queueLength, command.BatchSize);
 
+                // 🔒 使用备份队列机制，防止 SaveChanges 失败导致数据丢失
+                var processingQueueKey = $"{command.QueueKey}:processing";
+                var batch = new List<string>();
+
                 // 用于批量更新资产（去重）
                 var assetsToUpdate = new Dictionary<string, (int userId, string currency)>();
 
                 try
                 {
-                    // 收集需要更新的资产
+                    // 1️⃣ 从主队列转移到处理队列（备份）
                     for (int i = 0; i < batchSize; i++)
                     {
                         var json = await _redis.ListRightPopAsync(command.QueueKey);
                         if (string.IsNullOrEmpty(json)) break;
 
+                        batch.Add(json);
+                        await _redis.ListLeftPushAsync(processingQueueKey, json);
+                    }
+
+                    // 2️⃣ 收集需要更新的资产（去重）
+                    foreach (var json in batch)
+                    {
                         var item = JsonSerializer.Deserialize<SyncQueueItem>(json);
                         if (item == null) continue;
 
@@ -70,7 +81,7 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                         assetsToUpdate[key] = (item.userId, item.symbol);
                     }
 
-                    // 批量从 Redis 读取最新资产数据并更新到 MySQL
+                    // 3️⃣ 批量从 Redis 读取最新资产数据并更新到 MySQL
                     foreach (var (key, (userId, symbol)) in assetsToUpdate)
                     {
                         try
@@ -104,11 +115,32 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                         }
                     }
 
+                    // 4️⃣ 保存到数据库
                     await dbContext.SaveChangesAsync(ct);
+
+                    // 5️⃣ 成功后清理备份队列
+                    await _redis.RemoveAsync(processingQueueKey);
+
+                    _logger.LogDebug("✅ 资产批量同步成功: 处理={Processed}, 失败={Failed}", processedCount, failedCount);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "资产批量同步失败");
+                    _logger.LogError(ex, "❌ 资产批量同步失败，正在恢复数据...");
+
+                    // 6️⃣ 失败后从备份队列恢复到主队列
+                    var recoveredCount = 0;
+                    while (await _redis.ListLengthAsync(processingQueueKey) > 0)
+                    {
+                        var json = await _redis.ListRightPopAsync(processingQueueKey);
+                        if (!string.IsNullOrEmpty(json))
+                        {
+                            await _redis.ListLeftPushAsync(command.QueueKey, json);
+                            recoveredCount++;
+                        }
+                    }
+
+                    _logger.LogWarning("⚠️ 已恢复 {Count} 条数据到主队列", recoveredCount);
+
                     return new SyncAssetsResult
                     {
                         Success = false,
@@ -142,24 +174,34 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
 
         private Asset MapToAsset(Dictionary<string, string> data)
         {
+            // ✅ 修复：Redis 中的字段名是小写的 availableBalance/frozenBalance（精度为 long）
+            var availableBalance = long.Parse(data["availableBalance"]);
+            var frozenBalance = long.Parse(data["frozenBalance"]);
+            const long PRECISION = 100_000_000; // 8 位小数精度
+            
             return new Asset
             {
-                Id = int.Parse(data["Id"]),
-                UserId = int.Parse(data["UserId"]),
-                Symbol = data["Symbol"],
-                Available = decimal.Parse(data["Available"]),
-                Frozen = decimal.Parse(data["Frozen"]),
+                Id = int.Parse(data.GetValueOrDefault("id", "0")),
+                UserId = int.Parse(data["userId"]),
+                Symbol = data["symbol"],
+                Available = (decimal)availableBalance / PRECISION,
+                Frozen = (decimal)frozenBalance / PRECISION,
                 // Total 是计算属性，不需要赋值
-                UpdatedAt = long.Parse(data["UpdatedAt"])
+                UpdatedAt = long.Parse(data["updatedAt"])
             };
         }
 
         private void UpdateAssetFromRedis(Asset asset, Dictionary<string, string> data)
         {
-            asset.Available = decimal.Parse(data["Available"]);
-            asset.Frozen = decimal.Parse(data["Frozen"]);
+            // ✅ 修复：Redis 中的字段名是小写的 availableBalance/frozenBalance（精度为 long）
+            var availableBalance = long.Parse(data["availableBalance"]);
+            var frozenBalance = long.Parse(data["frozenBalance"]);
+            const long PRECISION = 100_000_000; // 8 位小数精度
+            
+            asset.Available = (decimal)availableBalance / PRECISION;
+            asset.Frozen = (decimal)frozenBalance / PRECISION;
             // Total 是计算属性（Available + Frozen），不需要赋值
-            asset.UpdatedAt = long.Parse(data["UpdatedAt"]);
+            asset.UpdatedAt = long.Parse(data["updatedAt"]);
         }
 
         private class SyncQueueItem

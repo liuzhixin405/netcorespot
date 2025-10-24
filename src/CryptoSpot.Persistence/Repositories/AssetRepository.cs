@@ -8,13 +8,19 @@ namespace CryptoSpot.Persistence.Repositories;
 
 public class AssetRepository : BaseRepository<Asset>, IAssetRepository
 {
-    public AssetRepository(ApplicationDbContext context) : base(context) { }
+    public AssetRepository(IDbContextFactory<ApplicationDbContext> dbContextFactory) : base(dbContextFactory) { }
 
     public async Task<Asset?> GetUserAssetAsync(int userId, string symbol)
-        => await _dbSet.FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        return await context.Set<Asset>().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
+    }
 
     public async Task<IEnumerable<Asset>> GetUserAssetsAsync(int userId)
-        => await _dbSet.Where(a => a.UserId == userId).OrderBy(a => a.Symbol).ToListAsync();
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        return await context.Set<Asset>().Where(a => a.UserId == userId).OrderBy(a => a.Symbol).ToListAsync();
+    }
 
     public async Task<IEnumerable<Asset>> GetAssetsByUserIdAsync(int userId)
         => await GetUserAssetsAsync(userId);
@@ -24,7 +30,8 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
 
     public async Task<bool> UpdateBalanceAsync(int userId, string symbol, decimal amount)
     {
-        var asset = await GetUserAssetAsync(userId, symbol);
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var asset = await context.Set<Asset>().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
         if (asset == null)
         {
             asset = new Asset
@@ -36,31 +43,38 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
                 CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                 UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
-            await _dbSet.AddAsync(asset);
+            await context.Set<Asset>().AddAsync(asset);
         }
         else
         {
             asset.Available += amount;
             asset.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            _dbSet.Update(asset);
+            context.Set<Asset>().Update(asset);
         }
+        await context.SaveChangesAsync();
         return true;
     }
 
     public async Task<bool> FreezeAssetAsync(int userId, string symbol, decimal amount)
     {
-        var asset = await GetUserAssetAsync(userId, symbol);
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var asset = await context.Set<Asset>().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
         if (asset == null || asset.Available < amount) return false;
         asset.Available -= amount; asset.Frozen += amount; asset.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        _dbSet.Update(asset); return true;
+        context.Set<Asset>().Update(asset);
+        await context.SaveChangesAsync();
+        return true;
     }
 
     public async Task<bool> UnfreezeAssetAsync(int userId, string symbol, decimal amount)
     {
-        var asset = await GetUserAssetAsync(userId, symbol);
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var asset = await context.Set<Asset>().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
         if (asset == null || asset.Frozen < amount) return false;
         asset.Frozen -= amount; asset.Available += amount; asset.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        _dbSet.Update(asset); return true;
+        context.Set<Asset>().Update(asset);
+        await context.SaveChangesAsync();
+        return true;
     }
 
     public async Task<AssetStatistics> GetAssetStatisticsAsync(int userId)
@@ -80,8 +94,9 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
     // 原子操作 - 直接使用 SQL 更新,避免 EF Core 并发冲突
     public async Task<int> AtomicDeductFrozenAsync(int userId, string symbol, decimal amount)
     {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        return await _context.Database.ExecuteSqlRawAsync(
+        return await context.Database.ExecuteSqlRawAsync(
             @"UPDATE Assets 
               SET Frozen = Frozen - {0}, UpdatedAt = {1} 
               WHERE UserId = {2} AND Symbol = {3} AND Frozen >= {0}",
@@ -90,8 +105,9 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
 
     public async Task<int> AtomicAddAvailableAsync(int userId, string symbol, decimal amount)
     {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        return await _context.Database.ExecuteSqlRawAsync(
+        return await context.Database.ExecuteSqlRawAsync(
             @"UPDATE Assets 
               SET Available = Available + {0}, UpdatedAt = {1} 
               WHERE UserId = {2} AND Symbol = {3}",
@@ -100,8 +116,9 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
 
     public async Task<int> AtomicDeductAvailableAsync(int userId, string symbol, decimal amount)
     {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        return await _context.Database.ExecuteSqlRawAsync(
+        return await context.Database.ExecuteSqlRawAsync(
             @"UPDATE Assets 
               SET Available = Available - {0}, UpdatedAt = {1} 
               WHERE UserId = {2} AND Symbol = {3} AND Available >= {0}",

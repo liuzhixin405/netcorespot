@@ -265,12 +265,18 @@ public class RedisOrderMatchingEngine
         var buyUserId = buyOrder.UserId ?? throw new InvalidOperationException("买单缺少用户ID");
         var sellUserId = sellOrder.UserId ?? throw new InvalidOperationException("卖单缺少用户ID");
         
-        await _redisAssets.DeductFrozenAssetAsync(buyUserId, quoteCurrency, quoteAmount);
-        await _redisAssets.AddAvailableAssetAsync(buyUserId, baseCurrency, baseAmount);
-
-        // 卖方：扣除冻结的基础货币，增加计价货币
-        await _redisAssets.DeductFrozenAssetAsync(sellUserId, baseCurrency, baseAmount);
-        await _redisAssets.AddAvailableAssetAsync(sellUserId, quoteCurrency, quoteAmount);
+        // 🔒 使用 Lua 脚本保证 4 个资产操作的原子性（防止资金丢失）
+        var success = await ExecuteTradeAssetsAtomicAsync(
+            buyUserId, sellUserId, 
+            baseCurrency, quoteCurrency, 
+            baseAmount, quoteAmount);
+        
+        if (!success)
+        {
+            _logger.LogError("❌ 成交资产结算失败（原子性检查）: BuyUser={BuyUserId} SellUser={SellUserId}",
+                buyUserId, sellUserId);
+            throw new InvalidOperationException("成交资产结算失败，交易已回滚");
+        }
 
         // 创建成交记录
         var trade = new Trade
@@ -329,6 +335,129 @@ public class RedisOrderMatchingEngine
     #endregion
 
     #region 辅助方法
+
+    /// <summary>
+    /// 🔒 原子性执行成交资产结算（使用 Lua 脚本保证 4 个操作的原子性）
+    /// </summary>
+    private async Task<bool> ExecuteTradeAssetsAtomicAsync(
+        int buyUserId, int sellUserId,
+        string baseCurrency, string quoteCurrency,
+        decimal baseAmount, decimal quoteAmount)
+    {
+        const long PRECISION = 100_000_000; // 8 位小数精度
+        
+        var buyQuoteKey = $"asset:{buyUserId}:{quoteCurrency}";   // 买方计价货币资产
+        var buyBaseKey = $"asset:{buyUserId}:{baseCurrency}";     // 买方基础货币资产
+        var sellBaseKey = $"asset:{sellUserId}:{baseCurrency}";   // 卖方基础货币资产
+        var sellQuoteKey = $"asset:{sellUserId}:{quoteCurrency}"; // 卖方计价货币资产
+        
+        var quoteAmountLong = (long)(quoteAmount * PRECISION);
+        var baseAmountLong = (long)(baseAmount * PRECISION);
+        var timestamp = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
+
+        // Lua 脚本：原子性执行 4 个资产操作
+        var script = @"
+            -- 1. 检查买方冻结的计价货币是否足够
+            local buyQuoteFrozen = tonumber(redis.call('HGET', KEYS[1], 'frozenBalance') or 0)
+            if buyQuoteFrozen < tonumber(ARGV[1]) then
+                return 0  -- 余额不足
+            end
+            
+            -- 2. 检查卖方冻结的基础货币是否足够
+            local sellBaseFrozen = tonumber(redis.call('HGET', KEYS[3], 'frozenBalance') or 0)
+            if sellBaseFrozen < tonumber(ARGV[2]) then
+                return 0  -- 余额不足
+            end
+            
+            -- 3. 买方：扣除冻结的计价货币，增加可用的基础货币
+            redis.call('HINCRBY', KEYS[1], 'frozenBalance', -ARGV[1])
+            redis.call('HSET', KEYS[1], 'updatedAt', ARGV[3])
+            
+            redis.call('HINCRBY', KEYS[2], 'availableBalance', ARGV[2])
+            redis.call('HSET', KEYS[2], 'updatedAt', ARGV[3])
+            
+            -- 4. 卖方：扣除冻结的基础货币，增加可用的计价货币
+            redis.call('HINCRBY', KEYS[3], 'frozenBalance', -ARGV[2])
+            redis.call('HSET', KEYS[3], 'updatedAt', ARGV[3])
+            
+            redis.call('HINCRBY', KEYS[4], 'availableBalance', ARGV[1])
+            redis.call('HSET', KEYS[4], 'updatedAt', ARGV[3])
+            
+            return 1  -- 成功
+        ";
+
+        try
+        {
+            var db = _redis.Connection.GetDatabase();
+            var result = await db.ScriptEvaluateAsync(script,
+                new StackExchange.Redis.RedisKey[] 
+                { 
+                    buyQuoteKey,  // KEYS[1]: 买方计价货币
+                    buyBaseKey,   // KEYS[2]: 买方基础货币
+                    sellBaseKey,  // KEYS[3]: 卖方基础货币
+                    sellQuoteKey  // KEYS[4]: 卖方计价货币
+                },
+                new StackExchange.Redis.RedisValue[] 
+                { 
+                    quoteAmountLong,  // ARGV[1]: 计价货币数量
+                    baseAmountLong,   // ARGV[2]: 基础货币数量
+                    timestamp         // ARGV[3]: 时间戳
+                });
+
+            var success = result.ToString() == "1";
+
+            if (success)
+            {
+                // 加入同步队列（确保 MySQL 同步）
+                await EnqueueAssetSyncBatch(buyUserId, sellUserId, baseCurrency, quoteCurrency);
+                
+                _logger.LogDebug("✅ 成交资产结算成功（原子性）: BuyUser={BuyUserId} SellUser={SellUserId} Base={BaseAmount} Quote={QuoteAmount}",
+                    buyUserId, sellUserId, baseAmount, quoteAmount);
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ 成交资产结算失败（余额不足）: BuyUser={BuyUserId} SellUser={SellUserId}",
+                    buyUserId, sellUserId);
+            }
+
+            return success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ 成交资产结算异常: BuyUser={BuyUserId} SellUser={SellUserId}",
+                buyUserId, sellUserId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 将成交涉及的 4 个资产加入同步队列
+    /// </summary>
+    private async Task EnqueueAssetSyncBatch(int buyUserId, int sellUserId, string baseCurrency, string quoteCurrency)
+    {
+        var db = _redis.Connection.GetDatabase();
+        var timestamp = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
+
+        var assets = new[]
+        {
+            new { userId = buyUserId, symbol = quoteCurrency },
+            new { userId = buyUserId, symbol = baseCurrency },
+            new { userId = sellUserId, symbol = baseCurrency },
+            new { userId = sellUserId, symbol = quoteCurrency }
+        };
+
+        foreach (var asset in assets)
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                userId = asset.userId,
+                symbol = asset.symbol,
+                timestamp
+            });
+
+            await db.ListRightPushAsync("sync_queue:assets", json);
+        }
+    }
 
     private SemaphoreSlim GetSymbolLock(string symbol)
     {

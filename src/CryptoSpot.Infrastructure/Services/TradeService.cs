@@ -46,6 +46,12 @@ namespace CryptoSpot.Infrastructure.Services
 
         public async Task<Trade> ExecuteTradeRawAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity)
         {
+            // ⚠️ 重要提示：此方法仅用于 MySQL 持久化，不应再操作资产
+            // 资产操作已在 RedisOrderMatchingEngine.ExecuteTrade 中通过 Lua 脚本原子性完成
+            // 如果在这里再次操作资产，会导致：
+            // 1. 重复扣款/加款（用户资金翻倍损失）
+            // 2. Redis-MySQL 数据不一致（MySQL 事务回滚但 Redis 已操作）
+            
             try
             {
                 return await _unitOfWork.ExecuteInTransactionAsync(async () =>
@@ -70,41 +76,13 @@ namespace CryptoSpot.Infrastructure.Services
 
                     var createdTrade = await _tradeRepository.AddAsync(trade);
 
-                    // 资产结算
-                    var tradingPair = await _tradingPairRepository.GetByIdAsync(buyOrder.TradingPairId);
-                    if (tradingPair != null)
-                    {
-                        var baseAsset = tradingPair.BaseAsset;
-                        var quoteAsset = tradingPair.QuoteAsset;
-                        var notional = price * quantity;
-
-                        if (buyOrder.UserId.HasValue)
-                        {
-                            var buyIsMaker = _marketMakerRegistry.IsMaker(buyOrder.UserId.Value);
-                            // 做市商从可用资金扣除，普通用户从冻结资金扣除
-                            var bdResp = buyIsMaker 
-                                ? await _assetService.DeductAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional })
-                                : await _assetService.ConsumeFrozenAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional });
-                            var bd = bdResp.Success && bdResp.Data;
-                            if (!bd) throw new InvalidOperationException($"买家资产扣减失败(User={buyOrder.UserId}, {quoteAsset} {notional}, fromFrozen={!buyIsMaker})");
-                            var baResp = await _assetService.AddAssetAsync(buyOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity });
-                            var ba = baResp.Success && baResp.Data;
-                            if (!ba) throw new InvalidOperationException($"买家基础资产增加失败(User={buyOrder.UserId}, {baseAsset} {quantity})");
-                        }
-                        if (sellOrder.UserId.HasValue)
-                        {
-                            var sellIsMaker = _marketMakerRegistry.IsMaker(sellOrder.UserId.Value);
-                            // 做市商从可用资金扣除，普通用户从冻结资金扣除
-                            var sdResp = sellIsMaker
-                                ? await _assetService.DeductAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity })
-                                : await _assetService.ConsumeFrozenAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = baseAsset, Amount = quantity });
-                            var sd = sdResp.Success && sdResp.Data;
-                            if (!sd) throw new InvalidOperationException($"卖家资产扣减失败(User={sellOrder.UserId}, {baseAsset} {quantity}, fromFrozen={!sellIsMaker})");
-                            var saResp = await _assetService.AddAssetAsync(sellOrder.UserId.Value, new AssetOperationRequestDto { Symbol = quoteAsset, Amount = notional });
-                            var sa = saResp.Success && saResp.Data;
-                            if (!sa) throw new InvalidOperationException($"卖家报价资产增加失败(User={sellOrder.UserId}, {quoteAsset} {notional})");
-                        }
-                    }
+                    // ✅ 已移除资产操作代码（避免与 RedisOrderMatchingEngine 重复）
+                    // 资产操作流程：
+                    // 1. RedisOrderMatchingEngine.ExecuteTrade → 使用 Lua 脚本原子性操作 4 个资产
+                    // 2. 自动加入 sync_queue:assets 队列
+                    // 3. SyncAssetsCommandHandler → 异步同步到 MySQL
+                    // 
+                    // 如果此处再次操作资产，会破坏这个流程并导致数据不一致
 
                     await _unitOfWork.SaveChangesAsync();
                     _logger.LogInformation("交易执行成功: {TradeId}, 价格: {Price}, 数量: {Quantity}", trade.TradeId, price, quantity);

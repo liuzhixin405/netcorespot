@@ -147,25 +147,36 @@ namespace CryptoSpot.Infrastructure
         }
         
         /// <summary>
-        /// 自动注册所有 CommandHandler
+        /// 自动注册所有 CommandHandler（扫描 Application 和 Infrastructure 程序集）
         /// </summary>
         private static IServiceCollection AddCommandHandlers(this IServiceCollection services)
         {
             // 扫描 Application 程序集中所有的 CommandHandler
-            var assembly = typeof(CryptoSpot.Application.CommandHandlers.Trading.SubmitOrderCommandHandler).Assembly;
+            var applicationAssembly = typeof(CryptoSpot.Application.CommandHandlers.Trading.SubmitOrderCommandHandler).Assembly;
             
-            var handlerTypes = assembly.GetTypes()
-                .Where(t => !t.IsAbstract && !t.IsInterface)
-                .Where(t => t.GetInterfaces().Any(i => 
-                    i.IsGenericType && i.GetGenericTypeDefinition() == typeof(CryptoSpot.Bus.Core.ICommandHandler<,>)))
-                .ToList();
+            // 扫描 Infrastructure 程序集中所有的 CommandHandler（包括 DataSync）
+            var infrastructureAssembly = typeof(CryptoSpot.Infrastructure.CommandHandlers.DataSync.SyncOrdersCommandHandler).Assembly;
             
-            foreach (var handlerType in handlerTypes)
+            var assemblies = new[] { applicationAssembly, infrastructureAssembly };
+            
+            foreach (var assembly in assemblies)
             {
-                var interfaceType = handlerType.GetInterfaces()
-                    .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(CryptoSpot.Bus.Core.ICommandHandler<,>));
+                var handlerTypes = assembly.GetTypes()
+                    .Where(t => !t.IsAbstract && !t.IsInterface)
+                    .Where(t => t.GetInterfaces().Any(i => 
+                        i.IsGenericType && i.GetGenericTypeDefinition() == typeof(CryptoSpot.Bus.Core.ICommandHandler<,>)))
+                    .ToList();
                 
-                services.AddScoped(interfaceType, handlerType);
+                foreach (var handlerType in handlerTypes)
+                {
+                    var interfaceType = handlerType.GetInterfaces()
+                        .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(CryptoSpot.Bus.Core.ICommandHandler<,>));
+                    
+                    services.AddScoped(interfaceType, handlerType);
+                    
+                    // 记录注册信息（便于调试）
+                    Console.WriteLine($"✅ 注册 CommandHandler: {handlerType.Name}");
+                }
             }
             
             return services;

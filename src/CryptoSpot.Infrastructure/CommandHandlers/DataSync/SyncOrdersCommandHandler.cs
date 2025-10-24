@@ -53,13 +53,25 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                 await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct);
                 var batchSize = Math.Min((int)queueLength, command.BatchSize);
 
+                // 🔒 使用备份队列机制，防止 SaveChanges 失败导致数据丢失
+                var processingQueueKey = $"{command.QueueKey}:processing";
+                var batch = new List<string>();
+
                 try
                 {
+                    // 1️⃣ 从主队列转移到处理队列（备份）
                     for (int i = 0; i < batchSize; i++)
                     {
                         var json = await _redis.ListRightPopAsync(command.QueueKey);
                         if (string.IsNullOrEmpty(json)) break;
 
+                        batch.Add(json);
+                        await _redis.ListLeftPushAsync(processingQueueKey, json);
+                    }
+
+                    // 2️⃣ 处理数据
+                    foreach (var json in batch)
+                    {
                         var item = JsonSerializer.Deserialize<SyncQueueItem>(json);
                         if (item == null) continue;
 
@@ -108,11 +120,32 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                         }
                     }
 
+                    // 3️⃣ 保存到数据库
                     await dbContext.SaveChangesAsync(ct);
+
+                    // 4️⃣ 成功后清理备份队列
+                    await _redis.RemoveAsync(processingQueueKey);
+
+                    _logger.LogDebug("✅ 订单批量同步成功: 处理={Processed}, 失败={Failed}", processedCount, failedCount);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "订单批量同步失败");
+                    _logger.LogError(ex, "❌ 订单批量同步失败，正在恢复数据...");
+
+                    // 5️⃣ 失败后从备份队列恢复到主队列
+                    var recoveredCount = 0;
+                    while (await _redis.ListLengthAsync(processingQueueKey) > 0)
+                    {
+                        var json = await _redis.ListRightPopAsync(processingQueueKey);
+                        if (!string.IsNullOrEmpty(json))
+                        {
+                            await _redis.ListLeftPushAsync(command.QueueKey, json);
+                            recoveredCount++;
+                        }
+                    }
+
+                    _logger.LogWarning("⚠️ 已恢复 {Count} 条数据到主队列", recoveredCount);
+
                     return new SyncOrdersResult
                     {
                         Success = false,
@@ -146,33 +179,39 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
 
         private Order MapToOrder(Dictionary<string, string> data)
         {
+            // ✅ 修复：Redis 中的字段名都是小写的
             return new Order
             {
-                Id = int.Parse(data["Id"]),
-                UserId = int.Parse(data["UserId"]),
-                TradingPairId = int.Parse(data["TradingPairId"]),
-                OrderId = data["OrderId"],
-                ClientOrderId = data.GetValueOrDefault("ClientOrderId"),
-                Side = Enum.Parse<OrderSide>(data["Side"]),
-                Type = Enum.Parse<OrderType>(data["Type"]),
-                Status = Enum.Parse<OrderStatus>(data["Status"]),
-                Quantity = decimal.Parse(data["Quantity"]),
-                Price = data.ContainsKey("Price") && !string.IsNullOrEmpty(data["Price"]) ? decimal.Parse(data["Price"]) : null,
-                FilledQuantity = decimal.Parse(data.GetValueOrDefault("FilledQuantity", "0")),
-                AveragePrice = data.ContainsKey("AveragePrice") && !string.IsNullOrEmpty(data["AveragePrice"]) ? decimal.Parse(data["AveragePrice"]) : 0m,
-                CreatedAt = long.Parse(data["CreatedAt"]),
-                UpdatedAt = long.Parse(data["UpdatedAt"])
+                Id = int.Parse(data["id"]),
+                UserId = int.Parse(data["userId"]),
+                TradingPairId = int.Parse(data["tradingPairId"]),
+                OrderId = data.GetValueOrDefault("orderId", ""),
+                ClientOrderId = data.GetValueOrDefault("clientOrderId"),
+                Side = (OrderSide)int.Parse(data["side"]),
+                Type = (OrderType)int.Parse(data["type"]),
+                Status = (OrderStatus)int.Parse(data["status"]),
+                Quantity = decimal.Parse(data["quantity"]),
+                Price = data.ContainsKey("price") && !string.IsNullOrEmpty(data["price"]) && data["price"] != "0" 
+                    ? decimal.Parse(data["price"]) 
+                    : null,
+                FilledQuantity = decimal.Parse(data.GetValueOrDefault("filledQuantity", "0")),
+                AveragePrice = data.ContainsKey("averagePrice") && !string.IsNullOrEmpty(data["averagePrice"]) 
+                    ? decimal.Parse(data["averagePrice"]) 
+                    : 0m,
+                CreatedAt = long.Parse(data["createdAt"]),
+                UpdatedAt = long.Parse(data["updatedAt"])
             };
         }
 
         private void UpdateOrderFromRedis(Order order, Dictionary<string, string> data)
         {
-            order.Status = Enum.Parse<OrderStatus>(data["Status"]);
-            order.FilledQuantity = decimal.Parse(data.GetValueOrDefault("FilledQuantity", "0"));
-            order.AveragePrice = data.ContainsKey("AveragePrice") && !string.IsNullOrEmpty(data["AveragePrice"]) 
-                ? decimal.Parse(data["AveragePrice"]) 
+            // ✅ 修复：Redis 中的字段名都是小写的
+            order.Status = (OrderStatus)int.Parse(data["status"]);
+            order.FilledQuantity = decimal.Parse(data.GetValueOrDefault("filledQuantity", "0"));
+            order.AveragePrice = data.ContainsKey("averagePrice") && !string.IsNullOrEmpty(data["averagePrice"]) 
+                ? decimal.Parse(data["averagePrice"]) 
                 : 0m;
-            order.UpdatedAt = long.Parse(data["UpdatedAt"]);
+            order.UpdatedAt = long.Parse(data["updatedAt"]);
         }
 
         private class SyncQueueItem

@@ -1,123 +1,199 @@
-# CryptoSpot (学习用数字资产现货撮合 & 行情演示项目)
+# CryptoSpot - 数字资产现货交易演示项目
 
-> 仅供个人学习 / 架构练习，功能仍在演进中，不建议用于生产。欢迎 Fork 交流。
+> 基于 .NET 9 + React 的现货交易平台学习项目，仅供学习参考。
 
-## 1. 项目概要
-一个演示型的数字资产现货交易平台，包括：
-- 用户注册 / 登录 / 鉴权 (JWT)
-- 交易对管理与基础行情数据
-- 下单（限价 / 市价）、撤单、订单状态 & 历史查询
-- 简化的撮合 / 成交记录逻辑（逐步重构中）
-- K 线数据获取（数据库拉取 + 后台同步 + 行情流转发）
-- 实时推送：基于 SignalR（后续可扩展 WebSocket 集群 / Redis 背板）
-- 做市 / 自动交易（系统内置账户 + 自动挂单逻辑雏形）
+## 项目简介
 
-## 2. 技术栈
-Backend (.NET 8 / C#)：
-- ASP.NET Core Web API + Minimal Hosting
-- Entity Framework Core + MySQL (连接池配置)
-- 分层 + Clean Architecture 风格 (Domain / Application / Infrastructure / Persistence / API)
-- 依赖注入、配置化启动
-- JWT 认证授权
-- SignalR 实时数据推送
-- Redis (缓存 / 未来可扩展深度、撮合快照、推送背板)
-- 后台 HostedService：行情同步 / 缓存初始化 / 自动交易
+CryptoSpot 是一个功能完整的数字资产现货交易平台演示项目，包含用户认证、交易撮合、行情推送等核心功能。
 
-Frontend (React + TypeScript)：
-- React 18 + react-router-dom
-- 状态 & 数据请求：react-query、上下文 AuthContext
-- 图表：Recharts 展示基础 K 线 / 行情
-- gRPC-Web（已生成类型文件）+ REST API 混合调用
-- SignalR 订阅实时数据（订单、价格、行情）
+### 主要特性
 
-Dev / 其他：
-- 日志：Console / Debug（可扩展到 Serilog）
-- 代码组织：领域实体、仓储接口、用例分离
+- 🔐 **用户系统**: JWT 认证、注册登录、资产管理
+- 💹 **交易功能**: 限价单/市价单、订单管理、实时撮合
+- 📊 **行情数据**: K线图表、实时价格、订单簿深度
+- 📡 **实时推送**: SignalR 实时数据推送
+- 🔴 **Redis-First**: 高性能内存撮合引擎
+- 🤖 **做市系统**: 自动挂单、流动性支持
 
-## 3. 目录结构（摘取）
-```
-CryptoSpot.sln
-frontend/               前端 React 工程
-src/
-  CryptoSpot.API/       API 层 (Controllers / Program / Hubs)
-  CryptoSpot.Domain/    领域模型 (Entities / ValueObjects)
-  CryptoSpot.Application/ 用例 & 抽象 (Abstractions, UseCases, DTOs)
-  CryptoSpot.Infrastructure/ 外部实现 (Services, Repositories 实现, ExternalServices)
-  CryptoSpot.Persistence/ 数据访问 (DbContext, Migrations, Repository 实现抽离)
-  CryptoSpot.Redis/     Redis 封装（序列化、连接池、Cache Service）
-```
-(结构随演进可能微调)
+## 技术栈
 
-## 4. 核心功能点
-- 用户体系：注册 / 登录 / Token 刷新（后续可加 Refresh Token）
-- 交易：提交 / 查询 / 撤销订单，订单状态跟踪（Pending / Active / PartiallyFilled / Filled / Cancelled）
-- 资产：账户资产、可用 / 冻结拆分
-- 行情：K 线、最新价、24h 统计（高 / 低 / 成交量 / 涨跌幅）
-- 做市：系统账号初始化大额资产，供自动策略挂单（策略仍在扩展）
-- 实时：通过 SignalR 推送订单更新 / 市场价格（可扩展 orderBook 增量）
+### 后端 (.NET 9)
+- ASP.NET Core Web API
+- Entity Framework Core 9.0 + MySQL
+- Redis (订单簿、撮合引擎)
+- SignalR (实时推送)
+- Clean Architecture (领域驱动设计)
 
-## 5. 后端启动 & 本地运行
-环境要求：
-- .NET 8 SDK
-- MySQL 8.x（或兼容版本），确保字符串匹配 `appsettings.json` 中连接串
-- Redis （可选，若未启用可在配置中关闭相关功能）
+### 前端 (React 18)
+- React + TypeScript
+- React Query (数据管理)
+- Recharts (图表)
+- SignalR Client (实时数据)
 
-步骤：
-1. 创建数据库（若未自动创建）
-```
+## 快速开始
+
+### 环境要求
+- .NET 9 SDK
+- MySQL 8.x
+- Redis
+- Node.js 18+
+
+### 后端启动
+
+1. 创建数据库
+```sql
 CREATE DATABASE CryptoSpotDb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
-2. 调整连接串：`src/CryptoSpot.API/appsettings.json` -> ConnectionStrings:DefaultConnection
-3. 运行构建：
+
+2. 配置连接字符串 (`src/CryptoSpot.API/appsettings.json`)
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "server=localhost;database=CryptoSpotDb;user=root;password=your_password"
+  }
+}
 ```
+
+3. 启动项目
+```bash
 dotnet build CryptoSpot.sln
-```
-4. 启动 API：
-```
 dotnet run --project src/CryptoSpot.API/CryptoSpot.API.csproj
 ```
-5. 浏览 Swagger: `https://localhost:5001/swagger` (或控制台输出端口)
-6. 首次启动会自动：
-   - 初始化交易对 (BTCUSDT / ETHUSDT / SOLUSDT)
-   - 创建系统用户 (SystemMarketMaker / SystemAdmin)
-   - 注入做市资产
 
-## 6. 前端运行
-进入 `frontend/`：
-```
+4. 访问 Swagger: `https://localhost:5001/swagger`
+
+### 前端启动
+
+```bash
+cd frontend
 npm install
 npm start
 ```
-默认开发地址：`http://localhost:3000` （已在后端 CORS 配置中允许）
 
-前端通过：
-- `/api/auth/*` 进行鉴权
-- `/api/trading/*` 获取交易和资产数据
-- SignalR Hub: `/tradingHub`
+访问: `http://localhost:3000`
 
-## 7. 主要 API 路径（节选）
-Auth:
-- POST /api/auth/register
-- POST /api/auth/login
-- GET  /api/auth/me (需要 JWT)
-- POST /api/auth/logout
+## 项目结构
 
-Trading:
-- GET  /api/trading/pairs
-- GET  /api/trading/pairs/{symbol}
-- GET  /api/trading/klines/{symbol}?interval=1h&limit=100
-- GET  /api/trading/assets
-- GET  /api/trading/orders
-- GET  /api/trading/open-orders
-- GET  /api/trading/order-history
-- GET  /api/trading/trades
-- POST /api/trading/orders
-- DELETE /api/trading/orders/{orderId}
+```
+CryptoSpot.sln
+├── src/
+│   ├── CryptoSpot.API/              # Web API 层
+│   ├── CryptoSpot.Domain/           # 领域模型
+│   ├── CryptoSpot.Application/      # 应用层
+│   ├── CryptoSpot.Infrastructure/   # 基础设施
+│   ├── CryptoSpot.Persistence/      # 数据持久化
+│   ├── CryptoSpot.Bus/              # 命令总线
+│   └── CryptoSpot.Redis/            # Redis 封装
+├── frontend/                         # React 前端
+└── scripts/                          # 数据库脚本
+```
 
-## 8. 配置说明
-`appsettings.json` 关键段：
-- ConnectionStrings.DefaultConnection : MySQL 连接
-- JwtSettings : 签名键 / Issuer / Audience / 过期天数
-- Binance.ProxyUrl : 行情抓取时的代理（可选）
+## 主要功能
 
-如需关闭 HTTPS 强制，可在 Program 中调整 `UseHttpsRedirection`。
+### 交易功能
+- 限价单/市价单下单
+- 实时订单撮合
+- 订单管理（查询、撤单）
+- 成交历史
+
+### 行情数据
+- 多周期 K 线 (1m/5m/15m/30m/1h/4h/1d)
+- 实时价格推送
+- 订单簿深度
+- 24h 行情统计
+
+### 资产管理
+- 可用余额/冻结余额
+- 资产变动记录
+- 实时余额推送
+
+## API 文档
+
+启动后端后访问 Swagger 文档：`https://localhost:5001/swagger`
+
+### 主要接口
+
+**认证**
+- `POST /api/auth/register` - 注册
+- `POST /api/auth/login` - 登录
+- `GET /api/auth/me` - 获取当前用户
+
+**交易**
+- `GET /api/trading/pairs` - 获取交易对列表
+- `POST /api/trading/orders` - 下单
+- `DELETE /api/trading/orders/{orderId}` - 撤单
+- `GET /api/trading/orders` - 查询订单
+- `GET /api/trading/assets` - 查询资产
+
+**行情**
+- `GET /api/trading/klines/{symbol}` - 获取 K 线
+- `GET /api/market/ticker/{symbol}` - 获取行情
+- `GET /api/trading/orderbook/{symbol}` - 获取订单簿
+
+**实时推送 (SignalR)**
+- `/tradingHub` - 订阅实时数据
+  - OrderUpdate - 订单更新
+  - PriceUpdate - 价格更新
+  - OrderBookUpdate - 订单簿更新
+  - AssetUpdate - 资产更新
+
+## 配置说明
+
+### 数据库配置
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "server=localhost;database=CryptoSpotDb;user=root;password=your_password"
+  }
+}
+```
+
+### Redis 配置
+```json
+{
+  "Redis": {
+    "Configuration": "localhost:6379",
+    "InstanceName": "CryptoSpot:"
+  }
+}
+```
+
+### JWT 配置
+```json
+{
+  "JwtSettings": {
+    "SecretKey": "your-secret-key-min-32-chars",
+    "Issuer": "CryptoSpot",
+    "Audience": "CryptoSpotUsers",
+    "ExpirationDays": 7
+  }
+}
+```
+
+## 开发说明
+
+### 架构设计
+- **Clean Architecture**: 领域驱动设计，分层清晰
+- **Repository Pattern**: 数据访问抽象
+- **CQRS**: 命令查询职责分离
+- **Event-Driven**: 基于事件的实时推送
+
+### 数据流
+1. 用户下单 → Redis 撮合引擎
+2. 撮合成功 → 更新 Redis 订单簿和资产
+3. 异步同步 → MySQL 持久化
+4. SignalR 推送 → 实时通知客户端
+
+## 注意事项
+
+- ⚠️ 本项目仅供学习使用，不建议用于生产环境
+- ⚠️ 首次启动会自动初始化数据库和测试数据
+- ⚠️ 系统账号密码在代码中，实际项目需要加密存储
+
+## License
+
+MIT License - 仅供学习参考
+
+## 联系方式
+
+有问题欢迎提 Issue 或 Pull Request

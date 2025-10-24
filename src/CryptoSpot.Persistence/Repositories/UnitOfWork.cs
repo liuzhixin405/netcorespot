@@ -8,30 +8,57 @@ using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CryptoSpot.Persistence.Repositories;
 
+/// <summary>
+/// 工作单元 - 使用 IDbContextFactory 延迟创建 DbContext
+/// 优势：支持 Scoped 生命周期，可在请求范围内共享 DbContext 和事务
+/// </summary>
 public class UnitOfWork : IUnitOfWork
 {
-    private readonly ApplicationDbContext _context;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbContextFactory;
     private readonly ConcurrentDictionary<Type, object> _repositories = new();
+    private ApplicationDbContext? _context;
     private IDbContextTransaction? _transaction;
+    private bool _disposed;
 
-    public UnitOfWork(ApplicationDbContext context) => _context = context;
+    public UnitOfWork(IDbContextFactory<ApplicationDbContext> dbContextFactory)
+    {
+        _dbContextFactory = dbContextFactory;
+    }
+
+    /// <summary>
+    /// 延迟获取或创建 DbContext（请求范围内复用）
+    /// </summary>
+    private async Task<ApplicationDbContext> GetOrCreateContextAsync()
+    {
+        if (_context == null)
+        {
+            _context = await _dbContextFactory.CreateDbContextAsync();
+        }
+        return _context;
+    }
 
     public IRepository<T> Repository<T>() where T : class
     {
         var type = typeof(T);
         if (!_repositories.TryGetValue(type, out var repo))
         {
-            repo = new BaseRepository<T>(_context);
+            // Repository 使用 factory 创建，不依赖 UnitOfWork 的 context
+            repo = new BaseRepository<T>(_dbContextFactory);
             _repositories[type] = repo;
         }
         return (IRepository<T>)repo;
     }
 
-    public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();
+    public async Task<int> SaveChangesAsync()
+    {
+        if (_context == null) return 0; // 如果没有创建过 context，无需保存
+        return await _context.SaveChangesAsync();
+    }
 
     public async Task<IDbTransaction> BeginTransactionAsync()
     {
-        _transaction = await _context.Database.BeginTransactionAsync();
+        var context = await GetOrCreateContextAsync();
+        _transaction = await context.Database.BeginTransactionAsync();
         return new DbTransaction(_transaction);
     }
 
@@ -57,10 +84,11 @@ public class UnitOfWork : IUnitOfWork
 
     public async Task<T> ExecuteInTransactionAsync<T>(Func<Task<T>> action)
     {
-        var strategy = _context.Database.CreateExecutionStrategy();
+        var context = await GetOrCreateContextAsync();
+        var strategy = context.Database.CreateExecutionStrategy();
         return await strategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await _context.Database.BeginTransactionAsync();
+            await using var transaction = await context.Database.BeginTransactionAsync();
             try
             {
                 var result = await action();
@@ -77,10 +105,11 @@ public class UnitOfWork : IUnitOfWork
 
     public async Task ExecuteInTransactionAsync(Func<Task> action)
     {
-        var strategy = _context.Database.CreateExecutionStrategy();
+        var context = await GetOrCreateContextAsync();
+        var strategy = context.Database.CreateExecutionStrategy();
         await strategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await _context.Database.BeginTransactionAsync();
+            await using var transaction = await context.Database.BeginTransactionAsync();
             try
             {
                 await action();
@@ -96,8 +125,13 @@ public class UnitOfWork : IUnitOfWork
 
     public void Dispose()
     {
+        if (_disposed) return;
+        
         _transaction?.Dispose();
-        _context.Dispose();
+        _context?.Dispose();
+        _repositories.Clear();
+        
+        _disposed = true;
     }
 }
 
