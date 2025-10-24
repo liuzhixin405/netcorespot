@@ -1,26 +1,28 @@
-using CryptoSpot.Domain.Entities;
 // removed old Core interface usings
 using CryptoSpot.Application.Abstractions.Repositories; // IDatabaseCoordinator
+using CryptoSpot.Application.Abstractions.Services.Auth;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.Abstractions.Services.Users;
+using CryptoSpot.Application.DependencyInjection;
+using CryptoSpot.Domain.Entities;
+using CryptoSpot.Infrastructure;
+using CryptoSpot.Infrastructure.BgService;
+using CryptoSpot.Infrastructure.BgServices;
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Services;
+using CryptoSpot.Redis;
+using CryptoSpot.Redis.Configuration;
+using CryptoSpot.Redis.Serializer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 using System.Net;
 using System.Text;
-using CryptoSpot.Application.DependencyInjection;
-using CryptoSpot.Redis;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using StackExchange.Redis;
-using CryptoSpot.Infrastructure;
-using CryptoSpot.Infrastructure.BgServices;
-using CryptoSpot.Application.Abstractions.Services.Trading;
-using CryptoSpot.Application.Abstractions.Services.MarketData;
-using CryptoSpot.Application.Abstractions.Services.Auth;
-using CryptoSpot.Application.Abstractions.Services.Users;
-using CryptoSpot.Application.Abstractions.Services.RealTime;
-using CryptoSpot.Infrastructure.BgService;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -68,10 +70,22 @@ builder.Services.AddSingleton<IRedisCache>(provider =>
         Hosts = connectionString.Split(',').Select(c => c.Split(':')).Where(c => c.Length == 2)
             .Select(c => new CryptoSpot.Redis.Configuration.RedisHost { Host = c[0], Port = int.Parse(c[1]) }).ToArray()
     };
-    var connection = ConnectionMultiplexer.Connect(redisConfig.ConfigurationOptions);
+    var connection = new PooledConnectionMultiplexer(redisConfig.ConfigurationOptions);
     return new CryptoSpot.Redis.RedisCache(logger, connection, redisConfig, serializer);
 });
-
+builder.Services.AddSingleton<IRedisService>(provider =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+    var connectionString = configuration.GetConnectionString("Redis") ?? "localhost:6379";
+    var redisConfig = new CryptoSpot.Redis.Configuration.RedisConfiguration
+    {
+        Hosts = connectionString.Split(',').Select(c => c.Split(':')).Where(c => c.Length == 2)
+           .Select(c => new CryptoSpot.Redis.Configuration.RedisHost { Host = c[0], Port = int.Parse(c[1]) }).ToArray()
+    };
+    var serializer = new MsgPackSerializer();
+    var connection = new PooledConnectionMultiplexer(redisConfig.ConfigurationOptions);
+    return new RedisService(provider.GetRequiredService<ILogger<RedisService>>(), connection, redisConfig, serializer);
+});
 builder.Services.AddSingleton<RedisCacheService>();
 
 // 已在 AddPersistence 中统一注册的服务此处不再重复注册 (ITradingPairService / IKLineDataService / ITradingService / IOrderService / ITradeService / IAssetService / IUserService)
