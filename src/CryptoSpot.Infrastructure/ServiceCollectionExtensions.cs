@@ -1,8 +1,8 @@
 ﻿using CryptoSpot.Application.Abstractions.Repositories;
-using CryptoSpot.Application.Abstractions.Services.MarketData; // K线接口
+using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.Trading;
-using CryptoSpot.Application.Abstractions.Services.Users; // IMarketMakerRegistry
-using CryptoSpot.Domain.Entities; // MarketMakerOptions
+using CryptoSpot.Application.Abstractions.Services.Users;
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Infrastructure.Repositories;
 using CryptoSpot.Infrastructure.Repositories.Redis;
 using CryptoSpot.Infrastructure.Services;
@@ -10,6 +10,7 @@ using CryptoSpot.Infrastructure.BgService;
 using CryptoSpot.Infrastructure.BgServices;
 using CryptoSpot.Persistence.Data;
 using CryptoSpot.Persistence.Repositories;
+using CryptoSpot.Bus.Extensions; // 添加 CommandBus 扩展
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -92,6 +93,20 @@ namespace CryptoSpot.Infrastructure
             services.AddSingleton<PriceUpdateBatchService>();
             services.AddHostedService(sp => sp.GetRequiredService<PriceUpdateBatchService>());
             
+            // CommandBus：用于处理复杂业务逻辑
+            // 使用 BatchDataflowCommandBus 以支持高吞吐量批处理场景
+            services.AddBatchDataflowCommandBus(
+                batchSize: 50,              // 批次大小：50个命令一批
+                batchTimeout: TimeSpan.FromMilliseconds(100), // 批次超时：100ms
+                maxConcurrency: Environment.ProcessorCount * 2 // 最大并发
+            );
+            
+            // 添加监控（可选）
+            services.AddMetricsCollector(collectionInterval: TimeSpan.FromSeconds(5));
+            
+            // 注册所有 CommandHandler（自动扫描并注册）
+            services.AddCommandHandlers();
+            
             return services;
         }
 
@@ -129,6 +144,31 @@ namespace CryptoSpot.Infrastructure
                     Console.WriteLine("Data already initialized");
                 }
             }
+        }
+        
+        /// <summary>
+        /// 自动注册所有 CommandHandler
+        /// </summary>
+        private static IServiceCollection AddCommandHandlers(this IServiceCollection services)
+        {
+            // 扫描 Application 程序集中所有的 CommandHandler
+            var assembly = typeof(CryptoSpot.Application.CommandHandlers.Trading.SubmitOrderCommandHandler).Assembly;
+            
+            var handlerTypes = assembly.GetTypes()
+                .Where(t => !t.IsAbstract && !t.IsInterface)
+                .Where(t => t.GetInterfaces().Any(i => 
+                    i.IsGenericType && i.GetGenericTypeDefinition() == typeof(CryptoSpot.Bus.Core.ICommandHandler<,>)))
+                .ToList();
+            
+            foreach (var handlerType in handlerTypes)
+            {
+                var interfaceType = handlerType.GetInterfaces()
+                    .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(CryptoSpot.Bus.Core.ICommandHandler<,>));
+                
+                services.AddScoped(interfaceType, handlerType);
+            }
+            
+            return services;
         }
     }
 }
