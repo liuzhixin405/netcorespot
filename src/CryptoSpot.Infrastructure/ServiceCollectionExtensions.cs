@@ -56,11 +56,10 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<IOrderService, OrderService>();
             services.AddScoped<ITradeService, TradeService>();
             services.AddScoped<IKLineDataService, KLineDataService>(); // 统一 K线服务实现
-            services.AddScoped<ITradingService, TradingService>(); // 交易编排服务
-            services.AddScoped<IAssetService, AssetService>(); // 资产 DTO 服务
-            services.AddScoped<IUserService, UserService>(); // 用户 DTO 服务
-            // services.AddScoped<IOrderRawAccess, OrderRawAccess>(); // 已替换为撮合专用接口
-            services.AddScoped<IMatchingOrderStore, MatchingOrderStore>(); // 注册撮合专用订单存取
+            services.AddScoped<ITradingService, TradingService>();
+            services.AddScoped<IAssetService, AssetService>();
+            services.AddScoped<IUserService, UserService>();
+            services.AddScoped<IMatchingOrderStore, MatchingOrderStore>();
 
             services.AddScoped<DataInitializationService>();
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));

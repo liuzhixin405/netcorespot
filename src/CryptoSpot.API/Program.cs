@@ -93,15 +93,8 @@ builder.Services.AddSingleton<RedisCacheService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPriceDataService, PriceDataService>(); // 价格聚合 (依赖 TradingPairService)
 
-// ===== ✅ Redis-First 架构：撮合引擎注册 =====
-// ⚠️ 旧的撮合引擎（已弃用，仍使用MySQL）
-// builder.Services.AddScoped<IOrderMatchingEngine, OrderMatchingEngine>();
-
-// ✅ 新的 Redis 撮合引擎（所有操作在Redis中）
+// Redis-First 架构：撮合引擎注册
 builder.Services.AddSingleton<RedisOrderMatchingEngine>();
-
-// ✅ Redis 撮合引擎适配器（实现 IOrderMatchingEngine 接口）
-// 所有注入 IOrderMatchingEngine 的地方将自动使用 Redis-First 架构
 builder.Services.AddScoped<IOrderMatchingEngine, RedisOrderMatchingEngineAdapter>();
 
 // 实时推送与缓存
