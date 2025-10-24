@@ -15,18 +15,18 @@ namespace CryptoSpot.Infrastructure.BgService;
 /// </summary>
 public class RedisDataLoaderService : IHostedService
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbContextFactory;
     private readonly IRedisCache _redis;
     private readonly IDatabase _db; // 原生 Redis API
     private readonly ILogger<RedisDataLoaderService> _logger;
     private const long PRECISION = 100_000_000; // 8 位小数精度
 
     public RedisDataLoaderService(
-        IServiceScopeFactory scopeFactory,
+        IDbContextFactory<ApplicationDbContext> dbContextFactory,
         IRedisCache redis,
         ILogger<RedisDataLoaderService> logger)
     {
-        _scopeFactory = scopeFactory;
+        _dbContextFactory = dbContextFactory;
         _redis = redis;
         _db = redis.Connection.GetDatabase();
         _logger = logger;
@@ -38,8 +38,7 @@ public class RedisDataLoaderService : IHostedService
 
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
             // 1. 加载用户数据
             await LoadUsersAsync(dbContext);

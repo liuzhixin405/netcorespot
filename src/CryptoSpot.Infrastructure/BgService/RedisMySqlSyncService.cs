@@ -15,7 +15,7 @@ namespace CryptoSpot.Infrastructure.BgService;
 /// </summary>
 public class RedisMySqlSyncService : BackgroundService
 {
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IDbContextFactory<ApplicationDbContext> _dbContextFactory;
     private readonly IRedisCache _redis;
     private readonly ILogger<RedisMySqlSyncService> _logger;
     private const int SYNC_INTERVAL_SECONDS = 10; // 每 10 秒同步一次
@@ -23,11 +23,11 @@ public class RedisMySqlSyncService : BackgroundService
     private const long PRECISION = 100000000; // 8 位小数精度
 
     public RedisMySqlSyncService(
-        IServiceScopeFactory scopeFactory,
+        IDbContextFactory<ApplicationDbContext> dbContextFactory,
         IRedisCache redis,
         ILogger<RedisMySqlSyncService> logger)
     {
-        _scopeFactory = scopeFactory;
+        _dbContextFactory = dbContextFactory;
         _redis = redis;
         _logger = logger;
     }
@@ -88,8 +88,7 @@ public class RedisMySqlSyncService : BackgroundService
 
         if (queueLength == 0) return 0;
 
-        using var scope = _scopeFactory.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct);
 
         var batchSize = Math.Min((int)queueLength, BATCH_SIZE);
         var processedCount = 0;
@@ -157,8 +156,7 @@ public class RedisMySqlSyncService : BackgroundService
 
         if (queueLength == 0) return 0;
 
-        using var scope = _scopeFactory.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct);
 
         var batchSize = Math.Min((int)queueLength, BATCH_SIZE);
         var processedCount = 0;
@@ -211,8 +209,7 @@ public class RedisMySqlSyncService : BackgroundService
 
         if (queueLength == 0) return 0;
 
-        using var scope = _scopeFactory.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync(ct);
 
         var batchSize = Math.Min((int)queueLength, BATCH_SIZE);
         var processedCount = 0;

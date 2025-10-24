@@ -26,6 +26,23 @@ namespace CryptoSpot.Infrastructure
         public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
         {
             var connectionString = configuration.GetConnectionString("DefaultConnection");
+            
+            // 注册 DbContext 工厂（专用于后台服务和多线程场景）
+            services.AddPooledDbContextFactory<ApplicationDbContext>(options =>
+            {
+                options.UseMySql(connectionString, ServerVersion.Parse("8.0"), mysqlOptions =>
+                {
+                    mysqlOptions.EnableRetryOnFailure(
+                        maxRetryCount: 3,
+                        maxRetryDelay: TimeSpan.FromSeconds(5),
+                        errorNumbersToAdd: null);
+                    mysqlOptions.CommandTimeout(30);
+                });
+                options.EnableSensitiveDataLogging(false);
+                options.EnableThreadSafetyChecks(false);
+            }, poolSize: 30);
+            
+            // 为 Scoped 服务（Repository、UnitOfWork）注册传统 DbContext
             services.AddDbContextPool<ApplicationDbContext>(options =>
             {
                 options.UseMySql(connectionString, ServerVersion.Parse("8.0"), mysqlOptions =>
@@ -85,9 +102,10 @@ namespace CryptoSpot.Infrastructure
 
         public static async Task InitDbContext(this IServiceProvider serviceProvider)
         {
-            using (var scope = serviceProvider.CreateScope())
+            var dbContextFactory = serviceProvider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>();
+            
+            await using (var context = await dbContextFactory.CreateDbContextAsync())
             {
-                var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                 try
                 {
                     context.Database.EnsureCreated();
@@ -100,7 +118,11 @@ namespace CryptoSpot.Infrastructure
                 {
                     Console.WriteLine($"Database setup failed: {ex.Message}");
                 }
+            }
 
+            // DataInitializationService 仍需要 Scope（它依赖其他 scoped 服务）
+            using (var scope = serviceProvider.CreateScope())
+            {
                 var dataInitService = scope.ServiceProvider.GetRequiredService<DataInitializationService>();
                 if (await dataInitService.NeedsInitializationAsync())
                 {
