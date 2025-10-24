@@ -131,11 +131,9 @@ export class SignalRClient {
         throw new Error('SignalR连接状态异常');
       }
 
-      // 设置实时K线更新处理器（修复第二参数 isNewKLine 未读取问题）
-      this.connection.off('KLineUpdate');
-      this.connection.on('KLineUpdate', (payload: any, isNew?: boolean) => {
-  // debug removed
-        const response = payload; // 兼容旧变量名
+      // ✅ 修复: 使用命名函数，精确移除监听器
+      const handler = (payload: any, isNew?: boolean) => {
+        const response = payload;
         if (response && response.timestamp) {
           const klineData: KLineData = {
             timestamp: response.timestamp,
@@ -147,9 +145,12 @@ export class SignalRClient {
           };
           onKLineUpdate(klineData, typeof isNew === 'boolean' ? isNew : !!response.isNewKLine);
         }
-      });
+      };
 
-      // 发送订阅请求（只订阅实时更新）
+      // 注册监听器
+      this.connection.on('KLineUpdate', handler);
+
+      // 发送订阅请求
       await this.connection.invoke('SubscribeKLineData', symbol, interval);
 
       // 记录订阅
@@ -160,11 +161,15 @@ export class SignalRClient {
       // 返回取消订阅函数
       return async () => {
         try {
+          // ✅ 先从 SignalR 事件中移除这个特定的 handler
+          this.connection?.off('KLineUpdate', handler);
+          
+          // ✅ 然后通知后端取消订阅
           if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
             await this.connection.invoke('UnsubscribeKLineData', symbol, interval);
           }
-        } catch {
-          // 取消订阅失败，忽略错误
+        } catch (err) {
+          console.error('[SignalR] 取消订阅 KLine 失败:', err);
         }
         this.subscribedKLines = this.subscribedKLines.filter(k => !(k.symbol === symbol && k.interval === interval));
       };
@@ -200,7 +205,6 @@ export class SignalRClient {
       // ✅ 修复: 不要每次都 off 所有监听器，而是只添加新的监听器
       // 使用命名函数以便后续可以精确移除
       const handler = (response: any) => { 
-        console.log('[SignalR] PriceUpdate 收到:', response);
         onPriceUpdate(response); 
       };
       
@@ -209,14 +213,12 @@ export class SignalRClient {
 
       // 发送订阅请求
       await this.connection.invoke('SubscribePriceData', symbols);
-      console.log('[SignalR] SubscribePriceData 调用完成:', symbols);
 
       // 合并记录
       symbols.forEach(s => { if (!this.subscribedPriceSymbols.includes(s)) this.subscribedPriceSymbols.push(s); });
 
       // 返回取消订阅函数
       return async () => {
-        console.log('[SignalR] 取消订阅 PriceUpdate:', symbols);
         try {
           // ✅ 先从 SignalR 事件中移除这个特定的 handler
           this.connection?.off('PriceUpdate', handler);
@@ -309,7 +311,6 @@ export class SignalRClient {
 
       // ✅ 修复: 不要每次都 off 所有监听器，而是只添加新的监听器
       const handler = (response: any) => { 
-        console.log('[SignalR] LastTradeAndMid 收到:', response);
         onTickerData(response); 
       };
       
@@ -318,11 +319,9 @@ export class SignalRClient {
 
       // 发送订阅请求
       await this.connection.invoke('SubscribeTicker', symbol);
-      console.log('[SignalR] SubscribeTicker 调用完成:', symbol);
 
       // 返回取消订阅函数
       return async () => {
-        console.log('[SignalR] 取消订阅 LastTradeAndMid:', symbol);
         try {
           // ✅ 先从 SignalR 事件中移除这个特定的 handler
           this.connection?.off('LastTradeAndMid', handler);
@@ -361,27 +360,30 @@ export class SignalRClient {
         throw new Error('SignalR连接状态异常');
       }
 
-      // 创建命名的处理器,避免被off移除
-      const handler = (response: any) => { onTradeUpdate(response); };
+      // ✅ 修复: 使用命名函数，精确移除监听器
+      const handler = (response: any) => { 
+        onTradeUpdate(response); 
+      };
 
-      // 添加成交数据接收处理器 (不先off,允许多个订阅者)
+      // 注册监听器
       this.connection.on('TradeUpdate', handler);
 
       // 发送订阅请求
       await this.connection.invoke('SubscribeTrades', symbol);
-  // subscribed trades
 
       // 返回取消订阅函数
       return async () => {
         try {
+          // ✅ 先从 SignalR 事件中移除这个特定的 handler
+          this.connection?.off('TradeUpdate', handler);
+          
+          // ✅ 然后通知后端取消订阅
           if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
             await this.connection.invoke('UnsubscribeTrades', symbol);
-            this.connection.off('TradeUpdate', handler); // 只移除这个特定的处理器
           }
-        } catch {
-          // 取消订阅失败，忽略错误
+        } catch (err) {
+          console.error('[SignalR] 取消订阅 Trades 失败:', err);
         }
-
       };
 
     } catch (error) {

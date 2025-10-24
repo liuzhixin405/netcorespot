@@ -72,6 +72,8 @@ const Price = styled.div<{ isPositive: boolean }>`
   color: ${props => props.isPositive ? '#3fb950' : '#f85149'};
   display: flex;
   align-items: center;
+  /* ✅ 添加平滑颜色过渡 */
+  transition: color 0.3s ease;
 `;
 
 const PriceLabel = styled.div`
@@ -99,13 +101,25 @@ const StatItem = styled.div`
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  min-width: 70px; /* 略减 */
+  min-width: 70px;
 `;
 
 const StatValue = styled.div<{ color?: string }>`
   font-size: 0.9rem;
   font-weight: 600;
   color: ${props => props.color || '#f0f6fc'};
+  /* ✅ 添加平滑过渡效果 */
+  transition: color 0.3s ease;
+  
+  /* ✅ 数值更新时的闪烁动画 */
+  @keyframes flash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+  
+  &.updating {
+    animation: flash 0.3s ease;
+  }
 `;
 
 const StatLabel = styled.div`
@@ -116,6 +130,155 @@ const StatLabel = styled.div`
   text-transform: uppercase;
   letter-spacing: 0.5px;
 `;
+
+// ✅ 拆分为独立的记忆化组件，避免整体重渲染
+const Change24hStat = React.memo<{ lastPrice?: number; change24h?: number; hasPriceFrame: boolean }>(
+  ({ lastPrice, change24h, hasPriceFrame }) => {
+    const [isUpdating, setIsUpdating] = React.useState(false);
+    const prevValueRef = React.useRef(change24h);
+    
+    React.useEffect(() => {
+      if (prevValueRef.current !== change24h && change24h !== undefined) {
+        setIsUpdating(true);
+        const timer = setTimeout(() => setIsUpdating(false), 300);
+        prevValueRef.current = change24h;
+        return () => clearTimeout(timer);
+      }
+    }, [change24h]);
+    
+    const isPositive = (change24h ?? 0) >= 0;
+    const changePercent24h = (change24h ?? 0) * 100;
+    const pct = isFinite(changePercent24h) ? changePercent24h : 0;
+    
+    return (
+      <StatItem>
+        <StatValue 
+          color={isPositive ? '#3fb950' : '#f85149'}
+          className={isUpdating ? 'updating' : ''}
+        >
+          {lastPrice && lastPrice > 0 && change24h !== undefined
+            ? `${isPositive ? '+' : ''}${pct.toFixed(2)}%`
+            : (hasPriceFrame ? '0.00%' : '--')}
+        </StatValue>
+        <StatLabel>24h</StatLabel>
+      </StatItem>
+    );
+  }
+);
+
+const High24hStat = React.memo<{ high24h?: number }>(({ high24h }) => {
+  const [isUpdating, setIsUpdating] = React.useState(false);
+  const prevValueRef = React.useRef(high24h);
+  
+  React.useEffect(() => {
+    if (prevValueRef.current !== high24h && high24h !== undefined) {
+      setIsUpdating(true);
+      const timer = setTimeout(() => setIsUpdating(false), 300);
+      prevValueRef.current = high24h;
+      return () => clearTimeout(timer);
+    }
+  }, [high24h]);
+  
+  return (
+    <StatItem>
+      <StatValue 
+        title={high24h !== undefined ? String(high24h) : ''}
+        className={isUpdating ? 'updating' : ''}
+      >
+        {high24h !== undefined ? high24h.toFixed(high24h > 10 ? 0 : 4) : '--'}
+      </StatValue>
+      <StatLabel>24h高</StatLabel>
+    </StatItem>
+  );
+});
+
+const Low24hStat = React.memo<{ low24h?: number }>(({ low24h }) => {
+  const [isUpdating, setIsUpdating] = React.useState(false);
+  const prevValueRef = React.useRef(low24h);
+  
+  React.useEffect(() => {
+    if (prevValueRef.current !== low24h && low24h !== undefined) {
+      setIsUpdating(true);
+      const timer = setTimeout(() => setIsUpdating(false), 300);
+      prevValueRef.current = low24h;
+      return () => clearTimeout(timer);
+    }
+  }, [low24h]);
+  
+  return (
+    <StatItem>
+      <StatValue 
+        title={low24h !== undefined ? String(low24h) : ''}
+        className={isUpdating ? 'updating' : ''}
+      >
+        {low24h !== undefined ? low24h.toFixed(low24h > 10 ? 0 : 4) : '--'}
+      </StatValue>
+      <StatLabel>24h低</StatLabel>
+    </StatItem>
+  );
+});
+
+const Volume24hStat = React.memo<{ volume24h?: number }>(({ volume24h }) => {
+  const [isUpdating, setIsUpdating] = React.useState(false);
+  const prevValueRef = React.useRef(volume24h);
+  
+  React.useEffect(() => {
+    if (prevValueRef.current !== volume24h && volume24h !== undefined) {
+      setIsUpdating(true);
+      const timer = setTimeout(() => setIsUpdating(false), 300);
+      prevValueRef.current = volume24h;
+      return () => clearTimeout(timer);
+    }
+  }, [volume24h]);
+  
+  return (
+    <StatItem>
+      <StatValue 
+        title={volume24h !== undefined ? String(volume24h) : ''}
+        className={isUpdating ? 'updating' : ''}
+      >
+        {volume24h !== undefined 
+          ? (volume24h >= 1 ? volume24h.toFixed(0) : volume24h.toFixed(2)) 
+          : '--'}
+      </StatValue>
+      <StatLabel>24h量</StatLabel>
+    </StatItem>
+  );
+});
+
+// ✅ 价格信息独立组件，带更新动画
+const PriceDisplay = React.memo<{ lastPrice?: number; isPositive: boolean; isConnected: boolean }>(
+  ({ lastPrice, isPositive, isConnected }) => {
+    const [isUpdating, setIsUpdating] = React.useState(false);
+    const prevPriceRef = React.useRef(lastPrice);
+    
+    React.useEffect(() => {
+      if (prevPriceRef.current !== lastPrice && lastPrice && lastPrice > 0) {
+        setIsUpdating(true);
+        const timer = setTimeout(() => setIsUpdating(false), 300);
+        prevPriceRef.current = lastPrice;
+        return () => clearTimeout(timer);
+      }
+    }, [lastPrice]);
+    
+    return (
+      <PriceInfo>
+        <PriceItem>
+          <Price 
+            isPositive={isPositive}
+            style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.3s ease' }}
+          >
+            {lastPrice && lastPrice > 0 ? lastPrice.toLocaleString() : '--'}
+            {isConnected && <span style={{ fontSize: '0.6rem', color: '#00b35f', marginLeft: 4 }}>●</span>}
+          </Price>
+          <PriceLabel>
+            {lastPrice && lastPrice > 0 ? `¥${(lastPrice * 7.1).toLocaleString()}` : '¥--'}
+          </PriceLabel>
+        </PriceItem>
+      </PriceInfo>
+    );
+  }
+);
 
 interface TradingHeaderProps {
   symbol: string;
@@ -130,23 +293,21 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
   const availableSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
   const { data: merged, isConnected } = useMergedTickerData(symbol);
   
-  // ✅ 添加调试日志
-  console.log('[TradingHeader] 渲染数据:', {
-    symbol,
-    merged,
-    isConnected,
-    hasChange24h: merged?.change24h !== undefined,
-    hasVolume24h: merged?.volume24h !== undefined,
-    hasHigh24h: merged?.high24h !== undefined,
-    hasLow24h: merged?.low24h !== undefined
-  });
-  
-  const currentData = merged || { symbol, lastPrice:0, change24h:0, volume24h:0, high24h:0, low24h:0, timestamp:0 };
+  // ✅ 使用 useMemo 优化计算，避免每次都重新计算
+  const currentData = React.useMemo(() => 
+    merged || { symbol, lastPrice: 0, change24h: 0, volume24h: 0, high24h: 0, low24h: 0, timestamp: 0 },
+    [merged, symbol]
+  );
 
-  const hasPriceFrame = currentData.change24h !== undefined || currentData.volume24h !== undefined || currentData.high24h !== undefined;
-  const isPositive = (currentData.change24h ?? 0) >= 0;
-  const changePercent24h = (currentData.change24h ?? 0) * 100; // 小数 -> 百分比
-  const pct = isFinite(changePercent24h) ? changePercent24h : 0;
+  const hasPriceFrame = React.useMemo(() => 
+    currentData.change24h !== undefined || currentData.volume24h !== undefined || currentData.high24h !== undefined,
+    [currentData.change24h, currentData.volume24h, currentData.high24h]
+  );
+  
+  const isPositive = React.useMemo(() => 
+    (currentData.change24h ?? 0) >= 0,
+    [currentData.change24h]
+  );
 
   return (
     <Header>
@@ -164,46 +325,24 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({
             <ChevronDown size={16} />
           </DropdownIcon>
         </SymbolSelector>
-        <PriceInfo>
-          <PriceItem>
-            <Price isPositive={isPositive}>
-              {currentData.lastPrice && currentData.lastPrice > 0 ? currentData.lastPrice.toLocaleString() : '--'}
-              {isConnected && <span style={{ fontSize: '0.6rem', color: '#00b35f', marginLeft: 4 }}>●</span>}
-            </Price>
-            <PriceLabel>
-              {currentData.lastPrice && currentData.lastPrice > 0 ? `¥${(currentData.lastPrice * 7.1).toLocaleString()}` : '¥--'}
-            </PriceLabel>
-          </PriceItem>
-        </PriceInfo>
+        {/* ✅ 使用独立的价格组件 */}
+        <PriceDisplay 
+          lastPrice={currentData.lastPrice} 
+          isPositive={isPositive} 
+          isConnected={isConnected}
+        />
       </SymbolInfo>
 
       <StatsGrid>
-        <StatItem>
-          <StatValue color={isPositive ? '#3fb950' : '#f85149'}>
-            {currentData.lastPrice && currentData.lastPrice>0 && currentData.change24h !== undefined
-              ? `${isPositive?'+':''}${pct.toFixed(2)}%`
-              : (hasPriceFrame ? '0.00%' : '--')}
-          </StatValue>
-          <StatLabel>24h</StatLabel>
-        </StatItem>
-        <StatItem>
-          <StatValue title={currentData.high24h !== undefined ? String(currentData.high24h) : ''}>
-            {currentData.high24h !== undefined ? currentData.high24h.toFixed( currentData.high24h > 10 ? 0 : 4) : '--'}
-          </StatValue>
-          <StatLabel>24h高</StatLabel>
-        </StatItem>
-        <StatItem>
-          <StatValue title={currentData.low24h !== undefined ? String(currentData.low24h) : ''}>
-            {currentData.low24h !== undefined ? currentData.low24h.toFixed( currentData.low24h > 10 ? 0 : 4) : '--'}
-          </StatValue>
-          <StatLabel>24h低</StatLabel>
-        </StatItem>
-        <StatItem>
-          <StatValue title={currentData.volume24h !== undefined ? String(currentData.volume24h) : ''}>
-            {currentData.volume24h !== undefined ? (currentData.volume24h >= 1 ? currentData.volume24h.toFixed(0) : currentData.volume24h.toFixed(2)) : '--'}
-          </StatValue>
-            <StatLabel>24h量</StatLabel>
-        </StatItem>
+        {/* ✅ 使用独立的记忆化组件，每个字段独立更新 */}
+        <Change24hStat 
+          lastPrice={currentData.lastPrice} 
+          change24h={currentData.change24h} 
+          hasPriceFrame={hasPriceFrame}
+        />
+        <High24hStat high24h={currentData.high24h} />
+        <Low24hStat low24h={currentData.low24h} />
+        <Volume24hStat volume24h={currentData.volume24h} />
       </StatsGrid>
     </Header>
   );

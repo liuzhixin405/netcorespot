@@ -112,29 +112,23 @@ const Trading: React.FC = () => {
   // 订阅用户数据推送
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
-      console.log('🔒 [Trading] 用户未登录，跳过SignalR订阅');
       return;
     }
-
-    console.log(`🔌 [Trading] 开始订阅用户数据: userId=${user.id}`);
     
     let connection: any = null;
     
     // 监听用户成交更新
     const handleUserTrade = (trade: any) => {
-      console.log('📊 [Trading] 收到用户成交推送:', trade);
       window.dispatchEvent(new CustomEvent('user-trade-update', { detail: trade }));
     };
 
     // 监听订单状态更新
     const handleOrderUpdate = (order: any) => {
-      console.log('� [Trading] 收到订单状态推送:', order);
       window.dispatchEvent(new CustomEvent('user-order-update', { detail: order }));
     };
 
     // 监听资产更新
     const handleAssetUpdate = (assets: any) => {
-      console.log('� [Trading] 收到资产更新推送:', assets);
       window.dispatchEvent(new CustomEvent('user-asset-update', { detail: assets }));
     };
     
@@ -147,8 +141,6 @@ const Trading: React.FC = () => {
           return;
         }
         
-        console.log('✅ [Trading] SignalR连接成功');
-        
         connection = signalRClient.getConnection();
         if (!connection) {
           console.error('❌ [Trading] SignalR连接对象不存在');
@@ -157,14 +149,11 @@ const Trading: React.FC = () => {
 
         // 订阅用户数据组
         await connection.invoke('SubscribeUserData', user.id);
-        console.log(`✅ [Trading] 成功订阅用户数据: userId=${user.id}`);
 
         // 注册事件监听器
         connection.on('UserTradeUpdate', handleUserTrade);
         connection.on('OrderUpdate', handleOrderUpdate);
         connection.on('AssetUpdate', handleAssetUpdate);
-
-        console.log('👂 [Trading] 已注册SignalR事件监听器');
       } catch (err) {
         console.error('❌ [Trading] 初始化SignalR失败:', err);
       }
@@ -175,7 +164,6 @@ const Trading: React.FC = () => {
     // 清理函数
     return () => {
       if (connection) {
-        console.log(`🧹 [Trading] 取消订阅用户数据: userId=${user.id}`);
         connection.invoke('UnsubscribeUserData', user.id).catch((err: any) => {
           console.error('❌ [Trading] 取消订阅失败:', err);
         });
@@ -189,7 +177,6 @@ const Trading: React.FC = () => {
   React.useEffect(()=>{
     // 临时开启调试
     (window as any).__SR_DEBUG = true;
-    console.log('[Trading] SignalR debug enabled (临时)');
     return ()=>{ delete (window as any).__SR_DEBUG; };
   },[]);
 

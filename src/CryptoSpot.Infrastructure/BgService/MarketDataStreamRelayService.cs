@@ -30,7 +30,7 @@ namespace CryptoSpot.Infrastructure.BgServices
         private readonly ConcurrentDictionary<string, (decimal Price, decimal Change, decimal Vol, decimal High, decimal Low, long LastPushMs, string Hash)> _lastTickerState = new();
         private const int TickerMinPushIntervalMs = 1000;
         private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _lastKLineState = new();
-        private const int KLineMinPushIntervalMs = 1500;
+        private const int KLineMinPushIntervalMs = 500; // ✅ 降低到500ms提高实时性
         private readonly IDtoMappingService _mapping; // 新增
         private readonly PriceUpdateBatchService _batchService; // 批处理服务
 
@@ -126,7 +126,7 @@ namespace CryptoSpot.Infrastructure.BgServices
             provider.OnTicker += ticker => _ = Task.Run(() => RelayTickerAsync(ticker, ct), ct);
             provider.OnOrderBook += ob => _ = Task.Run(() => RelayOrderBookAsync(ob, ct), ct);
             provider.OnKLine += k => _ = Task.Run(() => RelayKLineAsync(k, ct), ct);
-            provider.OnTrade += trade => { };
+            provider.OnTrade += trade => _ = Task.Run(() => RelayTradeAsync(trade, ct), ct);
         }
 
         private async Task RelayTickerAsync(MarketTicker t, CancellationToken ct)
@@ -223,6 +223,34 @@ namespace CryptoSpot.Infrastructure.BgServices
             }
         }
 
+        private async Task RelayTradeAsync(PublicTrade trade, CancellationToken ct)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                
+                // 将 PublicTrade 转换为 MarketTradeDto
+                var tradeDto = new MarketTradeDto
+                {
+                    Id = trade.TradeId,
+                    Symbol = trade.Symbol,
+                    Price = trade.Price,
+                    Quantity = trade.Quantity,
+                    ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.Ts).UtcDateTime,
+                    IsBuyerMaker = trade.Side.ToLower() == "sell" // sell side = buyer is maker
+                };
+
+                await push.PushTradeDataAsync(trade.Symbol, tradeDto);
+                _logger.LogDebug("✅ Trade Relay 推送完成 {Symbol} price={Price} qty={Qty} side={Side}", 
+                    trade.Symbol, trade.Price, trade.Quantity, trade.Side);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "RelayTrade 失败 {Symbol}", trade.Symbol);
+            }
+        }
+
         private async Task RelayKLineAsync(KLineUpdate k, CancellationToken ct)
         {
             try
@@ -306,7 +334,8 @@ namespace CryptoSpot.Infrastructure.BgServices
                     CloseDateTime = klineEntity.CloseDateTime
                 }, k.IsClosed);
                 _lastKLineState[key] = (hash, nowMs);
-                _logger.LogDebug("KLine Relay 推送完成 {Symbol} {Interval} close={Close} closed={Closed}", k.Symbol, interval, k.Close, k.IsClosed);
+                _logger.LogInformation("✅ KLine Relay 推送 {Symbol} {Interval} open={Open} close={Close} high={High} low={Low} vol={Vol} closed={Closed}", 
+                    k.Symbol, interval, k.Open, k.Close, k.High, k.Low, k.Volume, k.IsClosed);
             }
             catch (Exception ex)
             {

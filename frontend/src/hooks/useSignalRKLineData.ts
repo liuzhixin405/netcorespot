@@ -29,7 +29,6 @@ export const useSignalRKLineData = (
 
   // 处理实时K线更新
   const handleKLineUpdate = useCallback((klineData: KLineData, isNewKLine: boolean) => {
-    if ((window as any).__SR_DEBUG) console.log('[Hook][KLine] update', klineData, 'isNew', isNewKLine);
     setMinuteData(prevData => {
       const existingIndex = prevData.findIndex(
         item => item.timestamp === klineData.timestamp
@@ -71,44 +70,39 @@ export const useSignalRKLineData = (
 
   // 启动SignalR订阅
   const startSignalRSubscription = useCallback(async () => {
-    if ((window as any).__SR_DEBUG) console.log('[Hook][KLine] start subscription symbol=', symbol, 'tf=', timeframe);
     if (!symbol) return;
     
-    // 启动SignalR K线订阅
-    
+    // ✅ 清空所有数据
     setMinuteData([]);
     setData([]);
     setLoading(true);
     setError(null);
     setIsConnected(false);
+    setLastUpdate(0);
     
     try {
-      // 取消之前的订阅
+      // ✅ 先取消之前的订阅（如果有）
       if (unsubscribeRef.current) {
-        unsubscribeRef.current();
+        await unsubscribeRef.current();
         unsubscribeRef.current = null;
       }
       
-      // 短暂延迟确保清理完成
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      // 始终订阅1分钟K线数据（只订阅实时更新）
+      // ✅ 立即订阅，不需要延迟
       const unsubscribe = await signalRClient.subscribeKLineData(
         symbol,
         '1m', // 固定订阅1分钟数据
         handleKLineUpdate,
         handleError
       );
-      if ((window as any).__SR_DEBUG) console.log('[Hook][KLine] subscribed (1m base)');
       
-      setTimeout(() => {
-        setLoading(false);
-        setIsConnected(signalRClient.isConnected());
-      }, 500);
-
       unsubscribeRef.current = unsubscribe;
       
+      // ✅ 立即更新状态，不需要延迟
+      setLoading(false);
+      setIsConnected(signalRClient.isConnected());
+      
     } catch (err: any) {
+      console.error('[useSignalRKLineData] 订阅失败:', err);
       setError(`SignalR连接失败: ${err.message}`);
       setIsConnected(false);
       setLoading(false);
@@ -126,12 +120,14 @@ export const useSignalRKLineData = (
       setData([]);
       return;
     }
+    
     if (timeframe === '1m') {
       // 直接裁剪 minuteData
       const limited = minuteData.slice(-limit);
       setData(limited);
       return;
     }
+    
     const calculatedData = KLineCalculator.calculateKLineFromMinutes(minuteData, timeframe);
     const limitedData = calculatedData.slice(-limit);
     setData(limitedData);
@@ -152,7 +148,7 @@ export const useSignalRKLineData = (
         unsubscribeRef.current = null;
       }
     };
-  }, [symbol]); // 只依赖symbol，不依赖timeframe
+  }, [symbol, startSignalRSubscription]);
 
   return {
     data,

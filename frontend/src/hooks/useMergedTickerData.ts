@@ -49,17 +49,7 @@ export function useMergedTickerData(symbol: string): UseMergedReturn {
     const price = lastPriceFrameRef.current;
     const ticker = lastTickerFrameRef.current;
     
-    // ✅ 添加调试日志
-    console.log('[useMergedTickerData] buildMerged 执行:', {
-      symbol,
-      hasPrice: !!price,
-      hasTicker: !!ticker,
-      priceData: price,
-      tickerData: ticker
-    });
-    
     if (!price && !ticker) {
-      console.log('[useMergedTickerData] buildMerged 跳过: price 和 ticker 都为空');
       return;
     }
 
@@ -122,23 +112,10 @@ export function useMergedTickerData(symbol: string): UseMergedReturn {
   }, [symbol]);
 
   const handlePriceUpdate = useCallback((frame: any) => {
-    // ✅ 添加调试日志
-    console.log('[useMergedTickerData] PriceUpdate 收到:', {
-      frame,
-      currentSymbol: symbol,
-      frameSymbol: frame?.symbol,
-      match: frame?.symbol === symbol,
-      has24hData: !!(frame?.change24h !== undefined || frame?.volume24h !== undefined)
-    });
-    
     if (!frame || frame.symbol !== symbol) {
-      console.warn('[useMergedTickerData] PriceUpdate 被过滤:', {
-        reason: !frame ? 'frame为空' : `symbol不匹配 (收到:${frame.symbol}, 期望:${symbol})`
-      });
       return;
     }
     
-    console.log('[useMergedTickerData] PriceUpdate 通过检查，更新 lastPriceFrameRef');
     lastPriceFrameRef.current = frame;
     buildMerged();
   }, [symbol, buildMerged]);
@@ -161,8 +138,6 @@ export function useMergedTickerData(symbol: string): UseMergedReturn {
     setError(null);
 
     try {
-      console.log('[useMergedTickerData] subscribeAll 开始:', symbol);
-      
       // ✅ 先清理旧订阅和旧数据
       if (priceUnsubRef.current) { 
         await priceUnsubRef.current(); 
@@ -185,7 +160,6 @@ export function useMergedTickerData(symbol: string): UseMergedReturn {
       const tu = await signalRClient.subscribeTicker(symbol, handleTickerUpdate, handleError);
       tickerUnsubRef.current = tu;
 
-      console.log('[useMergedTickerData] subscribeAll 完成:', symbol);
       setIsConnected(signalRClient.isConnected());
       setLoading(false);
     } catch (e: any) {

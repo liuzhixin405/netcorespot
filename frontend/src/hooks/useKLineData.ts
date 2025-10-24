@@ -81,11 +81,12 @@ export const useKLineData = ({
 
   // 刷新数据
   const refresh = useCallback(async () => {
-    await Promise.all([
-      loadKLineHistory(),
-      loadLatestKLine()
-    ]);
-  }, [loadKLineHistory, loadLatestKLine]);
+    try {
+      await loadKLineHistory();
+    } catch (err) {
+      console.error('[useKLineData] 历史数据加载失败:', err);
+    }
+  }, [loadKLineHistory]);
 
   // 加载更多数据
   const loadMore = useCallback(async (startTime?: number, endTime?: number) => {
@@ -143,12 +144,19 @@ export const useKLineData = ({
     setLatestKLine(newKLine);
   }, []);
 
-  // 初始加载
+  // ✅ 切换 symbol 或 interval 时立即清空旧数据
+  useEffect(() => {
+    setKlineData([]);
+    setLatestKLine(null);
+    setError(null);
+  }, [symbol, interval]);
+
+  // 初始加载（不依赖 refresh，避免循环依赖）
   useEffect(() => {
     if (symbol && interval) {
-      refresh();
+      loadKLineHistory();
     }
-  }, [symbol, interval, refresh]);
+  }, [symbol, interval, loadKLineHistory]);
 
   // 自动刷新
   useEffect(() => {

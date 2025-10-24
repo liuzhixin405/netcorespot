@@ -101,6 +101,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
   const [hiddenDustCount, setHiddenDustCount] = useState(0);
 
   useEffect(() => {
+    // ✅ 切换交易对时立即清空旧数据
+    setTrades([]);
+    setHiddenDustCount(0);
+    
     const fetchTrades = async () => {
       try {
         setLoading(true);
@@ -152,10 +156,10 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
   // SignalR 实时订阅
   useEffect(() => {
     let unsubscribe: (() => void) | null = null;
+    let currentSymbol = symbol; // ✅ 捕获当前 symbol
 
     const setupSignalR = async () => {
       try {
-        
         // 启用SignalR调试
         if (!(window as any).__SR_DEBUG) {
           (window as any).__SR_DEBUG = true;
@@ -165,7 +169,8 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
         unsubscribe = await signalRClient.subscribeTrades(
           symbol,
           (trade: any) => {
-            if (trade.symbol === symbol) {
+            // ✅ 使用捕获的 currentSymbol 而不是闭包的 symbol
+            if (trade.symbol === currentSymbol) {
               setTrades(prev => {
                 // 添加新成交到列表顶部，保持最多50条
                 const newTrade: Trade = {
@@ -179,17 +184,14 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
                 const newList = [newTrade, ...prev].slice(0, 50);
                 return newList;
               });
-            } else {
-              // ignore other symbol
             }
           },
           (error) => {
-            // subscribe error suppressed
+            console.error('[RecentTrades] 订阅失败:', error);
           }
         );
-  // subscription done
       } catch (err) {
-  // setup failed suppressed
+        console.error('[RecentTrades] setupSignalR 失败:', err);
       }
     };
 
@@ -197,10 +199,11 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
 
     // 清理函数
     return () => {
-  // cleanup
       if (unsubscribe) {
         unsubscribe();
       }
+      // ✅ 标记当前 symbol 失效
+      currentSymbol = '';
     };
   }, [symbol]);
 
