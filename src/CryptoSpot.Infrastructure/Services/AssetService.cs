@@ -5,28 +5,30 @@ using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Domain.Entities; // 内部仍可使用领域实体
 using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Infrastructure.Repositories.Redis; // ✅ Redis 仓储
 
 namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
-    /// 资产服务实现（仅对外暴露 DTO 接口；领域实体操作封装为私有方法）。
+    /// 资产服务实现 - Redis First 架构（所有操作通过 Redis）
     /// </summary>
     public class AssetService : IAssetService
     {
-        private readonly IAssetRepository _assetRepository;
-        private readonly IUnitOfWork _unitOfWork;
+        // ✅ 使用 Redis 仓储替代数据库仓储
+        private readonly RedisAssetRepository _redisAssets;
+        private readonly IUnitOfWork _unitOfWork; // 保留用于异常回滚
         private readonly IDtoMappingService _mappingService;
         private readonly ILogger<AssetService> _logger;
         private readonly CryptoSpot.Application.Abstractions.Services.RealTime.IRealTimeDataPushService _realTimePush;
 
         public AssetService(
-            IAssetRepository assetRepository,
+            RedisAssetRepository redisAssets, // ✅ 注入 Redis 仓储
             IUnitOfWork unitOfWork,
             IDtoMappingService mappingService,
             ILogger<AssetService> logger,
             CryptoSpot.Application.Abstractions.Services.RealTime.IRealTimeDataPushService realTimePush)
         {
-            _assetRepository = assetRepository;
+            _redisAssets = redisAssets;
             _unitOfWork = unitOfWork;
             _mappingService = mappingService;
             _logger = logger;
@@ -193,16 +195,27 @@ namespace CryptoSpot.Infrastructure.Services
         }
         #endregion
 
-        #region 内部领域操作（私有）
-        private Task<IEnumerable<Asset>> GetUserAssetsInternalAsync(int userId)
-            => _assetRepository.FindAsync(a => a.UserId == userId);
-
-        private async Task<Asset?> GetUserAssetInternalAsync(int userId, string symbol)
+        #region 内部领域操作（私有 - Redis First）
+        
+        /// <summary>
+        /// 获取用户所有资产 (从 Redis)
+        /// </summary>
+        private async Task<IEnumerable<Asset>> GetUserAssetsInternalAsync(int userId)
         {
-            var assets = await _assetRepository.FindAsync(a => a.UserId == userId && a.Symbol == symbol);
-            return assets.FirstOrDefault();
+            return await _redisAssets.GetUserAssetsAsync(userId);
         }
 
+        /// <summary>
+        /// 获取用户单个资产 (从 Redis)
+        /// </summary>
+        private async Task<Asset?> GetUserAssetInternalAsync(int userId, string symbol)
+        {
+            return await _redisAssets.GetAssetAsync(userId, symbol);
+        }
+
+        /// <summary>
+        /// 创建用户资产 (写入 Redis, 自动同步到 MySQL)
+        /// </summary>
         private async Task<Asset> CreateUserAssetInternalAsync(int userId, string symbol, decimal available = 0, decimal frozen = 0)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -215,9 +228,19 @@ namespace CryptoSpot.Infrastructure.Services
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            return await _assetRepository.AddAsync(asset);
+            
+            // ✅ 保存到 Redis (会自动加入同步队列)
+            await _redisAssets.SaveAssetAsync(asset);
+            
+            _logger.LogInformation("✅ 创建资产: UserId={UserId} Symbol={Symbol} Available={Available}", 
+                userId, symbol, available);
+            
+            return asset;
         }
 
+        /// <summary>
+        /// 检查余额是否充足 (从 Redis 查询)
+        /// </summary>
         private async Task<bool> HasSufficientBalanceInternalAsync(int userId, string symbol, decimal amount, bool includeFrozen = false)
         {
             var asset = await GetUserAssetInternalAsync(userId, symbol);
@@ -226,75 +249,111 @@ namespace CryptoSpot.Infrastructure.Services
             return balance >= amount;
         }
 
+        /// <summary>
+        /// 冻结资产 (Redis 原子操作)
+        /// </summary>
         private async Task<bool> FreezeAssetInternalAsync(int userId, string symbol, decimal amount)
         {
-            var asset = await GetUserAssetInternalAsync(userId, symbol);
-            if (asset == null) return false; // 资产不存在,冻结失败
-            if (asset.Available < amount) return false;
-            asset.Available -= amount;
-            asset.Frozen += amount;
-            asset.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await _assetRepository.UpdateAsync(asset);
-            return true;
+            // ✅ 使用 Redis Lua 脚本保证原子性
+            var success = await _redisAssets.FreezeAssetAsync(userId, symbol, amount);
+            
+            if (success)
+            {
+                _logger.LogDebug("🔒 冻结资产成功: UserId={UserId} Symbol={Symbol} Amount={Amount}", 
+                    userId, symbol, amount);
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ 冻结资产失败(余额不足): UserId={UserId} Symbol={Symbol} Amount={Amount}",
+                    userId, symbol, amount);
+            }
+            
+            return success;
         }
 
+        /// <summary>
+        /// 解冻资产 (Redis 原子操作)
+        /// </summary>
         private async Task<bool> UnfreezeAssetInternalAsync(int userId, string symbol, decimal amount)
         {
-            var asset = await GetUserAssetInternalAsync(userId, symbol);
-            if (asset == null) return false; // 资产不存在,解冻失败
-            if (asset.Frozen < amount) return false;
-            asset.Frozen -= amount;
-            asset.Available += amount;
-            asset.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            await _assetRepository.UpdateAsync(asset);
-            return true;
+            // ✅ 使用 Redis Lua 脚本保证原子性
+            var success = await _redisAssets.UnfreezeAssetAsync(userId, symbol, amount);
+            
+            if (success)
+            {
+                _logger.LogDebug("🔓 解冻资产成功: UserId={UserId} Symbol={Symbol} Amount={Amount}", 
+                    userId, symbol, amount);
+            }
+            
+            return success;
         }
 
+        /// <summary>
+        /// 扣除资产 (Redis 原子操作)
+        /// </summary>
         private async Task<bool> DeductAssetInternalAsync(int userId, string symbol, decimal amount, bool fromFrozen = false)
         {
             try
             {
-                // 使用原子操作避免并发冲突
-                int affectedRows;
+                bool success;
+                
                 if (fromFrozen)
                 {
-                    affectedRows = await _assetRepository.AtomicDeductFrozenAsync(userId, symbol, amount);
+                    // ✅ 从冻结余额扣除
+                    success = await _redisAssets.DeductFrozenAssetAsync(userId, symbol, amount);
                 }
                 else
                 {
-                    affectedRows = await _assetRepository.AtomicDeductAvailableAsync(userId, symbol, amount);
+                    // 从可用余额扣除 - 先冻结再扣除
+                    success = await _redisAssets.FreezeAssetAsync(userId, symbol, amount);
+                    if (success)
+                    {
+                        success = await _redisAssets.DeductFrozenAssetAsync(userId, symbol, amount);
+                    }
                 }
                 
-                // 如果影响行数为 0,说明资产不足或不存在
-                return affectedRows > 0;
+                if (!success)
+                {
+                    _logger.LogWarning("⚠️ 扣除资产失败: UserId={UserId} Symbol={Symbol} Amount={Amount} FromFrozen={FromFrozen}", 
+                        userId, symbol, amount, fromFrozen);
+                }
+                
+                return success;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "扣除资产失败: UserId={UserId}, Symbol={Symbol}, Amount={Amount}, FromFrozen={FromFrozen}", 
+                _logger.LogError(ex, "❌ 扣除资产异常: UserId={UserId}, Symbol={Symbol}, Amount={Amount}, FromFrozen={FromFrozen}", 
                     userId, symbol, amount, fromFrozen);
                 return false;
             }
         }
 
+        /// <summary>
+        /// 增加资产 (Redis 原子操作)
+        /// </summary>
         private async Task<bool> AddAssetInternalAsync(int userId, string symbol, decimal amount)
         {
             try
             {
-                // 使用原子操作避免并发冲突
-                var affectedRows = await _assetRepository.AtomicAddAvailableAsync(userId, symbol, amount);
+                // ✅ 增加可用余额 (Redis 原子操作)
+                var success = await _redisAssets.AddAvailableAssetAsync(userId, symbol, amount);
                 
-                // 如果影响行数为 0,说明资产不存在,需要创建
-                if (affectedRows == 0)
+                // 如果资产不存在, 创建新资产
+                if (!success)
                 {
-                    // 只有在增加资产时才允许自动创建(充值场景)
-                    await CreateUserAssetInternalAsync(userId, symbol, available: amount);
+                    var existingAsset = await GetUserAssetInternalAsync(userId, symbol);
+                    if (existingAsset == null)
+                    {
+                        await CreateUserAssetInternalAsync(userId, symbol, available: amount);
+                        return true;
+                    }
                 }
                 
-                return true;
+                return success;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "增加资产失败: UserId={UserId}, Symbol={Symbol}, Amount={Amount}", 
+                _logger.LogError(ex, "❌ 增加资产异常: UserId={UserId}, Symbol={Symbol}, Amount={Amount}", 
                     userId, symbol, amount);
                 return false;
             }
