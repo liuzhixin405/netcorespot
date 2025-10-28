@@ -266,6 +266,19 @@ namespace CryptoSpot.Redis
         /// <param name="stop">-1 表示最后</param>
         /// <returns></returns>
         Task<string[]> ListRangeAsync(string key, long start, long stop);
+    /// <summary>
+    /// Atomically move up to <paramref name="batchSize"/> items from the tail of <paramref name="fromKey"/> to the head of <paramref name="toKey"/> using RPOPLPUSH in a loop (executed by Lua script).
+    /// Returns the moved items as raw string values in the order they were moved (from oldest to newest popped).
+    /// </summary>
+    /// <param name="fromKey">source list key</param>
+    /// <param name="toKey">destination list key</param>
+    /// <param name="batchSize">maximum number of items to move</param>
+    /// <returns>moved items (string), empty list when none moved</returns>
+    Task<List<string>> ListRightPopLeftPushBatchAsync(string fromKey, string toKey, int batchSize);
+    /// <summary>
+    /// Remove first count occurrences of value from list key (LREM semantics). Returns number removed.
+    /// </summary>
+    Task<long> ListRemoveAsync(string key, string value, long count = 1);
         /// <summary>
         /// 获取指定范围内的元素
         /// </summary>

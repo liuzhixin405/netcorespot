@@ -15,21 +15,24 @@ namespace CryptoSpot.Infrastructure.Services
     public class KLineDataService : IKLineDataService // 实现 DTO 接口
     {
         // 移除 IKLineDataDomainService 依赖，直接访问仓储
-        private readonly IKLineDataRepository _klineRepository;
+    private readonly IKLineDataRepository _klineRepository;
         private readonly ITradingPairService _tradingPairService;
         private readonly IDtoMappingService _mappingService;
         private readonly ILogger<KLineDataService> _logger;
+    private readonly RedisCacheService _cacheService;
 
         public KLineDataService(
             IKLineDataRepository klineRepository,
             ITradingPairService tradingPairService,
             IDtoMappingService mappingService,
-            ILogger<KLineDataService> logger)
+            ILogger<KLineDataService> logger,
+            RedisCacheService cacheService)
         {
             _klineRepository = klineRepository;
             _tradingPairService = tradingPairService;
             _mappingService = mappingService;
             _logger = logger;
+            _cacheService = cacheService;
         }
 
         // =============== DTO 层方法 ===============
@@ -37,7 +40,25 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var klineData = await _klineRepository.GetKLineDataAsync(symbol, interval, limit);
+                // 优先从缓存读取
+                List<Domain.Entities.KLineData>? klineData = null;
+                try
+                {
+                    if (_cacheService != null)
+                    {
+                        var cached = await _cacheService.GetKLineDataAsync(symbol, interval, 1000);
+                        if (cached != null)
+                        {
+                            return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateSuccess(_mappingService.MapToDto(cached, symbol));
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to read kline from cache, falling back to DB");
+                }
+
+                klineData = (await _klineRepository.GetKLineDataAsync(symbol, interval, limit)).ToList();
                 var dtoList = _mappingService.MapToDto(klineData, symbol);
                 return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateSuccess(dtoList);
             }

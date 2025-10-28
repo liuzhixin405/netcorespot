@@ -694,6 +694,108 @@ namespace CryptoSpot.Redis.Extensions
             }
         }
         /// <summary>
+        /// Atomically move up to batchSize items from tail of fromKey to head of toKey for CsRedis implementation.
+        /// </summary>
+        public async Task<List<string>> ListRightPopLeftPushBatchAsync(string fromKey, string toKey, int batchSize)
+        {
+            var result = new List<string>();
+            if (batchSize <= 0) return result;
+
+            string lockKey = $"LockTake:{Convert.ToBase64String(Encoding.UTF8.GetBytes(fromKey))}";
+            try
+            {
+                // try to acquire simple lock (RedisHelper.Lock returns a non-null token when acquired)
+                var token = RedisHelper.Lock(lockKey, 30);
+                if (token == null)
+                {
+                    return result; // couldn't get lock, another worker is processing
+                }
+
+                for (int i = 0; i < batchSize; i++)
+                {
+                    var v = RedisHelper.RPop<string>(fromKey);
+                    if (string.IsNullOrEmpty(v)) break;
+                    await RedisHelper.LPushAsync<string>(toKey, v);
+                    result.Add(v);
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"ListRightPopLeftPushBatchAsync(csredis) error: {ex.Message}");
+                return result;
+            }
+            finally
+            {
+                try { await RedisHelper.DelAsync(lockKey); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Remove occurrences of a value from a list (LREM semantics).
+        /// If the underlying helper doesn't provide LREM, fall back to a locked rebuild of the list.
+        /// </summary>
+        public async Task<long> ListRemoveAsync(string key, string value, long count = 1)
+        {
+            try
+            {
+                // try to use RedisHelper if it exposes LRem-like API
+                try
+                {
+                    var r = RedisHelper.Instance?.LRem(key, (int)count, value);
+                    if (r != null)
+                    {
+                        try { return Convert.ToInt64(r); } catch { }
+                    }
+                }
+                catch { /* ignore, fallback */ }
+
+                // Fallback: take a lock, pop all items, re-push excluding the value (up to count removals)
+                string lockKey = $"LockTake:{Convert.ToBase64String(Encoding.UTF8.GetBytes(key))}";
+                var token = RedisHelper.Lock(lockKey, 30);
+                if (token == null) return 0;
+                try
+                {
+                    var items = RedisHelper.LRange<string>(key, 0, -1);
+                    if (items == null || items.Length == 0) return 0;
+                    var remaining = new List<string>();
+                    long removed = 0;
+                    foreach (var it in items)
+                    {
+                        if (removed < count && it == value)
+                        {
+                            removed++;
+                            continue;
+                        }
+                        remaining.Add(it);
+                    }
+
+                    // rebuild list: delete and push remaining
+                    await RedisHelper.DelAsync(key);
+                    if (remaining.Count > 0)
+                    {
+                        // LPUSH in reverse to keep original order
+                        for (int i = remaining.Count - 1; i >= 0; i--)
+                        {
+                            await RedisHelper.LPushAsync<string>(key, remaining[i]);
+                        }
+                    }
+
+                    return removed;
+                }
+                finally
+                {
+                    await RedisHelper.DelAsync(lockKey);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"ListRemoveAsync(csredis) error: {ex.Message}");
+                return 0;
+            }
+        }
+        /// <summary>
         /// 获取指定范围内的元素
         /// </summary>
         /// <param name="key"></param>

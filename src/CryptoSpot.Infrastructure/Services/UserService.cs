@@ -15,17 +15,20 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IDtoMappingService _mappingService;
         private readonly ILogger<UserService> _logger;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly RedisCacheService _cacheService;
 
         public UserService(
             IUserRepository userRepository,
             IDtoMappingService mappingService,
             ILogger<UserService> logger,
-            IUnitOfWork unitOfWork)
+            IUnitOfWork unitOfWork,
+            RedisCacheService cacheService)
         {
             _userRepository = userRepository;
             _mappingService = mappingService;
             _logger = logger;
             _unitOfWork = unitOfWork;
+            _cacheService = cacheService;
         }
 
         // 基础用户操作 (内部先获取领域实体再转 DTO)
@@ -33,7 +36,27 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var domainUser = await GetDomainUserByIdInternal(userId);
+                Domain.Entities.User? domainUser = null;
+                if (_cacheService != null)
+                {
+                    try
+                    {
+                        domainUser = await _cacheService.GetUserAsync(userId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Cache read failed for user {UserId}, fallback to DB", userId);
+                    }
+                }
+
+                if (domainUser == null)
+                {
+                    domainUser = await GetDomainUserByIdInternal(userId);
+                    if (domainUser != null && _cacheService != null)
+                    {
+                        await _cacheService.SetUserAsync(domainUser);
+                    }
+                }
                 var dto = domainUser != null ? _mappingService.MapToDto(domainUser) : null;
                 return ApiResponseDto<UserDto?>.CreateSuccess(dto);
             }
@@ -153,6 +176,21 @@ namespace CryptoSpot.Infrastructure.Services
                 user.Touch();
                 var created = await _userRepository.AddAsync(user);
                 await _unitOfWork.SaveChangesAsync();
+
+                // 缓存并标记脏
+                try
+                {
+                    if (_cacheService != null)
+                    {
+                        await _cacheService.SetUserAsync(created);
+                        await _cacheService.MarkUserDirtyAsync(created.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to set cache for created user {UserId}", created.Id);
+                }
+
                 return ApiResponseDto<UserDto>.CreateSuccess(_mappingService.MapToDto(created), "用户创建成功");
             }
             catch (Exception ex)
@@ -172,6 +210,21 @@ namespace CryptoSpot.Infrastructure.Services
                 user.Description = request.Description ?? user.Description;
                 user.Touch();
                 await _userRepository.UpdateAsync(user);
+
+                // 写缓存并标脏
+                try
+                {
+                    if (_cacheService != null)
+                    {
+                        await _cacheService.SetUserAsync(user);
+                        await _cacheService.MarkUserDirtyAsync(user.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update cache for user {UserId}", user.Id);
+                }
+
                 return ApiResponseDto<UserDto>.CreateSuccess(_mappingService.MapToDto(user), "用户更新成功");
             }
             catch (Exception ex)
@@ -189,6 +242,18 @@ namespace CryptoSpot.Infrastructure.Services
                 if (user != null)
                 {
                     await _userRepository.DeleteAsync(user);
+                    // 移除缓存
+                    try
+                    {
+                        if (_cacheService != null)
+                        {
+                            await _cacheService.RemoveUserAsync(userId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to remove cache for deleted user {UserId}", userId);
+                    }
                 }
                 return ApiResponseDto<bool>.CreateSuccess(true, "用户删除成功");
             }

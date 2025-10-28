@@ -61,7 +61,8 @@ public class OrderController : ControllerBase
             var order = new Order
             {
                 UserId = userId,
-       
+                OrderId = $"ORD_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Random.Shared.Next(1000,9999)}",
+                ClientOrderId = $"CL_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Random.Shared.Next(1000,9999)}",
                 Side = request.Side.ToLower() == "buy" ? OrderSide.Buy : OrderSide.Sell,
                 Type = request.Type.ToLower() == "market" ? OrderType.Market : OrderType.Limit,
                 Price = request.Price,

@@ -14,15 +14,18 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly ITradingPairService _tradingPairService;
         private readonly ILogger<PriceDataService> _logger;
         private readonly IDtoMappingService _mapping;
+        private readonly RedisCacheService _cacheService;
 
         public PriceDataService(
             ITradingPairService tradingPairService,
             ILogger<PriceDataService> logger,
-            IDtoMappingService mapping)
+            IDtoMappingService mapping,
+            RedisCacheService cacheService)
         {
             _tradingPairService = tradingPairService;
             _logger = logger;
             _mapping = mapping;
+            _cacheService = cacheService;
         }
 
         public async Task<TradingPairDto?> GetCurrentPriceAsync(string symbol)
@@ -79,6 +82,31 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
+                if (_cacheService != null)
+                {
+                    try
+                    {
+                        var priceObj = new
+                        {
+                            symbol,
+                            price,
+                            change24h,
+                            volume24h,
+                            high24h,
+                            low24h,
+                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                        };
+                        await _cacheService.SetAsync($"cache:price:{symbol}", priceObj, TimeSpan.FromMinutes(5));
+                        await _cacheService.MarkPriceDirtyAsync(symbol);
+                        _logger.LogDebug("Cached price for {Symbol}: {Price}", symbol, price);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to write price to cache for {Symbol}, falling back to DB", symbol);
+                    }
+                }
+
                 await _tradingPairService.UpdatePriceAsync(symbol, price, change24h, volume24h, high24h, low24h);
                 _logger.LogDebug("Updated price for {Symbol}: {Price}", symbol, price);
             }
@@ -92,17 +120,16 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                foreach (var dto in tradingPairs)
-                {
-                    await UpdateTradingPairPriceAsync(
-                        dto.Symbol,
-                        dto.Price,
-                        dto.Change24h,
-                        dto.Volume24h,
-                        dto.High24h,
-                        dto.Low24h);
-                }
-                
+                var tasks = tradingPairs.Select(dto => UpdateTradingPairPriceAsync(
+                    dto.Symbol,
+                    dto.Price,
+                    dto.Change24h,
+                    dto.Volume24h,
+                    dto.High24h,
+                    dto.Low24h));
+
+                await Task.WhenAll(tasks);
+
                 _logger.LogInformation("Batch updated prices for {Count} trading pairs", tradingPairs.Count());
             }
             catch (Exception ex)

@@ -10,6 +10,7 @@ using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.MarketData;
 using CryptoSpot.Application.Mapping; // 新增
+using CryptoSpot.Infrastructure.Services;
 
 namespace CryptoSpot.Infrastructure.BgServices
 {
@@ -31,21 +32,24 @@ namespace CryptoSpot.Infrastructure.BgServices
         private const int TickerMinPushIntervalMs = 1000;
         private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _lastKLineState = new();
         private const int KLineMinPushIntervalMs = 500;
-        private readonly IDtoMappingService _mapping;
-        private readonly PriceUpdateBatchService _batchService;
+    private readonly IDtoMappingService _mapping;
+    private readonly PriceUpdateBatchService _batchService;
+    private readonly RedisCacheService _cacheService;
 
         public MarketDataStreamRelayService(
             ILogger<MarketDataStreamRelayService> logger,
             IServiceScopeFactory scopeFactory,
             IEnumerable<IMarketDataStreamProvider> streamProviders,
             IDtoMappingService mapping,
-            PriceUpdateBatchService batchService)
+            PriceUpdateBatchService batchService,
+            RedisCacheService cacheService)
         {
             _logger = logger;
             _scopeFactory = scopeFactory;
             _streamProviders = streamProviders;
             _mapping = mapping;
             _batchService = batchService;
+            _cacheService = cacheService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -302,18 +306,18 @@ namespace CryptoSpot.Infrastructure.BgServices
                         Volume = klineEntity.Volume
                     };
 
+                    // 写入缓存并标记为脏，后台定期落库
                     _ = Task.Run(async () =>
                     {
                         try
                         {
-                            using var persistScope = _scopeFactory.CreateScope();
-                            var scopedKLineRepository = persistScope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
-                            await scopedKLineRepository.UpsertKLineDataAsync(entityCopy);
-                            _logger.LogDebug("已持久化K线 {Symbol} {Interval} open={Open}", symbol, intervalCopy, entityCopy.OpenTime);
+                            await _cacheService.UpdateKLineDataAsync(symbol, intervalCopy, entityCopy);
+                            await _cacheService.MarkKLineDirtyAsync(symbol, intervalCopy);
+                            _logger.LogDebug("已缓存并标记脏 K线 {Symbol} {Interval} open={Open}", symbol, intervalCopy, entityCopy.OpenTime);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "K线持久化任务失败 {Symbol} {Interval} @ {Open}", symbol, intervalCopy, entityCopy.OpenTime);
+                            _logger.LogWarning(ex, "K线缓存/标记任务失败 {Symbol} {Interval} @ {Open}", symbol, intervalCopy, entityCopy.OpenTime);
                         }
                     }, CancellationToken.None);
                 }

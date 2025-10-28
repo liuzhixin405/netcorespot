@@ -145,6 +145,8 @@ namespace CryptoSpot.Infrastructure
                 }
             }
         }
+
+        // Infrastructure-specific registrations have been moved to CryptoSpot.Infrastructure.DependencyInjection
         
         /// <summary>
         /// 自动注册所有 CommandHandler（扫描 Application 和 Infrastructure 程序集）

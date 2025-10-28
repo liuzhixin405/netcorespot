@@ -7,6 +7,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.DependencyInjection;
 using CryptoSpot.Domain.Entities;
+using CryptoSpot.Infrastructure.DependencyInjection;
 using CryptoSpot.Infrastructure;
 using CryptoSpot.Infrastructure.BgService;
 using CryptoSpot.Infrastructure.BgServices;
@@ -87,6 +88,8 @@ builder.Services.AddSingleton<IRedisService>(provider =>
     return new RedisService(provider.GetRequiredService<ILogger<RedisService>>(), connection, redisConfig, serializer);
 });
 builder.Services.AddSingleton<RedisCacheService>();
+// Infrastructure-specific registrations
+builder.Services.AddInfrastructureServices();
 
 // 已在 AddPersistence 中统一注册的服务此处不再重复注册 (ITradingPairService / IKLineDataService / ITradingService / IOrderService / ITradeService / IAssetService / IUserService)
 // 仅补充未在 AddPersistence 中的额外服务
@@ -109,6 +112,8 @@ builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 builder.Services.AddHostedService<AutoTradingService>();
 builder.Services.AddHostedService<AssetFlushBackgroundService>();
 builder.Services.AddHostedService<MarketDataStreamRelayService>();
+// 定期将缓存脏数据落库
+builder.Services.AddHostedService<CryptoSpot.Infrastructure.Services.CacheFlushHostedService>();
 
 builder.Services.AddMemoryCache();
 

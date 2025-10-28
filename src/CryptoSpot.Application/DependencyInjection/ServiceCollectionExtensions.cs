@@ -23,11 +23,7 @@ namespace CryptoSpot.Application.DependencyInjection
             // 使用Bus项目的高性能Dataflow实现
             services.AddDataflowCommandBus();
 
-            // 注册 Trading 相关命令处理器（已迁移至 Application.DomainCommands）
-            services.AddTransient<ICommandHandler<SubmitOrderCommand, SubmitOrderResult>, SubmitOrderCommandHandler>();
-            services.AddTransient<ICommandHandler<CancelOrderCommand, CancelOrderResult>, CancelOrderCommandHandler>();
-            services.AddTransient<ICommandHandler<UpdatePriceCommand, UpdatePriceResult>, UpdatePriceCommandHandler>();
-            services.AddTransient<ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>, ProcessKLineDataCommandHandler>();
+            // CommandHandlers are auto-registered by reflection in Infrastructure's AddCommandHandlers.
             // 注册DTO映射服务
             services.AddSingleton<IDtoMappingService, DtoMappingService>();
 

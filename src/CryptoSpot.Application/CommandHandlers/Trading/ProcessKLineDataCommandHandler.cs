@@ -4,7 +4,8 @@ using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Repositories;
 
 namespace CryptoSpot.Application.CommandHandlers.Trading
-{    /// <summary>
+{
+    /// <summary>
     /// 处理K线数据命令处理器 - 专门处理高频K线数据
     /// </summary>
     public class ProcessKLineDataCommandHandler : ICommandHandler<ProcessKLineDataCommand, ProcessKLineDataResult>
@@ -12,15 +13,18 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
         private readonly IKLineDataRepository _klineDataRepository;
         private readonly ICommandBus _commandBus;
         private readonly ILogger<ProcessKLineDataCommandHandler> _logger;
+        private readonly CryptoSpot.Application.Abstractions.Services.IKLineCache _klineCache;
 
         public ProcessKLineDataCommandHandler(
             IKLineDataRepository klineDataRepository,
             ICommandBus commandBus,
-            ILogger<ProcessKLineDataCommandHandler> logger)
+            ILogger<ProcessKLineDataCommandHandler> logger,
+            CryptoSpot.Application.Abstractions.Services.IKLineCache klineCache)
         {
             _klineDataRepository = klineDataRepository;
             _commandBus = commandBus;
             _logger = logger;
+            _klineCache = klineCache;
         }
 
         public async Task<ProcessKLineDataResult> HandleAsync(ProcessKLineDataCommand command, CancellationToken cancellationToken = default)
@@ -53,8 +57,26 @@ namespace CryptoSpot.Application.CommandHandlers.Trading
                         Success = false,
                         ErrorMessage = "时间框架不能为空"
                     };
-                }                // 保存K线数据
-                await _klineDataRepository.UpsertKLineDataAsync(command.KLineData);
+                }
+
+                // 保存K线数据：优先写缓存并标脏，失败回退到数据库
+                try
+                {
+                    if (_klineCache != null)
+                    {
+                        await _klineCache.UpdateKLineDataAsync(command.Symbol, command.TimeFrame, command.KLineData);
+                        await _klineCache.MarkKLineDirtyAsync(command.Symbol, command.TimeFrame);
+                    }
+                    else
+                    {
+                        await _klineDataRepository.UpsertKLineDataAsync(command.KLineData);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "KLine cache write failed for {Symbol} {TimeFrame}, falling back to DB", command.Symbol, command.TimeFrame);
+                    await _klineDataRepository.UpsertKLineDataAsync(command.KLineData);
+                }
 
                 // 发布K线更新事件 - 使用CommandBus发送相关命令
                 // 如果需要发布事件，可以创建相应的事件命令并通过CommandBus发送

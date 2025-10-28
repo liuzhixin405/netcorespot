@@ -84,12 +84,43 @@ public class RedisOrderRepository
         return order;
     }
 
+    /// <summary>
+    /// 将已存在于 DB 的订单写入到 Redis（用于 DB 回退后回填缓存，best-effort）
+    /// 不会修改 order.Id，只会把 order 的当前数据写到 Redis，并将同步操作加入队列
+    /// </summary>
+    public async Task SeedOrderAsync(DomainOrder order, string symbol)
+    {
+        // 不要覆盖创建时间/更新时间，由调用方保证已存在这些字段
+        await SaveOrderToRedisAsync(order, symbol);
+
+        // 添加到用户订单索引
+        await _db.SetAddAsync($"user_orders:{order.UserId}", order.Id.ToString());
+
+        // 如果是活跃订单，添加到订单簿
+        if (order.Status == OrderStatus.Active || order.Status == OrderStatus.Pending || order.Status == OrderStatus.PartiallyFilled)
+        {
+            await AddToActiveOrderBook(order, symbol);
+        }
+
+        // 加入 MySQL 同步队列（标记为 CREATE，Sync handler 应能幂等处理）
+        await EnqueueSyncOperation("orders", new
+        {
+            orderId = order.Id,
+            operation = "CREATE",
+            timestamp = DateTimeExtensions.GetCurrentUnixTimeMilliseconds()
+        });
+
+        _logger.LogDebug("🔁 Backfilled DB order to Redis: {OrderId} {Symbol}", order.Id, symbol);
+    }
+
     private async Task SaveOrderToRedisAsync(DomainOrder order, string symbol)
     {
         var key = $"order:{order.Id}";
         
         var hashEntries = new List<HashEntry>
         {
+                new HashEntry("orderId", order.OrderId ?? string.Empty),
+                new HashEntry("clientOrderId", order.ClientOrderId ?? string.Empty),
             new HashEntry("id", order.Id.ToString()),
             new HashEntry("userId", order.UserId?.ToString() ?? ""),
             new HashEntry("tradingPairId", order.TradingPairId.ToString()),

@@ -352,17 +352,19 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 {
                     _logger.LogDebug("No cached K-line data to save for minute {Minute}", currentMinute.ToString("HH:mm"));
                     return;
-                }            using var scope = _serviceScopeFactory.CreateScope();
+                }
+
+                using var scope = _serviceScopeFactory.CreateScope();
                 var klineDataRepository = scope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
-                
+                var cacheService = scope.ServiceProvider.GetService<CryptoSpot.Infrastructure.Services.RedisCacheService>();
+
                 var tasks = new List<Task>();
                 foreach (var kvp in _klineCache)
                 {
                     var klineData = kvp.Value;
-                    // 将 DTO 映射为领域实体再持久化（此处简化映射）
                     var entity = new CryptoSpot.Domain.Entities.KLineData
                     {
-                        TradingPairId = 0, // 若需要，可在此解析或延后补全
+                        TradingPairId = 0,
                         TimeFrame = klineData.TimeFrame,
                         OpenTime = klineData.OpenTime,
                         CloseTime = klineData.CloseTime,
@@ -372,7 +374,27 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                         Close = klineData.Close,
                         Volume = klineData.Volume
                     };
-                    tasks.Add(klineDataRepository.UpsertKLineDataAsync(entity));
+
+                    if (cacheService != null)
+                    {
+                        tasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await cacheService.UpdateKLineDataAsync(klineData.Symbol, klineData.TimeFrame, entity);
+                                await cacheService.MarkKLineDirtyAsync(klineData.Symbol, klineData.TimeFrame);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning(ex, "Failed to cache KLine data for {Symbol} {Interval}, falling back to DB", klineData.Symbol, klineData.TimeFrame);
+                                await klineDataRepository.UpsertKLineDataAsync(entity);
+                            }
+                        }));
+                    }
+                    else
+                    {
+                        tasks.Add(klineDataRepository.UpsertKLineDataAsync(entity));
+                    }
                 }
 
                 await Task.WhenAll(tasks);

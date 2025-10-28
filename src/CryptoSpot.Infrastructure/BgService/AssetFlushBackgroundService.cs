@@ -40,11 +40,30 @@ namespace CryptoSpot.Infrastructure.BgService
 
         private async Task FlushAsync(CancellationToken ct)
         {
-            using var scope = _serviceProvider.CreateScope();
-            var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>();
-            if (assetService == null) return;
-            // 原占位逻辑 (未来可实现真正的 FlushDirtyAssetsAsync)
-            await Task.CompletedTask;
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var commandBus = scope.ServiceProvider.GetService<CryptoSpot.Bus.Core.ICommandBus>();
+                if (commandBus == null)
+                {
+                    _logger.LogWarning("ICommandBus 未注册，跳过资产同步调度");
+                    return;
+                }
+
+                // 触发异步批量同步任务（短超时以防阻塞）
+                var command = new CryptoSpot.Application.DomainCommands.DataSync.SyncAssetsCommand { BatchSize = 500 };
+                // 不等待命令完成以避免阻塞本周期（CommandBus 内部处理并发）
+                await commandBus.SendAsync<CryptoSpot.Application.DomainCommands.DataSync.SyncAssetsCommand, CryptoSpot.Application.DomainCommands.DataSync.SyncAssetsResult>(command, ct);
+                _logger.LogDebug("已调度 SyncAssetsCommand 来刷新资产到 MySQL");
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Asset flush canceled");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "FlushAsync failed");
+            }
         }
 
         public override async Task StopAsync(CancellationToken cancellationToken)

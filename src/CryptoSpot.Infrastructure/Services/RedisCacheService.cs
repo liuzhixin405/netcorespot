@@ -1,5 +1,6 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Redis;
+using CryptoSpot.Application.Abstractions.Services;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using StackExchange.Redis;
@@ -9,7 +10,7 @@ namespace CryptoSpot.Infrastructure.Services
     /// <summary>
     /// 基于Redis的缓存服务
     /// </summary>
-    public class RedisCacheService : IDisposable
+    public class RedisCacheService : IDisposable, IKLineCache
     {
         private readonly IRedisCache _redisCache;
         private readonly ILogger<RedisCacheService> _logger;
@@ -269,6 +270,35 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
+        // 标记用户为脏数据，供后台定期落库使用
+        private const string DIRTY_USERS_SET = "dirty:users";
+
+        public async Task MarkUserDirtyAsync(int userId)
+        {
+            try
+            {
+                // 将 userId 添加到集合中，集合保证唯一性
+                await _redisCache.AddAsync($"{USER_CACHE_PREFIX}dirty:{userId}", true, TimeSpan.FromDays(1));
+                await _redisCache.AddAsync(DIRTY_USERS_SET, 0); // ensure set existence for implementations that expect it
+                if (_redisCache.Connection != null)
+                {
+                    var db = _redisCache.Connection.GetDatabase();
+                    // use a Redis Set to store dirty ids
+                    await db.SetAddAsync(DIRTY_USERS_SET, userId);
+                }
+                else
+                {
+                    // Fallback: store a list-like key
+                    await _redisCache.ListLeftPushAsync("dirty:users:list", userId.ToString());
+                }
+                _logger.LogDebug("Marked user dirty: UserId={UserId}", userId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to mark user dirty: UserId={UserId}", userId);
+            }
+        }
+
         #endregion
 
         #region Price Cache Methods
@@ -299,6 +329,30 @@ namespace CryptoSpot.Infrastructure.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to cache price: Symbol={Symbol}, Price={Price}", symbol, price);
+            }
+        }
+
+        // 标记 price 为脏，用于后台批量落库
+        private const string DIRTY_PRICES_SET = "dirty:prices";
+
+        public async Task MarkPriceDirtyAsync(string symbol)
+        {
+            try
+            {
+                if (_redisCache.Connection != null)
+                {
+                    var db = _redisCache.Connection.GetDatabase();
+                    await db.SetAddAsync(DIRTY_PRICES_SET, symbol);
+                }
+                else
+                {
+                    await _redisCache.ListLeftPushAsync("dirty:prices:list", symbol);
+                }
+                _logger.LogDebug("Marked price dirty: {Symbol}", symbol);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to mark price dirty: {Symbol}", symbol);
             }
         }
 
@@ -374,6 +428,32 @@ namespace CryptoSpot.Infrastructure.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to update KLine data cache: Symbol={Symbol}, TimeFrame={TimeFrame}", symbol, timeFrame);
+            }
+        }
+
+        // 标记 KLine 为脏，用于后台批量落库
+        private const string DIRTY_KLINE_SET = "dirty:kline";
+
+        public async Task MarkKLineDirtyAsync(string symbol, string timeFrame)
+        {
+            try
+            {
+                var key = $"{KLINE_CACHE_PREFIX}{symbol}:{timeFrame}";
+                // 添加到集合中，元素为 symbol:timeFrame
+                if (_redisCache.Connection != null)
+                {
+                    var db = _redisCache.Connection.GetDatabase();
+                    await db.SetAddAsync(DIRTY_KLINE_SET, $"{symbol}:{timeFrame}");
+                }
+                else
+                {
+                    await _redisCache.ListLeftPushAsync("dirty:kline:list", $"{symbol}:{timeFrame}");
+                }
+                _logger.LogDebug("Marked kline dirty: {Symbol}:{TimeFrame}", symbol, timeFrame);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to mark kline dirty: {Symbol}:{TimeFrame}", symbol, timeFrame);
             }
         }
 

@@ -5,6 +5,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.DTOs.Common;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.Mapping;
+using CryptoSpot.Infrastructure.Repositories.Redis;
 
 namespace CryptoSpot.Infrastructure.Services
 {
@@ -15,19 +16,25 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<OrderService> _logger;
         private readonly IDtoMappingService _mappingService;
+    private readonly RedisOrderMatchingEngine? _matchingEngine;
+    private readonly RedisOrderRepository? _redisOrderRepository;
 
         public OrderService(
             IOrderRepository orderRepository,
             ITradingPairRepository tradingPairRepository,
             IUnitOfWork unitOfWork,
             ILogger<OrderService> logger,
-            IDtoMappingService mappingService)
+            IDtoMappingService mappingService,
+            RedisOrderMatchingEngine? matchingEngine = null,
+            RedisOrderRepository? redisOrderRepository = null)
         {
             _orderRepository = orderRepository;
             _tradingPairRepository = tradingPairRepository;
             _unitOfWork = unitOfWork;
             _logger = logger;
             _mappingService = mappingService;
+            _matchingEngine = matchingEngine;
+            _redisOrderRepository = redisOrderRepository;
         }
 
         // ========== DTO 方法实现 ==========
@@ -62,11 +69,54 @@ namespace CryptoSpot.Infrastructure.Services
                     UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 };
 
-                var createdOrder = await _orderRepository.AddAsync(order);
+                // Prefer Redis matching engine when available (Redis-first)
+                if (_matchingEngine != null)
+                {
+                    var createdRedisOrder = await _matchingEngine.PlaceOrderAsync(order, symbol);
+                    _logger.LogInformation("[Redis] Order placed: {OrderId} Status={Status}", createdRedisOrder.Id, createdRedisOrder.Status);
+                    var dtoRedis = _mappingService.MapToDto(createdRedisOrder);
+                    return ApiResponseDto<OrderDto?>.CreateSuccess(dtoRedis, "订单创建成功");
+                }
+
+                // Fallback to DB repository
+                // If Redis order repo is available, prefer creating via Redis (cache-first)
+                if (_redisOrderRepository != null)
+                {
+                    try
+                    {
+                        var tp = await _tradingPairRepository.GetBySymbolAsync(symbol);
+                        var sym = tp?.Symbol ?? symbol;
+                        var createdRedis = await _redisOrderRepository.CreateOrderAsync(order, sym);
+                        _logger.LogInformation("[Redis] Order placed via RedisOrderRepository: {OrderId} Status={Status}", createdRedis.Id, createdRedis.Status);
+                        var dtoRedis = _mappingService.MapToDto(createdRedis);
+                        return ApiResponseDto<OrderDto?>.CreateSuccess(dtoRedis, "订单创建成功");
+                    }
+                    catch (Exception rex)
+                    {
+                        _logger.LogWarning(rex, "Redis order create failed, falling back to DB");
+                    }
+                }
+
+                var createdOrderDb = await _orderRepository.AddAsync(order);
                 await _unitOfWork.SaveChangesAsync();
-                _logger.LogInformation("订单创建成功: {OrderId} Status={Status}", order.OrderId, order.Status);
-                var dto = _mappingService.MapToDto(createdOrder);
-                return ApiResponseDto<OrderDto?>.CreateSuccess(dto, "订单创建成功");
+                _logger.LogInformation("Order created (DB): {OrderId} Status={Status}", order.OrderId, order.Status);
+                var dtoDb = _mappingService.MapToDto(createdOrderDb);
+                // Best-effort backfill to Redis if repository available
+                try
+                {
+                    if (_redisOrderRepository != null)
+                    {
+                        var tp = await _tradingPairRepository.GetBySymbolAsync(symbol);
+                        var sym = tp?.Symbol ?? symbol;
+                        await _redisOrderRepository.SeedOrderAsync(createdOrderDb, sym);
+                        _logger.LogInformation("[Backfill] Seeded DB-created order to Redis: {OrderId}", createdOrderDb.Id);
+                    }
+                }
+                catch (Exception rex)
+                {
+                    _logger.LogWarning(rex, "Failed to seed DB-created order to Redis: OrderId={OrderId}", createdOrderDb.Id);
+                }
+                return ApiResponseDto<OrderDto?>.CreateSuccess(dtoDb, "订单创建成功");
             }
             catch (ArgumentException aex)
             {
@@ -83,13 +133,28 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var order = await _orderRepository.GetByIdAsync(orderId);
-                if (order == null || (userId.HasValue && order.UserId != userId.Value))
+                // Prefer Redis cancellation when available
+                if (_redisOrderRepository != null)
+                {
+                    var order = await _redisOrderRepository.GetOrderByIdAsync(orderId);
+                    if (order == null || (userId.HasValue && order.UserId != userId.Value))
+                        return ApiResponseDto<bool>.CreateError("订单不存在", "ORDER_NOT_FOUND");
+                    if (order.Status != OrderStatus.Active && order.Status != OrderStatus.Pending)
+                        return ApiResponseDto<bool>.CreateError("订单状态不允许取消", "ORDER_CANCEL_INVALID_STATE");
+
+                    var success = await _redisOrderRepository.CancelOrderAsync(orderId, userId ?? 0);
+                    if (!success) return ApiResponseDto<bool>.CreateError("订单无法取消", "ORDER_CANCEL_FAILED");
+                    return ApiResponseDto<bool>.CreateSuccess(true, "订单取消成功");
+                }
+
+                // Fallback to DB
+                var orderDb = await _orderRepository.GetByIdAsync(orderId);
+                if (orderDb == null || (userId.HasValue && orderDb.UserId != userId.Value))
                     return ApiResponseDto<bool>.CreateError("订单不存在", "ORDER_NOT_FOUND");
-                if (order.Status != OrderStatus.Active && order.Status != OrderStatus.Pending)
+                if (orderDb.Status != OrderStatus.Active && orderDb.Status != OrderStatus.Pending)
                     return ApiResponseDto<bool>.CreateError("订单状态不允许取消", "ORDER_CANCEL_INVALID_STATE");
 
-                await UpdateOrderStatusInternalAsync(order, OrderStatus.Cancelled);
+                await UpdateOrderStatusInternalAsync(orderDb, OrderStatus.Cancelled);
                 return ApiResponseDto<bool>.CreateSuccess(true, "订单取消成功");
             }
             catch (Exception ex)
@@ -211,6 +276,20 @@ namespace CryptoSpot.Infrastructure.Services
             }
             order.Status = status;
             order.UpdatedAt = now;
+            // Prefer Redis update when available
+            if (_redisOrderRepository != null)
+            {
+                try
+                {
+                    await _redisOrderRepository.UpdateOrderStatusAsync(order.Id, status, order.FilledQuantity);
+                    return;
+                }
+                catch (Exception rex)
+                {
+                    _logger.LogWarning(rex, "Redis update order status failed, falling back to DB: OrderId={OrderId}", order.Id);
+                }
+            }
+
             await _orderRepository.UpdateAsync(order);
             await _unitOfWork.SaveChangesAsync();
         }

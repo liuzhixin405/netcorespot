@@ -17,24 +17,27 @@ namespace CryptoSpot.Infrastructure.Services
 {
     public class AuthService : IAuthService
     {
-        private readonly IUserRepository _userRepository;
-        private readonly IAssetService _assetService;
-        private readonly IConfiguration _configuration;
-        private readonly ILogger<AuthService> _logger;
-        private readonly IDtoMappingService _mappingService;
+    private readonly IUserRepository _userRepository;
+    private readonly IAssetService _assetService;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<AuthService> _logger;
+    private readonly IDtoMappingService _mappingService;
+    private readonly RedisCacheService _cacheService;
 
         public AuthService(
             IUserRepository userRepository,
             IAssetService assetService,
             IConfiguration configuration,
             ILogger<AuthService> logger,
-            IDtoMappingService mappingService)
+            IDtoMappingService mappingService,
+            RedisCacheService cacheService)
         {
             _userRepository = userRepository;
             _assetService = assetService;
             _configuration = configuration;
             _logger = logger;
             _mappingService = mappingService;
+            _cacheService = cacheService;
         }
 
         public async Task<ApiResponseDto<AuthResultDto?>> LoginAsync(LoginRequest request)
@@ -56,7 +59,25 @@ namespace CryptoSpot.Infrastructure.Services
                 }
 
                 user.LastLoginAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                await _userRepository.UpdateAsync(user);
+                // 写入缓存并标记脏，后台任务会定期将缓存落库
+                try
+                {
+                    if (_cacheService != null)
+                    {
+                        await _cacheService.SetUserAsync(user);
+                        await _cacheService.MarkUserDirtyAsync(user.Id);
+                    }
+                    else
+                    {
+                        // 回退：直接更新数据库
+                        await _userRepository.UpdateAsync(user);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update cache for LastLoginAt, falling back to DB for user {UserId}", user.Id);
+                    await _userRepository.UpdateAsync(user);
+                }
 
                 var token = GenerateJwtToken(user);
                 var dto = new AuthResultDto
@@ -121,7 +142,33 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var user = await _userRepository.GetByIdAsync(userId);
+                Domain.Entities.User? user = null;
+                // 优先从缓存读取
+                try
+                {
+                    if (_cacheService != null)
+                    {
+                        var cached = await _cacheService.GetUserAsync(userId);
+                        if (cached != null)
+                        {
+                            user = cached;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Cache read failed for user {UserId}, fallback to DB", userId);
+                }
+
+                if (user == null)
+                {
+                    user = await _userRepository.GetByIdAsync(userId);
+                    if (user != null && _cacheService != null)
+                    {
+                        // 缓存到 redis
+                        await _cacheService.SetUserAsync(user);
+                    }
+                }
                 return ApiResponseDto<UserDto?>.CreateSuccess(user != null ? _mappingService.MapToDto(user) : null);
             }
             catch (Exception ex)

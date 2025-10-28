@@ -40,6 +40,8 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
             {
                 UserId = userId,
                 TradingPairId = 0,
+                OrderId = $"ORD_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Random.Shared.Next(1000,9999)}",
+                ClientOrderId = $"CL_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}_{Random.Shared.Next(1000,9999)}",
                 Side = orderRequest.Side,
                 Type = orderRequest.Type,
                 Price = orderRequest.Price,
@@ -91,8 +93,79 @@ public class RedisOrderMatchingEngineAdapter : IOrderMatchingEngine
     public async Task<List<TradeDto>> MatchOrdersAsync(string symbol)
     {
         _logger.LogInformation("Manual match triggered: {Symbol} (Redis engine auto-matches)", symbol);
-        
-        return new List<TradeDto>();
+
+        try
+        {
+            // 从 RedisOrderRepository 拉取当前活动订单（买卖双方）
+            var buyOrders = await _redisOrders.GetActiveOrdersAsync(symbol, OrderSide.Buy, 500);
+            var sellOrders = await _redisOrders.GetActiveOrdersAsync(symbol, OrderSide.Sell, 500);
+
+            var orders = new List<Domain.Entities.Order>();
+            if (buyOrders != null) orders.AddRange(buyOrders);
+            if (sellOrders != null) orders.AddRange(sellOrders);
+
+            var resultTrades = new List<TradeDto>();
+
+            if (!orders.Any()) return resultTrades;
+
+            // 通过反射调用 RedisOrderMatchingEngine 的私有 MatchOrderAsync(Order, string)
+            var engineType = _redisEngine.GetType();
+            var matchMethod = engineType.GetMethod("MatchOrderAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+
+            if (matchMethod == null)
+            {
+                _logger.LogWarning("Redis engine does not expose MatchOrderAsync private method; manual match skipped for {Symbol}", symbol);
+                return resultTrades;
+            }
+
+            foreach (var order in orders)
+            {
+                try
+                {
+                    // 调用私有方法并获取 Trade 列表
+                    var task = (Task)matchMethod.Invoke(_redisEngine, new object[] { order, symbol })!;
+                    await task.ConfigureAwait(false);
+
+                    // 取得 Task<TResult>.Result via reflection
+                    var resultProperty = task.GetType().GetProperty("Result");
+                    if (resultProperty == null) continue;
+                    var tradesObj = resultProperty.GetValue(task) as System.Collections.IEnumerable;
+                    if (tradesObj == null) continue;
+
+                    foreach (var t in tradesObj)
+                    {
+                        // Trade -> TradeDto
+                        var trade = t as Domain.Entities.Trade;
+                        if (trade == null) continue;
+
+                        resultTrades.Add(new TradeDto
+                        {
+                            Id = trade.Id,
+                            Symbol = symbol,
+                            Price = trade.Price,
+                            Quantity = trade.Quantity,
+                            BuyOrderId = trade.BuyOrderId,
+                            SellOrderId = trade.SellOrderId,
+                            BuyerId = trade.BuyerId,
+                            SellerId = trade.SellerId,
+                            ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.ExecutedAt).DateTime,
+                            TotalValue = trade.Price * trade.Quantity
+                        });
+                    }
+                }
+                catch (Exception exOrder)
+                {
+                    _logger.LogError(exOrder, "Error matching single order {OrderId} for symbol {Symbol}", order.Id, symbol);
+                }
+            }
+
+            return resultTrades;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Manual matching failed for symbol: {Symbol}", symbol);
+            return new List<TradeDto>();
+        }
     }
 
     /// <summary>

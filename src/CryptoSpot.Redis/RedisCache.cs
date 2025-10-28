@@ -1732,6 +1732,74 @@ namespace CryptoSpot.Redis
         }
 
         /// <summary>
+        /// Atomically move up to batchSize items from the tail of fromKey to the head of toKey and return the moved items.
+        /// Implemented using a Lua script that performs up to batchSize RPOPLPUSH operations and returns the popped values.
+        /// </summary>
+        public async Task<List<string>> ListRightPopLeftPushBatchAsync(string fromKey, string toKey, int batchSize)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(fromKey) || string.IsNullOrEmpty(toKey)) throw new ArgumentException("keys cannot be empty");
+                if (batchSize <= 0) return new List<string>();
+
+                // Lua: loop up to batchSize times, rpop from fromKey, if nil then break, else lpush to toKey and collect value
+                var script = @"
+local from = KEYS[1]
+local to = KEYS[2]
+local n = tonumber(ARGV[1])
+local res = {}
+for i=1,n do
+  local v = redis.call('RPOP', from)
+  if not v then break end
+  redis.call('LPUSH', to, v)
+  table.insert(res, v)
+end
+return res
+";
+
+                var result = await Database.ScriptEvaluateAsync(script, new RedisKey[] { fromKey, toKey }, new RedisValue[] { batchSize });
+                var list = new List<string>();
+                if (result.IsNull) return list;
+                if (result.Type == ResultType.MultiBulk)
+                {
+                    foreach (var rv in (RedisResult[])result)
+                    {
+                        if (rv.IsNull) continue;
+                        list.Add(rv.ToString());
+                    }
+                }
+                else
+                {
+                    list.Add(result.ToString());
+                }
+
+                // The Lua script returns items in the order they were RPOP'd (oldest first among popped items), but since we LPUSH'ed them, the processing queue will have newest at head; we keep returned list as-is for processing order.
+                return list;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"ListRightPopLeftPushBatchAsync error: {ex.Message}");
+                return new List<string>();
+            }
+        }
+
+        /// <summary>
+        /// Remove occurrences of a value from a list (LREM semantics)
+        /// </summary>
+        public async Task<long> ListRemoveAsync(string key, string value, long count = 1)
+        {
+            try
+            {
+                return await Database.ListRemoveAsync(key, value, count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"ListRemoveAsync error: {ex.Message}");
+                return 0;
+            }
+        }
+
+        /// <summary>
         /// SortedSetAdd
         /// </summary>
         /// <param name="key"></param>

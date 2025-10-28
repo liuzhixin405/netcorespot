@@ -58,17 +58,17 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
 
                 try
                 {
-                    // 1️⃣ 从主队列转移到处理队列（备份）
-                    for (int i = 0; i < batchSize; i++)
+                    // 1️⃣ 原子地从主队列移动到处理队列（备份），避免在转移过程中丢失项
+                    var moved = await _redis.ListRightPopLeftPushBatchAsync(command.QueueKey, processingQueueKey, batchSize);
+                    if (moved != null && moved.Count > 0)
                     {
-                        var json = await _redis.ListRightPopAsync(command.QueueKey);
-                        if (string.IsNullOrEmpty(json)) break;
-
-                        batch.Add(json);
-                        await _redis.ListLeftPushAsync(processingQueueKey, json);
+                        batch.AddRange(moved);
                     }
 
-                    // 2️⃣ 处理数据
+                    // 2️⃣ 处理数据：逐项 upsert（以 Redis 为真源），并在成功后按项从 processing 列表移除对应 JSON；若批次中部分失败，恢复未处理项到主队列
+                    var successfullyProcessed = new List<string>();
+                    var failedItems = new List<string>();
+
                     foreach (var json in batch)
                     {
                         var item = JsonSerializer.Deserialize<SyncQueueItem>(json);
@@ -77,13 +77,20 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                         try
                         {
                             var tradeId = item.tradeId;
-                            if (tradeId == 0) continue;
+                            if (tradeId == 0)
+                            {
+                                successfullyProcessed.Add(json);
+                                continue;
+                            }
 
-                            // 从 Redis 读取最新成交数据
                             var tradeData = await _redis.HGetAllAsync($"trade:{tradeId}");
-                            if (tradeData == null || tradeData.Count == 0) continue;
+                            if (tradeData == null || tradeData.Count == 0)
+                            {
+                                // no data in redis: consider it processed and remove from processing queue
+                                successfullyProcessed.Add(json);
+                                continue;
+                            }
 
-                            // 检查是否已存在
                             var exists = await dbContext.Trades.AnyAsync(t => t.Id == tradeId, ct);
                             if (!exists)
                             {
@@ -91,21 +98,48 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                                 dbContext.Trades.Add(trade);
                                 processedCount++;
                             }
+
+                            successfullyProcessed.Add(json);
                         }
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex, "处理成交记录同步项失败: {Json}", json);
                             failedCount++;
+                            failedItems.Add(json);
                         }
                     }
 
                     // 3️⃣ 保存到数据库
                     await dbContext.SaveChangesAsync(ct);
 
-                    // 4️⃣ 成功后清理备份队列
-                    await _redis.RemoveAsync(processingQueueKey);
+                    // 4️⃣ 从 processing 列表中逐个删除已成功的项（LREM 语义）
+                    foreach (var okJson in successfullyProcessed)
+                    {
+                        try
+                        {
+                            await _redis.ListRemoveAsync(processingQueueKey, okJson, 1);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "从 processing 列表删除已处理项失败: {Json}", okJson);
+                        }
+                    }
 
-                    _logger.LogDebug("✅ 成交批量同步成功: 处理={Processed}, 失败={Failed}", processedCount, failedCount);
+                    // 5️⃣ 将失败项恢复回主队列并从 processing 中删除
+                    foreach (var failJson in failedItems)
+                    {
+                        try
+                        {
+                            await _redis.ListLeftPushAsync(command.QueueKey, failJson);
+                            await _redis.ListRemoveAsync(processingQueueKey, failJson, 1);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "恢复失败项到主队列失败: {Json}", failJson);
+                        }
+                    }
+
+                    _logger.LogDebug("✅ 成交批量同步完成: 处理={Processed}, 失败={Failed}", processedCount, failedCount);
                 }
                 catch (Exception ex)
                 {
