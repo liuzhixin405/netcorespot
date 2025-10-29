@@ -71,7 +71,7 @@ builder.Services.AddSingleton<IRedisCache>(provider =>
         Hosts = connectionString.Split(',').Select(c => c.Split(':')).Where(c => c.Length == 2)
             .Select(c => new CryptoSpot.Redis.Configuration.RedisHost { Host = c[0], Port = int.Parse(c[1]) }).ToArray()
     };
-    var connection = new PooledConnectionMultiplexer(redisConfig.ConfigurationOptions);
+    var connection = ConnectionMultiplexer.Connect(redisConfig.ConfigurationOptions);
     return new CryptoSpot.Redis.RedisCache(logger, connection, redisConfig, serializer);
 });
 builder.Services.AddSingleton<IRedisService>(provider =>
@@ -84,21 +84,23 @@ builder.Services.AddSingleton<IRedisService>(provider =>
            .Select(c => new CryptoSpot.Redis.Configuration.RedisHost { Host = c[0], Port = int.Parse(c[1]) }).ToArray()
     };
     var serializer = new MsgPackSerializer();
-    var connection = new PooledConnectionMultiplexer(redisConfig.ConfigurationOptions);
+    var connection = ConnectionMultiplexer.Connect(redisConfig.ConfigurationOptions);
     return new RedisService(provider.GetRequiredService<ILogger<RedisService>>(), connection, redisConfig, serializer);
 });
 builder.Services.AddSingleton<RedisCacheService>();
 // Infrastructure-specific registrations
 builder.Services.AddInfrastructureServices();
 
+// Provide backward-compatible IOrderMatchingEngine adapter so existing infrastructure handlers can resolve it.
+builder.Services.AddScoped<CryptoSpot.Application.Abstractions.Services.Trading.IOrderMatchingEngine, CryptoSpot.Infrastructure.Services.MatchEngineAdapter>();
+
 // 已在 AddPersistence 中统一注册的服务此处不再重复注册 (ITradingPairService / IKLineDataService / ITradingService / IOrderService / ITradeService / IAssetService / IUserService)
 // 仅补充未在 AddPersistence 中的额外服务
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPriceDataService, PriceDataService>(); // 价格聚合 (依赖 TradingPairService)
 
-// Redis-First 架构：撮合引擎注册
-builder.Services.AddSingleton<RedisOrderMatchingEngine>();
-builder.Services.AddScoped<IOrderMatchingEngine, RedisOrderMatchingEngineAdapter>();
+    // NOTE: Match engine runs as an independent service. API will persist orders to Redis and publish events for the match engine to consume.
+    // Do not register the match engine or its adapters here to keep the API service independent.
 
 // 实时推送与缓存
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();

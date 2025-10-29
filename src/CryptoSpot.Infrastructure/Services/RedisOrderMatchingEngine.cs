@@ -72,6 +72,20 @@ public class RedisOrderMatchingEngine
             _logger.LogInformation("Order placed: OrderId={OrderId}, Trades={TradeCount}",
                 order.Id, trades.Count);
 
+            // 如果没有发生任何成交，说明订单被加入了活跃订单簿但尚未被撮合，
+            // 此时需要推送一次订单簿更新，以便前端/订阅者能看到新增的挂单。
+            if (trades.Count == 0)
+            {
+                try
+                {
+                    await PushOrderBookUpdate(symbol);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to push order book update after placing order: {Symbol}", symbol);
+                }
+            }
+
             return order;
         }
         finally

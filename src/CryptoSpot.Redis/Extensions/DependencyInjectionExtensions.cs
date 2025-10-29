@@ -97,9 +97,9 @@ namespace CryptoSpot.Redis
 
             }
 
-            services.AddSingleton<ObjectPool<PooledConnectionMultiplexer>>(srv =>
-                new ObjectPool<PooledConnectionMultiplexer>(poolSize, () => new PooledConnectionMultiplexer(config.ConfigurationOptions)));
-            services.AddScoped<IConnectionMultiplexer>(srv => srv.GetRequiredService<ObjectPool<PooledConnectionMultiplexer>>().GetObject());
+            // Create a singleton ConnectionMultiplexer to avoid type/ABI mismatches with pooled wrapper
+            var connection = ConnectionMultiplexer.Connect(config.ConfigurationOptions);
+            services.AddSingleton<IConnectionMultiplexer>(connection);
             services.AddScoped<IRedisCache, RedisCache>();
             return services;
         }
@@ -112,9 +112,9 @@ namespace CryptoSpot.Redis
         /// <param name="poolSize"></param>
         public static void AddRedisConnectionPool(this IServiceCollection serviceCollection, ConfigurationOptions config, int poolSize)
         {
-            serviceCollection.AddSingleton<ObjectPool<PooledConnectionMultiplexer>>(srv =>
-                new ObjectPool<PooledConnectionMultiplexer>(poolSize, () => new PooledConnectionMultiplexer(config)));
-            serviceCollection.AddScoped<IConnectionMultiplexer>(srv => srv.GetRequiredService<ObjectPool<PooledConnectionMultiplexer>>().GetObject());
+            // For compatibility, register a single ConnectionMultiplexer instance
+            var connection = ConnectionMultiplexer.Connect(config);
+            serviceCollection.AddSingleton<IConnectionMultiplexer>(connection);
         }
 
         /// <summary>
@@ -180,13 +180,20 @@ namespace CryptoSpot.Redis
         /// <param name="config"></param>
         public static IServiceCollection AddRedis(this IServiceCollection services, RedisConfiguration config)
         {
-            services.AddSingleton<IRedisCache>(obj =>
+            // Register a single ConnectionMultiplexer instance and RedisCache
+            services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexer.Connect(config.ConfigurationOptions));
+            services.AddSingleton<IRedisService>(sp =>
             {
                 var serializer = new MsgPackSerializer();
-                var connection = new PooledConnectionMultiplexer(config.ConfigurationOptions);
-                return new RedisCache(obj.GetRequiredService<ILogger<RedisCache>>(), connection, config, serializer);
+                var connection = sp.GetRequiredService<IConnectionMultiplexer>();
+                return new RedisService(sp.GetRequiredService<ILogger<RedisService>>(), connection, config, serializer);
             });
-
+            services.AddSingleton<IRedisCache>(sp =>
+            {
+                var serializer = new MsgPackSerializer();
+                var connection = sp.GetRequiredService<IConnectionMultiplexer>();
+                return new RedisCache(sp.GetRequiredService<ILogger<RedisCache>>(), connection, config, serializer);
+            });
             return services;
         }
     }

@@ -68,6 +68,28 @@ public class RedisOrderRepository
         if (order.Status == OrderStatus.Active || order.Status == OrderStatus.Pending || order.Status == OrderStatus.PartiallyFilled)
         {
             await AddToActiveOrderBook(order, symbol);
+
+            // 发布到 Redis Stream 'orders:stream'，供 consumer-group 消费者（撮合/推送）使用
+            try
+            {
+                // 使用 IRedisCache 的 XAddAsync，以便在不同实现间保持一致
+                var fields = new (string, string)[]
+                {
+                    ("type", "order_created"),
+                    ("symbol", symbol),
+                    ("orderId", order.Id.ToString()),
+                    ("side", order.Side.ToString()),
+                    ("price", order.Price?.ToString() ?? "0"),
+                    ("quantity", order.Quantity.ToString())
+                };
+
+                // key 名称使用 orders:stream
+                await _redis.XAddAsync("orders:stream", "*", null, fields);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to XADD order_created to orders:stream for OrderId={OrderId}", order.Id);
+            }
         }
 
         // 加入 MySQL 同步队列

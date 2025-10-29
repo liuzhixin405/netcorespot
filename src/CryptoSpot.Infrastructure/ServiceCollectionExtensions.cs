@@ -24,6 +24,11 @@ namespace CryptoSpot.Infrastructure
 {
     public static class ServiceCollectionExtensions
     {
+        /// <summary>
+        /// 注册持久化相关服务。
+        /// 如果配置项 Persistence:EnableBackgroundServices 设置为 false，则不会注册会在启动时访问数据库的后台 HostedService
+        /// （如 RedisDataLoaderService / RedisMySqlSyncService），便于在 standalone 模式下运行 MatchEngine。
+        /// </summary>
         public static IServiceCollection AddPersistence(this IServiceCollection services, IConfiguration configuration)
         {
             var connectionString = configuration.GetConnectionString("DefaultConnection");
@@ -83,15 +88,28 @@ namespace CryptoSpot.Infrastructure
             services.AddSingleton<RedisAssetRepository>();
             
             // Redis-First 架构：后台服务注册
-            // 1. 数据加载服务（启动时从 MySQL 加载到 Redis）
-            services.AddHostedService<RedisDataLoaderService>();
-            
-            // Redis → MySQL 同步服务
-            services.AddHostedService<RedisMySqlSyncService>();
-            
-            // 批处理服务
-            services.AddSingleton<PriceUpdateBatchService>();
-            services.AddHostedService(sp => sp.GetRequiredService<PriceUpdateBatchService>());
+            // 这些服务会在应用启动时直接访问 MySQL/Redis 并可能阻塞启动。为了便于 standalone matchengine 在无数据库环境下运行，
+            // 我们允许通过配置关闭它们。配置键：Persistence:EnableBackgroundServices (bool, default true)
+            var enableBg = true;
+            try
+            {
+                var cfgVal = configuration["Persistence:EnableBackgroundServices"];
+                if (!string.IsNullOrEmpty(cfgVal) && bool.TryParse(cfgVal, out var parsed)) enableBg = parsed;
+            }
+            catch { /* ignore */ }
+
+            if (enableBg)
+            {
+                // 1. 数据加载服务（启动时从 MySQL 加载到 Redis）
+                services.AddHostedService<RedisDataLoaderService>();
+
+                // Redis → MySQL 同步服务
+                services.AddHostedService<RedisMySqlSyncService>();
+
+                // 批处理服务
+                services.AddSingleton<PriceUpdateBatchService>();
+                services.AddHostedService(sp => sp.GetRequiredService<PriceUpdateBatchService>());
+            }
             
             // CommandBus：用于处理复杂业务逻辑
             // 使用 BatchDataflowCommandBus 以支持高吞吐量批处理场景

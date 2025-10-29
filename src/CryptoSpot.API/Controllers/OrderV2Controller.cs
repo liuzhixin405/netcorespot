@@ -17,18 +17,15 @@ public class OrderController : ControllerBase
 {
     private readonly RedisOrderRepository _redisOrders;
     private readonly RedisAssetRepository _redisAssets;
-    private readonly RedisOrderMatchingEngine _matchingEngine;
     private readonly ILogger<OrderController> _logger;
 
     public OrderController(
         RedisOrderRepository redisOrders,
         RedisAssetRepository redisAssets,
-        RedisOrderMatchingEngine matchingEngine,
         ILogger<OrderController> logger)
     {
         _redisOrders = redisOrders;
         _redisAssets = redisAssets;
-        _matchingEngine = matchingEngine;
         _logger = logger;
     }
 
@@ -71,8 +68,8 @@ public class OrderController : ControllerBase
                 Status = OrderStatus.Pending
             };
 
-            // 下单并撮合（完全在 Redis 中）
-            var createdOrder = await _matchingEngine.PlaceOrderAsync(order,request.Symbol);
+            // Persist order to Redis - MatchEngine (separate process) will consume orders from Redis stream and perform matching
+            var createdOrder = await _redisOrders.CreateOrderAsync(order, request.Symbol);
 
             return Ok(new
             {
@@ -192,7 +189,7 @@ public class OrderController : ControllerBase
         try
         {
             var userId = GetCurrentUserId();
-            var success = await _matchingEngine.CancelOrderAsync(orderId, userId,symbol);
+            var success = await _redisOrders.CancelOrderAsync(orderId, userId);
 
             if (!success)
             {
