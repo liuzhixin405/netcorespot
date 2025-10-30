@@ -17,9 +17,8 @@ namespace CryptoSpot.MatchEngine
     /// 简单的内存撮合引擎实现（价时优先），撮合后使用 Redis Lua 脚本保证资产结算的原子性。
     /// 这是一个最小可用版本，用于替换或与 Redis-first 引擎并行验证。
     /// </summary>
-    // Implement both the application-level and matchengine-local IMatchEngineService
-    // so this concrete type can be resolved for either interface in DI.
-    public class InMemoryMatchEngineService : CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService, CryptoSpot.MatchEngine.IMatchEngineService
+    // Implements the application-level IMatchEngineService used by the rest of the system.
+    public class InMemoryMatchEngineService : CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService
     {
         private readonly ILogger<InMemoryMatchEngineService> _logger;
         private readonly IServiceProvider _sp;

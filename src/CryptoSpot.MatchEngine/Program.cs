@@ -19,16 +19,13 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddRedis(context.Configuration.GetSection("Redis"));
         services.AddCleanArchitecture();
 
-        // Register Redis-first matching engine and adapters used by the in-memory engine
-        services.AddSingleton<CryptoSpot.Infrastructure.Services.RedisOrderMatchingEngine>();
-        services.AddScoped<CryptoSpot.Infrastructure.Services.RedisOrderMatchingEngineAdapter>();
+    // Redis-first matching engine removed; match logic runs inside the standalone match-engine (InMemory or other implementations)
 
         // Register a fallback TradingPairService to avoid MySQL dependency during match engine standalone runs
         services.AddSingleton<CryptoSpot.Application.Abstractions.Services.Trading.ITradingPairService, FallbackTradingPairService>();
 
-        // Register InMemoryMatchEngineService as the concrete implementation for both local IMatchEngineService types
-        services.AddSingleton(typeof(CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService), typeof(InMemoryMatchEngineService));
-        services.AddSingleton(typeof(CryptoSpot.MatchEngine.IMatchEngineService), typeof(InMemoryMatchEngineService));
+    // Register InMemoryMatchEngineService as the concrete implementation for application-level IMatchEngineService
+    services.AddSingleton(typeof(CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService), typeof(InMemoryMatchEngineService));
     })
     .Build();
 
