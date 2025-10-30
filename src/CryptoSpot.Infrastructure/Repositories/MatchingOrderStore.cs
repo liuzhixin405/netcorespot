@@ -30,7 +30,25 @@ namespace CryptoSpot.Infrastructure.Repositories
             _redisOrderRepository = redisOrderRepository;
         }
 
-        public Task<Order?> GetOrderAsync(int orderId) => _orderRepository.GetByIdAsync(orderId);
+        public async Task<Order?> GetOrderAsync(int orderId)
+        {
+            // 优先尝试从 Redis 仓储获取（若可用），以便处理通过 Redis 创建但尚未写入 DB 的订单
+            try
+            {
+                if (_redisOrderRepository != null)
+                {
+                    var redisOrder = await _redisOrderRepository.GetOrderByIdAsync(orderId);
+                    if (redisOrder != null) return redisOrder;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "RedisOrderRepository.GetOrderByIdAsync failed for OrderId={OrderId}", orderId);
+            }
+
+            // 回退到数据库查询
+            return await _orderRepository.GetByIdAsync(orderId);
+        }
 
         public Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null) => _orderRepository.GetActiveOrdersAsync(symbol);
 

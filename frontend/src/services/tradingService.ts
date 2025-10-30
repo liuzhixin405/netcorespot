@@ -129,7 +129,11 @@ export class TradingService {
       const order = await tradingApi.submitOrder(orderData);
       return { success: true, order };
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || '订单提交失败';
+      // 优先读取后端返回的 error 字段（ApiResponseDto.Error），其次考虑 message，再fallback到 axios 错误信息
+      const respData = error.response?.data;
+      // 打印完整响应以便定位问题
+      if (respData) console.error('Submit order response data:', respData);
+      const errorMessage = respData?.error || respData?.message || error.message || '订单提交失败';
       return { success: false, error: errorMessage };
     }
   }

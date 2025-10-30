@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using CryptoSpot.Application.DTOs.MarketData;
+using System.Text.Json;
 using CryptoSpot.Application.DTOs.Users;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 
@@ -132,8 +133,24 @@ namespace CryptoSpot.API.Controllers
         {
             if (!ModelState.IsValid)
             {
-                var errors = string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage));
-                return BadRequest(ApiResponseDto<OrderDto?>.CreateError(string.IsNullOrEmpty(errors) ? "请求参数验证失败" : errors));
+                var validationErrors = ModelState.Where(kv => kv.Value != null && kv.Value.Errors != null && kv.Value.Errors.Count > 0)
+                    .ToDictionary(kv => kv.Key ?? string.Empty, kv => kv.Value!.Errors.Select(e => string.IsNullOrEmpty(e.ErrorMessage) ? (e.Exception?.Message ?? string.Empty) : e.ErrorMessage).Where(s => !string.IsNullOrEmpty(s)).ToArray());
+
+                var op = CryptoSpot.Application.DTOs.Common.OperationResultDto.CreateValidationFailure(validationErrors);
+                // 将结构化验证错误信息放在 ApiResponseDto 的 Error 字段并返回 400，便于前端解析
+                var apiResp = ApiResponseDto<OrderDto?>.CreateError(op.Message ?? "请求参数验证失败");
+                apiResp.Error = op.ValidationErrors != null && op.ValidationErrors.Any() ? string.Join("; ", op.ValidationErrors.Select(kv => $"{kv.Key}:{string.Join(',', kv.Value)}")) : op.Message;
+                // 记录详细日志，包含序列化的请求体与字段级错误，便于排查
+                try
+                {
+                    var reqJson = JsonSerializer.Serialize(request);
+                    _logger.LogWarning("SubmitOrder ModelState invalid. Request: {RequestJson}, ValidationErrors: {ValidationErrors}", reqJson, apiResp.Error);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "SubmitOrder ModelState invalid but failed to serialize request for logging. Errors: {Errors}", apiResp.Error);
+                }
+                return BadRequest(apiResp);
             }
             var userId = GetCurrentUserId();
             var result = await _tradingService.SubmitOrderAsync(userId, request);

@@ -206,12 +206,15 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
       const res = await tradingService.submitOrder(payload);
       if (!res.success) {
         console.error('下单失败', res.error);
+        // 将后端返回的错误信息展示给用户，便于定位问题
+        alert(`下单失败: ${res.error}`);
       } else {
         setAmount('');
         if (orderType === 'limit') setPrice('');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('提交订单异常', err);
+      alert('提交订单异常: ' + (err?.message || JSON.stringify(err)));
     } finally {
       setIsLoading(false);
     }

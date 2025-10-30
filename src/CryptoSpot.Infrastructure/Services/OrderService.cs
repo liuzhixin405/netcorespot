@@ -156,6 +156,24 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
+                // Prefer Redis (cache-first) when available
+                try
+                {
+                    if (_redisOrderRepository != null)
+                    {
+                        var redisOrders = await _redisOrderRepository.GetUserOrdersAsync(userId, limit);
+                        if (redisOrders != null && redisOrders.Any())
+                        {
+                            var dtoRedis = _mappingService.MapToDto(redisOrders);
+                            return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dtoRedis);
+                        }
+                    }
+                }
+                catch (Exception rex)
+                {
+                    _logger.LogDebug(rex, "Redis GetUserOrdersAsync failed, falling back to DB for UserId={UserId}", userId);
+                }
+
                 var orders = await _orderRepository.GetUserOrdersAsync(userId, null, status, limit);
                 var dto = _mappingService.MapToDto(orders);
                 return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dto);
@@ -171,6 +189,24 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
+                // Prefer Redis (cache-first) when available
+                try
+                {
+                    if (_redisOrderRepository != null)
+                    {
+                        var redisOrder = await _redisOrderRepository.GetOrderByIdAsync(orderId);
+                        if (redisOrder != null && (!userId.HasValue || redisOrder.UserId == userId.Value))
+                        {
+                            var dtoRedis = _mappingService.MapToDto(redisOrder);
+                            return ApiResponseDto<OrderDto?>.CreateSuccess(dtoRedis);
+                        }
+                    }
+                }
+                catch (Exception rex)
+                {
+                    _logger.LogDebug(rex, "Redis lookup failed in GetOrderByIdDtoAsync, falling back to DB for OrderId={OrderId}", orderId);
+                }
+
                 var order = await _orderRepository.GetByIdAsync(orderId);
                 if (order == null || (userId.HasValue && order.UserId != userId.Value))
                     return ApiResponseDto<OrderDto?>.CreateError("订单不存在", "ORDER_NOT_FOUND");
@@ -188,6 +224,28 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
+                // Prefer Redis (cache-first) when available
+                try
+                {
+                    if (_redisOrderRepository != null)
+                    {
+                        var buyOrders = await _redisOrderRepository.GetActiveOrdersAsync(symbol ?? string.Empty, OrderSide.Buy);
+                        var sellOrders = await _redisOrderRepository.GetActiveOrdersAsync(symbol ?? string.Empty, OrderSide.Sell);
+                        var combined = new List<Order>();
+                        if (buyOrders != null) combined.AddRange(buyOrders);
+                        if (sellOrders != null) combined.AddRange(sellOrders);
+                        if (combined.Any())
+                        {
+                            var dtoRedis = _mappingService.MapToDto(combined);
+                            return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dtoRedis);
+                        }
+                    }
+                }
+                catch (Exception rex)
+                {
+                    _logger.LogDebug(rex, "Redis GetActiveOrdersAsync failed, falling back to DB for Symbol={Symbol}", symbol);
+                }
+
                 var orders = await _orderRepository.GetActiveOrdersAsync(symbol);
                 var dto = _mappingService.MapToDto(orders);
                 return ApiResponseDto<IEnumerable<OrderDto>>.CreateSuccess(dto);
