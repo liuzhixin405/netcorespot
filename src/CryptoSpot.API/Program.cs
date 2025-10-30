@@ -95,7 +95,7 @@ builder.Services.AddInfrastructureServices();
 builder.Services.AddScoped<CryptoSpot.Application.Abstractions.Services.Trading.IOrderMatchingEngine, CryptoSpot.Infrastructure.Services.MatchEngineAdapter>();
 
 // API runs as producer-only: register a lightweight IMatchEngineService that persists orders to Redis and publishes stream messages.
-builder.Services.AddScoped<CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService, CryptoSpot.API.Services.ApiMatchEngineService>();
+builder.Services.AddScoped<CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService, CryptoSpot.API.Services.ApiOrderPublisherService>();
 
 // 已在 AddPersistence 中统一注册的服务此处不再重复注册 (ITradingPairService / IKLineDataService / ITradingService / IOrderService / ITradeService / IAssetService / IUserService)
 // 仅补充未在 AddPersistence 中的额外服务

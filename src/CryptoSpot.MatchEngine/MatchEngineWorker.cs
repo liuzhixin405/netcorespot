@@ -35,7 +35,7 @@ public class MatchEngineWorker : BackgroundService
             {
                 using var scope = _provider.CreateScope();
                 var redis = scope.ServiceProvider.GetRequiredService<CryptoSpot.Redis.IRedisService>();
-                var matchEngine = scope.ServiceProvider.GetRequiredService<IMatchEngineService>();
+                var matchEngine = scope.ServiceProvider.GetRequiredService<CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService>();
 
                 try
                 {

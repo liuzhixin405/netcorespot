@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Domain.Extensions;
-using StackExchange.Redis;
+using System.Linq;
 using DomainOrder = CryptoSpot.Domain.Entities.Order;
 
 namespace CryptoSpot.Infrastructure.Repositories.Redis;
@@ -14,14 +14,12 @@ namespace CryptoSpot.Infrastructure.Repositories.Redis;
 public class RedisOrderRepository
 {
     private readonly IRedisCache _redis;
-    private readonly IDatabase _db; // 原生 Redis API
     private readonly ILogger<RedisOrderRepository> _logger;
     private const string ORDER_ID_KEY = "global:order_id";
 
     public RedisOrderRepository(IRedisCache redis, ILogger<RedisOrderRepository> logger)
     {
         _redis = redis;
-        _db = redis.Connection.GetDatabase(); // 获取底层 Redis 数据库
         _logger = logger;
     }
 
@@ -38,12 +36,7 @@ public class RedisOrderRepository
     #endregion
 
     #region 底层 Redis 访问
-
-    /// <summary>
-    /// 获取底层 Redis IDatabase 实例（用于高级操作）
-    /// </summary>
-    public IDatabase GetDatabase() => _db;
-
+    // 底层访问通过 IRedisCache 封装提供，不再直接暴露 IDatabase
     #endregion
 
     #region 订单创建
@@ -62,7 +55,14 @@ public class RedisOrderRepository
         await SaveOrderToRedisAsync(order, symbol);
 
         // 添加到用户订单索引
-        await _db.SetAddAsync($"user_orders:{order.UserId}", order.Id.ToString());
+        try
+        {
+            _redis.Execute("SADD", $"user_orders:{order.UserId}", order.Id.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to SADD user_orders for user {UserId}", order.UserId);
+        }
 
         // 如果是活跃订单，添加到订单簿
         if (order.Status == OrderStatus.Active || order.Status == OrderStatus.Pending || order.Status == OrderStatus.PartiallyFilled)
@@ -116,7 +116,14 @@ public class RedisOrderRepository
         await SaveOrderToRedisAsync(order, symbol);
 
         // 添加到用户订单索引
-        await _db.SetAddAsync($"user_orders:{order.UserId}", order.Id.ToString());
+        try
+        {
+            _redis.Execute("SADD", $"user_orders:{order.UserId}", order.Id.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to SADD user_orders for user {UserId}", order.UserId);
+        }
 
         // 如果是活跃订单，添加到订单簿
         if (order.Status == OrderStatus.Active || order.Status == OrderStatus.Pending || order.Status == OrderStatus.PartiallyFilled)
@@ -135,29 +142,30 @@ public class RedisOrderRepository
         _logger.LogDebug("🔁 Backfilled DB order to Redis: {OrderId} {Symbol}", order.Id, symbol);
     }
 
-    private async Task SaveOrderToRedisAsync(DomainOrder order, string symbol)
+        private async Task SaveOrderToRedisAsync(DomainOrder order, string symbol)
     {
         var key = $"order:{order.Id}";
-        
-        var hashEntries = new List<HashEntry>
+
+        // Use object[] key/value pairs to avoid StackExchange.Redis.HashEntry dependency
+        var keyValues = new object[]
         {
-                new HashEntry("orderId", order.OrderId ?? string.Empty),
-                new HashEntry("clientOrderId", order.ClientOrderId ?? string.Empty),
-            new HashEntry("id", order.Id.ToString()),
-            new HashEntry("userId", order.UserId?.ToString() ?? ""),
-            new HashEntry("tradingPairId", order.TradingPairId.ToString()),
-            new HashEntry("symbol", symbol),
-            new HashEntry("side", ((int)order.Side).ToString()),
-            new HashEntry("type", ((int)order.Type).ToString()),
-            new HashEntry("price", order.Price?.ToString() ?? "0"),
-            new HashEntry("quantity", order.Quantity.ToString()),
-            new HashEntry("filledQuantity", order.FilledQuantity.ToString()),
-            new HashEntry("status", ((int)order.Status).ToString()),
-            new HashEntry("createdAt", order.CreatedAt.ToString()),
-            new HashEntry("updatedAt", order.UpdatedAt.ToString())
+            "orderId", order.OrderId ?? string.Empty,
+            "clientOrderId", order.ClientOrderId ?? string.Empty,
+            "id", order.Id.ToString(),
+            "userId", order.UserId?.ToString() ?? "",
+            "tradingPairId", order.TradingPairId.ToString(),
+            "symbol", symbol,
+            "side", ((int)order.Side).ToString(),
+            "type", ((int)order.Type).ToString(),
+            "price", order.Price?.ToString() ?? "0",
+            "quantity", order.Quantity.ToString(),
+            "filledQuantity", order.FilledQuantity.ToString(),
+            "status", ((int)order.Status).ToString(),
+            "createdAt", order.CreatedAt.ToString(),
+            "updatedAt", order.UpdatedAt.ToString()
         };
 
-        await _redis.HMSetAsync(key, hashEntries.ToArray());
+        await _redis.HMSetAsync(key, keyValues);
     }
 
     #endregion
@@ -180,21 +188,30 @@ public class RedisOrderRepository
     /// <summary>
     /// 获取用户的所有订单
     /// </summary>
-    public async Task<List<DomainOrder>> GetUserOrdersAsync(int userId, int limit = 100)
+        public async Task<List<DomainOrder>> GetUserOrdersAsync(int userId, int limit = 100)
     {
-        var orderIdsArray = await _db.SetMembersAsync($"user_orders:{userId}");
         var orders = new List<DomainOrder>();
-
-        foreach (var orderIdStr in orderIdsArray.Take(limit))
+        try
         {
-            if (int.TryParse(orderIdStr.ToString(), out var orderId))
-            {
-                var order = await GetOrderByIdAsync(orderId);
-                if (order != null)
+                var members = _redis.Execute("SMEMBERS", $"user_orders:{userId}");
+                if (members != null)
                 {
-                    orders.Add(order);
+                    // Normalize to string and split - Execute returns a RedisResult which may contain multi-bulk data.
+                    var s = members.ToString() ?? string.Empty;
+                    var parts = s.Split(new[] { '\r', '\n', ' ' }, StringSplitOptions.RemoveEmptyEntries).Take(limit);
+                    foreach (var part in parts)
+                    {
+                        if (int.TryParse(part, out var orderId))
+                        {
+                            var order = await GetOrderByIdAsync(orderId);
+                            if (order != null) orders.Add(order);
+                        }
+                    }
                 }
-            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read user_orders for user {UserId}", userId);
         }
 
         return orders.OrderByDescending(o => o.CreatedAt).ToList();
@@ -251,14 +268,19 @@ public class RedisOrderRepository
         order.UpdatedAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
 
         // 更新 Redis
-        await _db.HashSetAsync($"order:{orderId}", "status", ((int)newStatus).ToString());
-        await _db.HashSetAsync($"order:{orderId}", "filledQuantity", filledQuantity.ToString());
-        await _db.HashSetAsync($"order:{orderId}", "updatedAt", order.UpdatedAt.ToString());
+        try
+        {
+            await _redis.HMSetAsync($"order:{orderId}", "status", ((int)newStatus).ToString(), "filledQuantity", filledQuantity.ToString(), "updatedAt", order.UpdatedAt.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to HMSET order:{OrderId}", orderId);
+        }
 
         // 如果订单完成或取消，从订单簿移除
         if (newStatus == OrderStatus.Filled || newStatus == OrderStatus.Cancelled)
         {
-            var symbol = (await _db.HashGetAsync($"order:{orderId}", "symbol")).ToString();
+            var symbol = await _redis.HGetAsync($"order:{orderId}", "symbol");
             await RemoveFromActiveOrderBook(orderId, symbol, order.Side);
         }
 
@@ -309,7 +331,15 @@ public class RedisOrderRepository
 
         // 价格为 score（用于排序）
         var score = (double)(order.Price ?? 0);
-        await _db.SortedSetAddAsync(key, order.Id.ToString(), score);
+        try
+        {
+            await _redis.SortedSetAddAsync(key, new System.Collections.Generic.Dictionary<string, long> { { order.Id.ToString(), (long)score } });
+        }
+        catch (Exception ex)
+        {
+            // Fallback to raw ZADD
+            try { _redis.Execute("ZADD", key, score.ToString(), order.Id.ToString()); } catch { _logger.LogWarning(ex, "Failed to add to sorted set {Key}", key); }
+        }
 
         _logger.LogDebug("📖 加入订单簿: {Symbol} {Side} Price={Price} OrderId={OrderId}",
             symbol, order.Side, order.Price, order.Id);
@@ -321,7 +351,14 @@ public class RedisOrderRepository
     private async Task RemoveFromActiveOrderBook(int orderId, string symbol, OrderSide side)
     {
         var key = $"orders:active:{symbol}:{side}";
-        await _db.SortedSetRemoveAsync(key, orderId.ToString());
+        try
+        {
+            _redis.Execute("ZREM", key, orderId.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to ZREM {OrderId} from {Key}", orderId, key);
+        }
 
         _logger.LogDebug("📕 移出订单簿: {Symbol} {Side} OrderId={OrderId}",
             symbol, side, orderId);
@@ -392,7 +429,14 @@ public class RedisOrderRepository
     private async Task EnqueueSyncOperation(string queueName, object data)
     {
         var json = JsonSerializer.Serialize(data);
-        await _db.ListRightPushAsync($"sync_queue:{queueName}", json);
+        try
+        {
+            await _redis.ListLeftPushAsync($"sync_queue:{queueName}", json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enqueue sync operation");
+        }
     }
 
     #endregion

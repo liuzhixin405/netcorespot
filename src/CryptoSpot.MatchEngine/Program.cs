@@ -6,7 +6,6 @@ using CryptoSpot.Redis;
 using CryptoSpot.Redis.Serializer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using StackExchange.Redis;
 
 IHost host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>

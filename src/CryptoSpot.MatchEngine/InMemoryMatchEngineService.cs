@@ -50,7 +50,8 @@ namespace CryptoSpot.MatchEngine
 
                 var (currency, amount) = GetFreezeAmount(order, symbol);
                 var userId = order.UserId ?? throw new InvalidOperationException("订单缺少用户ID");
-                var freezeSuccess = await redisAssets.FreezeAssetAsync(userId, currency, amount);
+                // pass `symbol` as tag so asset keys used in Lua scripts share the same cluster hash slot
+                var freezeSuccess = await redisAssets.FreezeAssetAsync(userId, currency, amount, symbol);
                 if (!freezeSuccess)
                 {
                     throw new InvalidOperationException($"余额不足：需要 {amount} {currency}");
@@ -173,10 +174,11 @@ namespace CryptoSpot.MatchEngine
             var buyUserId = buyOrder.UserId ?? throw new InvalidOperationException("买单缺少用户ID");
             var sellUserId = sellOrder.UserId ?? throw new InvalidOperationException("卖单缺少用户ID");
 
-            var buyQuoteKey = $"asset:{buyUserId}:{quoteCurrency}";
-            var buyBaseKey = $"asset:{buyUserId}:{baseCurrency}";
-            var sellBaseKey = $"asset:{sellUserId}:{baseCurrency}";
-            var sellQuoteKey = $"asset:{sellUserId}:{quoteCurrency}";
+            // use hash-tagged keys so they map to the same cluster slot when using Redis Cluster
+            var buyQuoteKey = $"asset:{{{symbol}}}:{buyUserId}:{quoteCurrency}";
+            var buyBaseKey = $"asset:{{{symbol}}}:{buyUserId}:{baseCurrency}";
+            var sellBaseKey = $"asset:{{{symbol}}}:{sellUserId}:{baseCurrency}";
+            var sellQuoteKey = $"asset:{{{symbol}}}:{sellUserId}:{quoteCurrency}";
 
             var quoteAmountLong = (long)(quoteAmount * PRECISION);
             var baseAmountLong = (long)(baseAmount * PRECISION);
@@ -204,13 +206,23 @@ namespace CryptoSpot.MatchEngine
 
             try
             {
-                var db = redis.Connection.GetDatabase();
-                var result = await db.ScriptEvaluateAsync(script, new StackExchange.Redis.RedisKey[] { buyQuoteKey, buyBaseKey, sellBaseKey, sellQuoteKey }, new StackExchange.Redis.RedisValue[] { quoteAmountLong, baseAmountLong, timestamp });
-                return result.ToString() == "1";
+                // Use IRedisCache.Execute to run EVAL so MatchEngine doesn't depend on StackExchange.Redis types
+                var res = redis.Execute("EVAL", script, 4, buyQuoteKey, buyBaseKey, sellBaseKey, sellQuoteKey, quoteAmountLong.ToString(), baseAmountLong.ToString(), timestamp.ToString());
+                return res?.ToString() == "1";
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "ExecuteTradeAssetsAtomicAsync error");
+                // Log detailed context to aid diagnosis (CROSSSLOT / unknown command / NOSCRIPT etc.)
+                try
+                {
+                    _logger.LogError(ex, "Redis error during atomic settlement. Message={Message} Keys=[{Keys}] Args=[{Args}] ScriptPreview={ScriptPreview}",
+                        ex.Message,
+                        string.Join(",", new[] { buyQuoteKey, buyBaseKey, sellBaseKey, sellQuoteKey }),
+                        string.Join(",", new[] { quoteAmountLong.ToString(), baseAmountLong.ToString(), timestamp.ToString() }),
+                        script.Length > 200 ? script.Substring(0, 200) + "..." : script);
+                }
+                catch { /* swallow logging errors */ }
+
                 return false;
             }
         }

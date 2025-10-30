@@ -36,16 +36,27 @@ namespace CryptoSpot.MatchEngine
 
             using var scope = _sp.CreateScope();
             var redis = scope.ServiceProvider.GetRequiredService<IRedisCache>();
-            var db = redis.Connection.GetDatabase();
 
-            // Ensure consumer group exists (create stream if missing)
+            // Ensure stream exists. Use XLen to check and XAddAsync to create a placeholder entry if missing.
             try
             {
-                await db.StreamCreateConsumerGroupAsync(StreamKey, GroupName, "$", createStream: true);
+                try
+                {
+                    var len = redis.XLen(StreamKey);
+                    if (len == 0)
+                    {
+                        // create a placeholder entry so downstream consumers can observe the stream
+                        await redis.XAddAsync(StreamKey, "*", null, ("_created", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Stream existence check/create failed (server may not support Streams): {Msg}", ex.Message);
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "XGROUP CREATE may have failed (group exists?): {Msg}", ex.Message);
+                _logger.LogDebug(ex, "Stream setup attempt failed entirely: {Msg}", ex.Message);
             }
 
             var consumerName = ConsumerPrefix + Environment.MachineName + "-" + Guid.NewGuid().ToString("n");
@@ -54,35 +65,47 @@ namespace CryptoSpot.MatchEngine
             {
                 try
                 {
-                    // Read new messages for this consumer group (block for 2 seconds)
-                    var streamEntries = new StackExchange.Redis.StreamEntry[0];
+                    (string id, string[] items)[]? streamEntries = null;
                     try
                     {
-                        streamEntries = await db.StreamReadGroupAsync(StreamKey, GroupName, consumerName, ">", count: 10);
+                        // Non-blocking read of recent entries
+                        streamEntries = await redis.XRangeAsync(StreamKey, "-", "+", count: 10);
                     }
-                    catch (StackExchange.Redis.RedisServerException rsex) when (rsex.Message?.Contains("unknown command") == true)
+                    catch (Exception ex)
                     {
-                        _logger.LogWarning("Redis server does not support Streams (XREADGROUP). Stream processing disabled: {Msg}", rsex.Message);
-                        // Sleep and continue - don't spam errors
-                        await Task.Delay(5000, stoppingToken);
-                        continue;
+                        if (ex.Message?.Contains("unknown command") == true)
+                        {
+                            _logger.LogWarning("Redis server does not support Streams (XRANGE/XREADGROUP). Stream processing disabled: {Msg}", ex.Message);
+                            await Task.Delay(5000, stoppingToken);
+                            continue;
+                        }
+                        _logger.LogWarning(ex, "Stream XRange read failed: {Msg}", ex.Message);
                     }
 
                     if (streamEntries == null || streamEntries.Length == 0)
                     {
-                        // No new messages, check PEL for stuck entries
-                        await HandlePendingEntries(redis, db);
+                        await HandlePendingEntries(redis);
+                        await Task.Delay(200, stoppingToken);
                         continue;
                     }
 
                     foreach (var entry in streamEntries)
                     {
-                        var id = entry.Id;
-                        var values = entry.Values; // NameValueEntry[]
+                        var id = entry.id;
+                        var values = entry.items;
                         var dict = new System.Collections.Generic.Dictionary<string, string>();
-                        foreach (var nv in values)
+
+                        if (values != null && values.Length > 0)
                         {
-                            dict[nv.Name] = nv.Value;
+                            int start = 0;
+                            if (values[0] == id) start = 1;
+                            for (int i = start; i < values.Length; i += 2)
+                            {
+                                if (i + 1 < values.Length)
+                                {
+                                    dict[values[i]] = values[i + 1];
+                                }
+                            }
                         }
 
                         if (dict.TryGetValue("type", out var type) && type == "order_created")
@@ -90,9 +113,9 @@ namespace CryptoSpot.MatchEngine
                             dict.TryGetValue("symbol", out var symbol);
                             if (!string.IsNullOrEmpty(symbol))
                             {
-                                await ProcessOrderCreated(symbol, id, redis, db);
-                                // Acknowledge
-                                await db.StreamAcknowledgeAsync(StreamKey, GroupName, new StackExchange.Redis.RedisValue[] { id });
+                                await ProcessOrderCreated(symbol, id, redis);
+                                try { redis.Execute("XACK", StreamKey, GroupName, id); }
+                                catch (Exception ex) { _logger.LogWarning(ex, "Failed to XACK entry {Id}", id); }
                             }
                         }
                     }
@@ -105,7 +128,7 @@ namespace CryptoSpot.MatchEngine
             }
         }
 
-        private async Task ProcessOrderCreated(string symbol, string entryId, IRedisCache redis, StackExchange.Redis.IDatabase db)
+        private async Task ProcessOrderCreated(string symbol, string entryId, IRedisCache redis)
         {
             try
             {
@@ -137,7 +160,7 @@ namespace CryptoSpot.MatchEngine
             }
         }
 
-        private async Task HandlePendingEntries(IRedisCache redis, StackExchange.Redis.IDatabase db)
+        private async Task HandlePendingEntries(IRedisCache redis)
         {
             try
             {
@@ -147,7 +170,7 @@ namespace CryptoSpot.MatchEngine
                 {
                     // XAUTOCLAIM <stream> <group> <consumer> <min-idle-ms> <start> COUNT 10
                     // Use Database.ExecuteAsync to run raw command
-                    await db.ExecuteAsync("XAUTOCLAIM", StreamKey, GroupName, ConsumerPrefix + "-reclaimer", minIdleMs.ToString(), "0-0", "COUNT", "10");
+                    redis.Execute("XAUTOCLAIM", StreamKey, GroupName, ConsumerPrefix + "-reclaimer", minIdleMs.ToString(), "0-0", "COUNT", "10");
                 }
                 catch (Exception ex)
                 {

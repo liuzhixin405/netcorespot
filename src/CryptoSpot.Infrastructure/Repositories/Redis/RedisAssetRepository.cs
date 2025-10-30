@@ -13,7 +13,6 @@ namespace CryptoSpot.Infrastructure.Repositories.Redis;
 public class RedisAssetRepository
 {
     private readonly IRedisCache _redis;
-    private readonly IDatabase _db; // 原生 Redis API
     private readonly ILogger<RedisAssetRepository> _logger;
 
     // 精度：8 位小数 = 100,000,000
@@ -22,8 +21,20 @@ public class RedisAssetRepository
     public RedisAssetRepository(IRedisCache redis, ILogger<RedisAssetRepository> logger)
     {
         _redis = redis;
-        _db = redis.Connection.GetDatabase(); // 获取底层 Redis 数据库
         _logger = logger;
+    }
+
+    // Build asset key. If tag is provided, include it as a Redis hash-tag so multiple keys related to
+    // the same trading pair land in the same cluster slot: e.g. "asset:{BTCUSDT}:123:USDT".
+    private static string BuildAssetKey(int userId, string currency, string? tag = null)
+    {
+        if (!string.IsNullOrEmpty(tag))
+        {
+            return $"asset:{{{tag}}}:{userId}:{currency}"; // uses {...} hash tag
+        }
+
+        // legacy format (backwards compatible)
+        return $"asset:{userId}:{currency}";
     }
 
     #region 资产查询
@@ -31,9 +42,9 @@ public class RedisAssetRepository
     /// <summary>
     /// 获取用户资产
     /// </summary>
-    public async Task<Asset?> GetAssetAsync(int userId, string symbol)
+    public async Task<Asset?> GetAssetAsync(int userId, string symbol, string? tag = null)
     {
-        var key = $"asset:{userId}:{symbol}";
+        var key = BuildAssetKey(userId, symbol, tag);
         var exists = await _redis.ExistsAsync(key);
         if (!exists) return null;
 
@@ -46,16 +57,48 @@ public class RedisAssetRepository
     /// </summary>
     public async Task<List<Asset>> GetUserAssetsAsync(int userId)
     {
-        var symbolsArray = await _db.SetMembersAsync($"user_assets:{userId}");
         var assets = new List<Asset>();
-
-        foreach (var symbol in symbolsArray)
+        try
         {
-            var asset = await GetAssetAsync(userId, symbol.ToString());
-            if (asset != null)
+            var members = _redis.Execute("SMEMBERS", $"user_assets:{userId}");
+            try
             {
-                assets.Add(asset);
+                // members is StackExchange.Redis.RedisResult
+                var rr = (StackExchange.Redis.RedisResult)members;
+                if (rr.Type == StackExchange.Redis.ResultType.MultiBulk)
+                {
+                    var arr = (StackExchange.Redis.RedisResult[])rr;
+                    foreach (var rv in arr)
+                    {
+                        var symbol = rv.ToString();
+                        if (string.IsNullOrEmpty(symbol)) continue;
+                        var asset = await GetAssetAsync(userId, symbol);
+                        if (asset != null) assets.Add(asset);
+                    }
+                }
+                else
+                {
+                    var s = rr.ToString();
+                    if (!string.IsNullOrEmpty(s))
+                    {
+                        var parts = s.Split(new[] { '\r', '\n', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var part in parts)
+                        {
+                            if (string.IsNullOrEmpty(part)) continue;
+                            var asset = await GetAssetAsync(userId, part);
+                            if (asset != null) assets.Add(asset);
+                        }
+                    }
+                }
             }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse SMEMBERS result for user {UserId}", userId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read user_assets set for user {UserId}", userId);
         }
 
         return assets;
@@ -68,9 +111,9 @@ public class RedisAssetRepository
     /// <summary>
     /// 冻结资产（可用 → 冻结）
     /// </summary>
-    public async Task<bool> FreezeAssetAsync(int userId, string symbol, decimal amount)
+    public async Task<bool> FreezeAssetAsync(int userId, string symbol, decimal amount, string? tag = null)
     {
-        var key = $"asset:{userId}:{symbol}";
+        var key = BuildAssetKey(userId, symbol, tag);
         var amountLong = (long)(amount * PRECISION);
 
         // Lua 脚本确保原子性
@@ -86,11 +129,8 @@ public class RedisAssetRepository
             end
         ";
 
-        var result = await _db.ScriptEvaluateAsync(script,  
-            new RedisKey[] { key }, 
-            new RedisValue[] { amountLong, DateTimeExtensions.GetCurrentUnixTimeMilliseconds() });
-
-        var success = result.ToString() == "1";
+        var result = _redis.Execute("EVAL", script, 1, key, amountLong.ToString(), DateTimeExtensions.GetCurrentUnixTimeMilliseconds().ToString());
+        var success = result?.ToString() == "1";
 
         if (success)
         {
@@ -110,9 +150,9 @@ public class RedisAssetRepository
     /// <summary>
     /// 解冻资产（冻结 → 可用）
     /// </summary>
-    public async Task<bool> UnfreezeAssetAsync(int userId, string symbol, decimal amount)
+    public async Task<bool> UnfreezeAssetAsync(int userId, string symbol, decimal amount, string? tag = null)
     {
-        var key = $"asset:{userId}:{symbol}";
+        var key = BuildAssetKey(userId, symbol, tag);
         var amountLong = (long)(amount * PRECISION);
 
         var script = @"
@@ -127,11 +167,8 @@ public class RedisAssetRepository
             end
         ";
 
-        var result = await _db.ScriptEvaluateAsync(script,
-            new RedisKey[] { key },
-            new RedisValue[] { amountLong, DateTimeExtensions.GetCurrentUnixTimeMilliseconds() });
-
-        var success = result.ToString() == "1";
+        var result = _redis.Execute("EVAL", script, 1, key, amountLong.ToString(), DateTimeExtensions.GetCurrentUnixTimeMilliseconds().ToString());
+        var success = result?.ToString() == "1";
 
         if (success)
         {
@@ -146,9 +183,9 @@ public class RedisAssetRepository
     /// <summary>
     /// 扣除冻结资产（用于成交后扣款）
     /// </summary>
-    public async Task<bool> DeductFrozenAssetAsync(int userId, string symbol, decimal amount)
+    public async Task<bool> DeductFrozenAssetAsync(int userId, string symbol, decimal amount, string? tag = null)
     {
-        var key = $"asset:{userId}:{symbol}";
+        var key = BuildAssetKey(userId, symbol, tag);
         var amountLong = (long)(amount * PRECISION);
 
         var script = @"
@@ -162,11 +199,8 @@ public class RedisAssetRepository
             end
         ";
 
-        var result = await _db.ScriptEvaluateAsync(script,
-            new RedisKey[] { key },
-            new RedisValue[] { amountLong, DateTimeExtensions.GetCurrentUnixTimeMilliseconds() });
-
-        var success = result.ToString() == "1";
+        var result = _redis.Execute("EVAL", script, 1, key, amountLong.ToString(), DateTimeExtensions.GetCurrentUnixTimeMilliseconds().ToString());
+        var success = result?.ToString() == "1";
 
         if (success)
         {
@@ -181,9 +215,9 @@ public class RedisAssetRepository
     /// <summary>
     /// 增加可用资产（用于成交后入账）
     /// </summary>
-    public async Task<bool> AddAvailableAssetAsync(int userId, string symbol, decimal amount)
+    public async Task<bool> AddAvailableAssetAsync(int userId, string symbol, decimal amount, string? tag = null)
     {
-        var key = $"asset:{userId}:{symbol}";
+        var key = BuildAssetKey(userId, symbol, tag);
         var amountLong = (long)(amount * PRECISION);
 
         var script = LuaScript.Prepare(@"
@@ -192,8 +226,7 @@ public class RedisAssetRepository
             return 1
         ");
 
-        var result = await _db.ScriptEvaluateAsync(script,
-            new { key = (RedisKey)key, amountLong, updatedAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds() });
+        var result = _redis.Execute("EVAL", script, 1, key, amountLong.ToString(), DateTimeExtensions.GetCurrentUnixTimeMilliseconds().ToString());
 
         _logger.LogDebug("💰 增加可用资产: UserId={UserId} {Symbol} Amount={Amount}",
             userId, symbol, amount);
@@ -211,7 +244,9 @@ public class RedisAssetRepository
     /// </summary>
     public async Task SaveAssetAsync(Asset asset)
     {
-        var key = $"asset:{asset.UserId}:{asset.Symbol}";
+        // Save uses legacy format without tag by default. If you need tag-based keys, call other APIs that
+        // pass the tag into BuildAssetKey.
+        var key = BuildAssetKey(asset.UserId ?? 0, asset.Symbol, null);
 
         var hashEntries = new List<HashEntry>
         {
@@ -226,7 +261,14 @@ public class RedisAssetRepository
         await _redis.HMSetAsync(key, hashEntries.ToArray());
 
         // 添加到用户资产索引
-        await _db.SetAddAsync($"user_assets:{asset.UserId}", asset.Symbol);
+        try
+        {
+            _redis.Execute("SADD", $"user_assets:{asset.UserId}", asset.Symbol);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to SADD user_assets for user {UserId}", asset.UserId);
+        }
 
         _logger.LogDebug("💾 保存资产: UserId={UserId} {Symbol} Available={Available} Frozen={Frozen}",
             asset.UserId, asset.Symbol, asset.Available, asset.Frozen);
@@ -287,7 +329,14 @@ public class RedisAssetRepository
         };
 
         var json = JsonSerializer.Serialize(syncData);
-        await _db.ListRightPushAsync("sync_queue:assets", json);
+        try
+        {
+            await _redis.ListLeftPushAsync("sync_queue:assets", json);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enqueue asset sync message");
+        }
     }
 
     #endregion
