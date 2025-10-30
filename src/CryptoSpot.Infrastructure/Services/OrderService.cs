@@ -16,7 +16,6 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly ILogger<OrderService> _logger;
         private readonly IDtoMappingService _mappingService;
-    private readonly RedisOrderMatchingEngine? _matchingEngine;
     private readonly RedisOrderRepository? _redisOrderRepository;
 
         public OrderService(
@@ -25,7 +24,6 @@ namespace CryptoSpot.Infrastructure.Services
             IUnitOfWork unitOfWork,
             ILogger<OrderService> logger,
             IDtoMappingService mappingService,
-            RedisOrderMatchingEngine? matchingEngine = null,
             RedisOrderRepository? redisOrderRepository = null)
         {
             _orderRepository = orderRepository;
@@ -33,7 +31,6 @@ namespace CryptoSpot.Infrastructure.Services
             _unitOfWork = unitOfWork;
             _logger = logger;
             _mappingService = mappingService;
-            _matchingEngine = matchingEngine;
             _redisOrderRepository = redisOrderRepository;
         }
 
@@ -69,16 +66,7 @@ namespace CryptoSpot.Infrastructure.Services
                     UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 };
 
-                // Prefer Redis matching engine when available (Redis-first)
-                if (_matchingEngine != null)
-                {
-                    var createdRedisOrder = await _matchingEngine.PlaceOrderAsync(order, symbol);
-                    _logger.LogInformation("[Redis] Order placed: {OrderId} Status={Status}", createdRedisOrder.Id, createdRedisOrder.Status);
-                    var dtoRedis = _mappingService.MapToDto(createdRedisOrder);
-                    return ApiResponseDto<OrderDto?>.CreateSuccess(dtoRedis, "订单创建成功");
-                }
-
-                // Fallback to DB repository
+                // Prefer Redis repository (cache-first) when available
                 // If Redis order repo is available, prefer creating via Redis (cache-first)
                 if (_redisOrderRepository != null)
                 {
