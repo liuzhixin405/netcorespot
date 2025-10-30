@@ -5,6 +5,7 @@ using CryptoSpot.Domain.Entities;
 using CryptoSpot.Domain.Extensions;
 using System.Linq;
 using DomainOrder = CryptoSpot.Domain.Entities.Order;
+using StackExchange.Redis;
 
 namespace CryptoSpot.Infrastructure.Repositories.Redis;
 
@@ -145,27 +146,24 @@ public class RedisOrderRepository
         private async Task SaveOrderToRedisAsync(DomainOrder order, string symbol)
     {
         var key = $"order:{order.Id}";
-
-        // Use object[] key/value pairs to avoid StackExchange.Redis.HashEntry dependency
-        var keyValues = new object[]
+        var hashEntries = new HashEntry[]
         {
-            "orderId", order.OrderId ?? string.Empty,
-            "clientOrderId", order.ClientOrderId ?? string.Empty,
-            "id", order.Id.ToString(),
-            "userId", order.UserId?.ToString() ?? "",
-            "tradingPairId", order.TradingPairId.ToString(),
-            "symbol", symbol,
-            "side", ((int)order.Side).ToString(),
-            "type", ((int)order.Type).ToString(),
-            "price", order.Price?.ToString() ?? "0",
-            "quantity", order.Quantity.ToString(),
-            "filledQuantity", order.FilledQuantity.ToString(),
-            "status", ((int)order.Status).ToString(),
-            "createdAt", order.CreatedAt.ToString(),
-            "updatedAt", order.UpdatedAt.ToString()
+            new HashEntry("orderId", order.OrderId ?? string.Empty),
+            new HashEntry("clientOrderId", order.ClientOrderId ?? string.Empty),
+            new HashEntry("id", order.Id.ToString()),
+            new HashEntry("userId", order.UserId?.ToString() ?? ""),
+            new HashEntry("tradingPairId", order.TradingPairId.ToString()),
+            new HashEntry("symbol", symbol),
+            new HashEntry("side", ((int)order.Side).ToString()),
+            new HashEntry("type", ((int)order.Type).ToString()),
+            new HashEntry("price", order.Price?.ToString() ?? "0"),
+            new HashEntry("quantity", order.Quantity.ToString()),
+            new HashEntry("filledQuantity", order.FilledQuantity.ToString()),
+            new HashEntry("status", ((int)order.Status).ToString()),
+            new HashEntry("createdAt", order.CreatedAt.ToString()),
+            new HashEntry("updatedAt", order.UpdatedAt.ToString())
         };
-
-        await _redis.HMSetAsync(key, keyValues);
+        await _redis.HMSetAsync(key, hashEntries);
     }
 
     #endregion

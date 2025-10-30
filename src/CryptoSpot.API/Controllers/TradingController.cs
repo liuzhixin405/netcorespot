@@ -130,6 +130,11 @@ namespace CryptoSpot.API.Controllers
         [HttpPost("orders")]
         public async Task<ActionResult<ApiResponseDto<OrderDto?>>> SubmitOrder([FromBody] CreateOrderRequestDto request)
         {
+            if (!ModelState.IsValid)
+            {
+                var errors = string.Join("; ", ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage));
+                return BadRequest(ApiResponseDto<OrderDto?>.CreateError(string.IsNullOrEmpty(errors) ? "请求参数验证失败" : errors));
+            }
             var userId = GetCurrentUserId();
             var result = await _tradingService.SubmitOrderAsync(userId, request);
             return result.Success ? Ok(result) : BadRequest(result);

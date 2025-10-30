@@ -193,8 +193,9 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
 
     setIsLoading(true);
     try {
-      const sideEnum = activeTab === 'buy' ? 'Buy' : 'Sell';
-      const typeEnum = orderType === 'limit' ? 'Limit' : 'Market';
+  // send enum values in camelCase to match backend JsonStringEnumConverter expectations
+  const sideEnum = activeTab === 'buy' ? 'buy' : 'sell';
+  const typeEnum = orderType === 'limit' ? 'limit' : 'market';
       const payload = {
         symbol,
         side: sideEnum,
