@@ -10,6 +10,8 @@ using CryptoSpot.Infrastructure.Repositories.Redis;
 using CryptoSpot.Redis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using CryptoSpot.MatchEngine.Core;
+using CryptoSpot.MatchEngine.Events;
 
 namespace CryptoSpot.MatchEngine
 {
@@ -22,12 +24,20 @@ namespace CryptoSpot.MatchEngine
     {
         private readonly ILogger<InMemoryMatchEngineService> _logger;
         private readonly IServiceProvider _sp;
-        private readonly ConcurrentDictionary<string, OrderBook> _books = new();
+        private readonly ConcurrentDictionary<string, IOrderBook> _books = new();
+        private readonly ISettlementService _settlement;
+        private readonly IMatchEngineEventBus _eventBus;
+        private readonly IMatchingAlgorithm _algorithm;
+        private readonly IMatchEngineMetrics _metrics;
 
-        public InMemoryMatchEngineService(ILogger<InMemoryMatchEngineService> logger, IServiceProvider sp)
+        public InMemoryMatchEngineService(ILogger<InMemoryMatchEngineService> logger, IServiceProvider sp, ISettlementService settlement, IMatchEngineEventBus eventBus, IMatchingAlgorithm algorithm, IMatchEngineMetrics metrics)
         {
             _logger = logger;
             _sp = sp;
+            _settlement = settlement;
+            _eventBus = eventBus;
+            _algorithm = algorithm;
+            _metrics = metrics;
         }
 
         public async Task<Order> PlaceOrderAsync(Order order, string symbol)
@@ -36,10 +46,11 @@ namespace CryptoSpot.MatchEngine
             if (order == null) throw new ArgumentNullException(nameof(order));
             if (string.IsNullOrEmpty(symbol)) throw new ArgumentNullException(nameof(symbol));
 
-            var book = _books.GetOrAdd(symbol, _ => new OrderBook(symbol));
+            var book = _books.GetOrAdd(symbol, s => new InMemoryOrderBook(s));
 
             // per-symbol lock
-            await book.Lock.WaitAsync();
+            var sem = (SemaphoreSlim)((InMemoryOrderBook)book).SyncRoot;
+            await sem.WaitAsync();
             try
             {
                 // freeze assets via Redis asset repo
@@ -60,14 +71,14 @@ namespace CryptoSpot.MatchEngine
 
                 // insert order into in-memory book and persist order into redis repository for global visibility
                 order.Status = OrderStatus.Active;
-                book.AddOrder(order);
+                book.Add(order);
 
                 // persist order before matching so that UpdateOrderStatusAsync and other Redis-side operations
                 // can find the order record during matching
                 await redisOrders.CreateOrderAsync(order, symbol);
 
                 // attempt matching
-                var trades = await MatchAsync(order, book, symbol, redis, redisOrders);
+                var trades = await RunMatchingAsync(order, book, symbol, redis, redisOrders);
 
                 // 如果没有发生任何成交，推送一次订单簿更新，保证订阅者看到新增挂单
                 if (trades.Count == 0)
@@ -75,6 +86,8 @@ namespace CryptoSpot.MatchEngine
                     try
                     {
                         await PushOrderBookUpdate(symbol);
+                        await _eventBus.PublishAsync(new OrderPlacedEvent(symbol, order));
+                        await _eventBus.PublishAsync(new OrderBookChangedEvent(symbol));
                     }
                     catch (Exception ex)
                     {
@@ -86,146 +99,56 @@ namespace CryptoSpot.MatchEngine
             }
             finally
             {
-                book.Lock.Release();
+                sem.Release();
             }
         }
 
-        private async Task<List<Trade>> MatchAsync(Order taker, OrderBook book, string symbol, IRedisCache redis, RedisOrderRepository redisOrders)
+        private async Task<List<Trade>> RunMatchingAsync(Order taker, IOrderBook book, string symbol, IRedisCache redis, RedisOrderRepository redisOrders)
         {
             var trades = new List<Trade>();
-
-            while (taker.FilledQuantity < taker.Quantity)
+            foreach (var slice in _algorithm.Match(book, taker))
             {
-                var maker = book.GetBestOpposite(taker.Side);
-                if (maker == null) break;
-
-                // price check for limit orders
-                if (taker.Type == OrderType.Limit && maker.Price.HasValue && taker.Price.HasValue)
+                _metrics.ObserveMatchAttempt(symbol, slice.Quantity, slice.Price);
+                var start = DateTime.UtcNow;
+                var settle = await _settlement.SettleAsync(new SettlementContext(slice.Maker, slice.Taker, slice.Price, slice.Quantity, symbol));
+                _metrics.ObserveSettlement(symbol, settle.Success, (long)(DateTime.UtcNow - start).TotalMilliseconds);
+                if (!settle.Success)
                 {
-                    if (taker.Side == OrderSide.Buy && taker.Price < maker.Price) break;
-                    if (taker.Side == OrderSide.Sell && taker.Price > maker.Price) break;
+                    _logger.LogWarning("Settlement failed, abort remaining matches: {Symbol} Maker={Maker} Taker={Taker}", symbol, slice.Maker.Id, slice.Taker.Id);
+                    break;
                 }
 
-                // prevent self trade
-                if (maker.UserId == taker.UserId)
-                {
-                    // remove maker from orderbook to avoid infinite loop
-                    book.RemoveOrder(maker);
-                    continue;
-                }
-
-                var matched = Math.Min(taker.Quantity - taker.FilledQuantity, maker.Quantity - maker.FilledQuantity);
-                var price = maker.Price ?? taker.Price ?? 0;
-
-                // Attempt atomic settlement via Lua script (same logic as RedisOrderMatchingEngine)
-                var success = await ExecuteTradeAssetsAtomicAsync(maker, taker, price, matched, symbol, redis);
-                if (!success)
-                {
-                    _logger.LogWarning("Atomic settlement failed for match {Maker}/{Taker}", maker.Id, taker.Id);
-                    break; // abort matching
-                }
-
-                // update filled quantities
-                taker.FilledQuantity += matched;
-                maker.FilledQuantity += matched;
-
-                // build trade record
                 var trade = new Trade
                 {
                     Id = (int)await redis.StringIncrementAsync("global:trade_id"),
                     TradingPairId = taker.TradingPairId,
-                    BuyOrderId = taker.Side == OrderSide.Buy ? taker.Id : maker.Id,
-                    SellOrderId = taker.Side == OrderSide.Sell ? taker.Id : maker.Id,
-                    Price = price,
-                    Quantity = matched,
-                    BuyerId = taker.Side == OrderSide.Buy ? taker.UserId ?? 0 : maker.UserId ?? 0,
-                    SellerId = taker.Side == OrderSide.Sell ? taker.UserId ?? 0 : maker.UserId ?? 0,
+                    BuyOrderId = taker.Side == OrderSide.Buy ? taker.Id : slice.Maker.Id,
+                    SellOrderId = taker.Side == OrderSide.Sell ? taker.Id : slice.Maker.Id,
+                    Price = slice.Price,
+                    Quantity = slice.Quantity,
+                    BuyerId = taker.Side == OrderSide.Buy ? taker.UserId ?? 0 : slice.Maker.UserId ?? 0,
+                    SellerId = taker.Side == OrderSide.Sell ? taker.UserId ?? 0 : slice.Maker.UserId ?? 0,
                     ExecutedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 };
-
                 trades.Add(trade);
 
-                // persist trade to redis (hash + list + sync queue)
                 await SaveTradeToRedis(trade, symbol, redis);
 
-                // update order status in redis
-                var makerStatus = maker.FilledQuantity >= maker.Quantity ? OrderStatus.Filled : OrderStatus.PartiallyFilled;
+                var makerStatus = slice.Maker.FilledQuantity >= slice.Maker.Quantity ? OrderStatus.Filled : OrderStatus.PartiallyFilled;
                 var takerStatus = taker.FilledQuantity >= taker.Quantity ? OrderStatus.Filled : (taker.FilledQuantity > 0 ? OrderStatus.PartiallyFilled : OrderStatus.Active);
-                await redisOrders.UpdateOrderStatusAsync(maker.Id, makerStatus, maker.FilledQuantity);
+                await redisOrders.UpdateOrderStatusAsync(slice.Maker.Id, makerStatus, slice.Maker.FilledQuantity);
                 await redisOrders.UpdateOrderStatusAsync(taker.Id, takerStatus, taker.FilledQuantity);
 
-                if (maker.FilledQuantity >= maker.Quantity)
-                {
-                    book.RemoveOrder(maker);
-                }
-            }
+                try {
+                    await _eventBus.PublishAsync(new TradeExecutedEvent(symbol, trade, slice.Maker, taker));
+                    await _eventBus.PublishAsync(new OrderBookChangedEvent(symbol));
+                } catch { }
 
+                if (taker.FilledQuantity >= taker.Quantity) break;
+            }
             return trades;
         }
 
-        private async Task<bool> ExecuteTradeAssetsAtomicAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity, string symbol, IRedisCache redis)
-        {
-            // reuse the Lua script used in RedisOrderMatchingEngine
-            const long PRECISION = 100_000_000;
-            var (baseCurrency, quoteCurrency) = ParseSymbol(symbol);
-            var baseAmount = quantity;
-            var quoteAmount = quantity * price;
-
-            var buyUserId = buyOrder.UserId ?? throw new InvalidOperationException("买单缺少用户ID");
-            var sellUserId = sellOrder.UserId ?? throw new InvalidOperationException("卖单缺少用户ID");
-
-            // use hash-tagged keys so they map to the same cluster slot when using Redis Cluster
-            var buyQuoteKey = $"asset:{{{symbol}}}:{buyUserId}:{quoteCurrency}";
-            var buyBaseKey = $"asset:{{{symbol}}}:{buyUserId}:{baseCurrency}";
-            var sellBaseKey = $"asset:{{{symbol}}}:{sellUserId}:{baseCurrency}";
-            var sellQuoteKey = $"asset:{{{symbol}}}:{sellUserId}:{quoteCurrency}";
-
-            var quoteAmountLong = (long)(quoteAmount * PRECISION);
-            var baseAmountLong = (long)(baseAmount * PRECISION);
-            var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-            var script = @"
-            local buyQuoteFrozen = tonumber(redis.call('HGET', KEYS[1], 'frozenBalance') or 0)
-            if buyQuoteFrozen < tonumber(ARGV[1]) then
-                return 0
-            end
-            local sellBaseFrozen = tonumber(redis.call('HGET', KEYS[3], 'frozenBalance') or 0)
-            if sellBaseFrozen < tonumber(ARGV[2]) then
-                return 0
-            end
-            redis.call('HINCRBY', KEYS[1], 'frozenBalance', -ARGV[1])
-            redis.call('HSET', KEYS[1], 'updatedAt', ARGV[3])
-            redis.call('HINCRBY', KEYS[2], 'availableBalance', ARGV[2])
-            redis.call('HSET', KEYS[2], 'updatedAt', ARGV[3])
-            redis.call('HINCRBY', KEYS[3], 'frozenBalance', -ARGV[2])
-            redis.call('HSET', KEYS[3], 'updatedAt', ARGV[3])
-            redis.call('HINCRBY', KEYS[4], 'availableBalance', ARGV[1])
-            redis.call('HSET', KEYS[4], 'updatedAt', ARGV[3])
-            return 1
-            ";
-
-            try
-            {
-                // Use IRedisCache.Execute to run EVAL so MatchEngine doesn't depend on StackExchange.Redis types
-                var res = redis.Execute("EVAL", script, 4, buyQuoteKey, buyBaseKey, sellBaseKey, sellQuoteKey, quoteAmountLong.ToString(), baseAmountLong.ToString(), timestamp.ToString());
-                return res?.ToString() == "1";
-            }
-            catch (Exception ex)
-            {
-                // Log detailed context to aid diagnosis (CROSSSLOT / unknown command / NOSCRIPT etc.)
-                try
-                {
-                    _logger.LogError(ex, "Redis error during atomic settlement. Message={Message} Keys=[{Keys}] Args=[{Args}] ScriptPreview={ScriptPreview}",
-                        ex.Message,
-                        string.Join(",", new[] { buyQuoteKey, buyBaseKey, sellBaseKey, sellQuoteKey }),
-                        string.Join(",", new[] { quoteAmountLong.ToString(), baseAmountLong.ToString(), timestamp.ToString() }),
-                        script.Length > 200 ? script.Substring(0, 200) + "..." : script);
-                }
-                catch { /* swallow logging errors */ }
-
-                return false;
-            }
-        }
 
         private async Task SaveTradeToRedis(Trade trade, string symbol, IRedisCache redis)
         {
@@ -299,71 +222,7 @@ namespace CryptoSpot.MatchEngine
             return (baseCurrency, quoteCurrency);
         }
 
-        #region 内存订单簿
-        private class OrderBook
-        {
-            public string Symbol { get; }
-            public SemaphoreSlim Lock { get; } = new(1, 1);
-
-            // bids: price desc, asks: price asc
-            private readonly SortedDictionary<decimal, Queue<Order>> _bids = new(new DescComparer());
-            private readonly SortedDictionary<decimal, Queue<Order>> _asks = new();
-
-            public OrderBook(string symbol) { Symbol = symbol; }
-
-            public void AddOrder(Order order)
-            {
-                var dict = order.Side == OrderSide.Buy ? _bids : _asks;
-                var price = order.Price ?? 0m;
-                if (!dict.TryGetValue(price, out var q))
-                {
-                    q = new Queue<Order>();
-                    dict[price] = q;
-                }
-                q.Enqueue(order);
-            }
-
-            public Order GetBestOpposite(OrderSide side)
-            {
-                var dict = side == OrderSide.Buy ? _asks : _bids; // opposite side
-                if (dict.Count == 0) return null;
-                var first = dict.First();
-                var q = first.Value;
-                while (q.Count > 0)
-                {
-                    var order = q.Peek();
-                    if (order.FilledQuantity >= order.Quantity)
-                    {
-                        q.Dequeue();
-                        continue;
-                    }
-                    return order;
-                }
-                // empty level -> remove
-                dict.Remove(first.Key);
-                return GetBestOpposite(side);
-            }
-
-            public void RemoveOrder(Order order)
-            {
-                var dict = order.Side == OrderSide.Buy ? _bids : _asks;
-                var price = order.Price ?? 0m;
-                if (dict.TryGetValue(price, out var q))
-                {
-                    // linear remove (acceptable for small queues)
-                    var list = q.ToList();
-                    list.RemoveAll(o => o.Id == order.Id);
-                    dict[price] = new Queue<Order>(list);
-                    if (dict[price].Count == 0) dict.Remove(price);
-                }
-            }
-
-            private class DescComparer : IComparer<decimal>
-            {
-                public int Compare(decimal x, decimal y) => y.CompareTo(x);
-            }
-        }
-        #endregion
+        // 内部 OrderBook 类已抽离为 InMemoryOrderBook
 
         /// <summary>
         /// 推送订单簿快照给实时推送服务（SignalR 等）。

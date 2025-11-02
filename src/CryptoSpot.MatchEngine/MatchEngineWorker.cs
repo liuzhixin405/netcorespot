@@ -10,6 +10,7 @@ using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
 using MessagePack;
 using MessagePack.Resolvers;
+using CryptoSpot.MatchEngine.Core;
 
 namespace CryptoSpot.MatchEngine;
 
@@ -19,10 +20,13 @@ public class MatchEngineWorker : BackgroundService
     private readonly IServiceProvider _provider;
     private const string IncomingQueueKey = "orders:incoming"; // list key
 
-    public MatchEngineWorker(ILogger<MatchEngineWorker> logger, IServiceProvider provider)
+    private readonly IOrderPayloadDecoder _decoder;
+
+    public MatchEngineWorker(ILogger<MatchEngineWorker> logger, IServiceProvider provider, IOrderPayloadDecoder decoder)
     {
         _logger = logger;
         _provider = provider;
+        _decoder = decoder;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -53,58 +57,10 @@ public class MatchEngineWorker : BackgroundService
                     {
                         try
                         {
-                            // Try JSON DTO
-                            CryptoSpot.Application.DTOs.Trading.CreateOrderRequestDto req = null;
-                            int userId = 0;
-
-                            try
+                            CryptoSpot.Application.DTOs.Trading.CreateOrderRequestDto? req; int userId; string? err;
+                            if (!_decoder.TryDecode(payload, out req, out userId, out err) || req == null)
                             {
-                                req = JsonSerializer.Deserialize<CryptoSpot.Application.DTOs.Trading.CreateOrderRequestDto>(payload);
-                            }
-                            catch { req = null; }
-
-                            // If JSON failed, try envelope JSON with userId and payload/order/data
-                            if (req == null)
-                            {
-                                try
-                                {
-                                    using var doc = JsonDocument.Parse(payload);
-                                    var root = doc.RootElement;
-                                    if (root.TryGetProperty("userId", out var u) && u.ValueKind == JsonValueKind.Number)
-                                    {
-                                        userId = u.GetInt32();
-                                    }
-
-                                    JsonElement? orderEl = null;
-                                    if (root.TryGetProperty("order", out var o)) orderEl = o;
-                                    else if (root.TryGetProperty("payload", out var p)) orderEl = p;
-                                    else if (root.TryGetProperty("data", out var d)) orderEl = d;
-
-                                    if (orderEl.HasValue)
-                                    {
-                                        req = JsonSerializer.Deserialize<CryptoSpot.Application.DTOs.Trading.CreateOrderRequestDto>(orderEl.Value.GetRawText());
-                                    }
-                                }
-                                catch { /* ignore */ }
-                            }
-
-                            // If still null, try base64 MessagePack
-                            if (req == null)
-                            {
-                                try
-                                {
-                                    var bytes = Convert.FromBase64String(payload);
-                                    var options = MessagePackSerializerOptions.Standard
-                                        .WithResolver(ContractlessStandardResolver.Instance)
-                                        .WithCompression(MessagePackCompression.Lz4BlockArray);
-                                    req = MessagePackSerializer.Deserialize<CryptoSpot.Application.DTOs.Trading.CreateOrderRequestDto>(bytes, options);
-                                }
-                                catch { req = null; }
-                            }
-
-                            if (req == null)
-                            {
-                                _logger.LogWarning("Invalid order payload (skipping): {Preview}", payload.Length > 200 ? payload[..200] + "..." : payload);
+                                _logger.LogWarning("Invalid order payload (decoder): {Error} Preview={Preview}", err, payload.Length > 200 ? payload[..200] + "..." : payload);
                                 dlqList.Add(payload);
                                 continue;
                             }
