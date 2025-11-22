@@ -194,17 +194,6 @@ namespace CryptoSpot.Application.Mapping
             };
         }
 
-        public UserSummaryDto MapToSummaryDto(User user)
-        {
-            return new UserSummaryDto
-            {
-                Id = user.Id,
-                Username = user.Username,
-                Type = (UserTypeDto)user.Type,
-                IsSystemAccount = user.IsSystemAccount
-            };
-        }
-
         public User MapToDomain(CreateUserRequestDto userRequest)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();

@@ -33,7 +33,6 @@ namespace CryptoSpot.Application.Mapping
 
         // User mappings
         UserDto MapToDto(User user);
-        UserSummaryDto MapToSummaryDto(User user);
         User MapToDomain(CreateUserRequestDto userRequest);
         IEnumerable<UserDto> MapToDto(IEnumerable<User> users);
 

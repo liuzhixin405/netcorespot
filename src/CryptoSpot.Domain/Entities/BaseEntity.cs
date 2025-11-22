@@ -63,26 +63,6 @@ namespace CryptoSpot.Domain.Entities
         }
 
         /// <summary>
-        /// 软删除
-        /// </summary>
-        public virtual void SoftDelete()
-        {
-            IsDeleted = true;
-            DeletedAt = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
-            Touch();
-        }
-
-        /// <summary>
-        /// 恢复软删除
-        /// </summary>
-        public virtual void Restore()
-        {
-            IsDeleted = false;
-            DeletedAt = null;
-            Touch();
-        }
-
-        /// <summary>
         /// 获取创建时间的DateTime对象
         /// </summary>
         [NotMapped]
@@ -93,11 +73,5 @@ namespace CryptoSpot.Domain.Entities
         /// </summary>
         [NotMapped]
         public DateTime UpdatedDateTime => DateTimeExtensions.FromUnixTimeMilliseconds(UpdatedAt);
-
-        /// <summary>
-        /// 获取删除时间的DateTime对象
-        /// </summary>
-        [NotMapped]
-        public DateTime? DeletedDateTime => DeletedAt.HasValue ? DateTimeExtensions.FromUnixTimeMilliseconds(DeletedAt.Value) : null;
     }
 }

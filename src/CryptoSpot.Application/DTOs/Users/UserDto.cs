@@ -88,35 +88,6 @@ namespace CryptoSpot.Application.DTOs.Users
     }
 
     /// <summary>
-    /// 用户简要信息DTO
-    /// </summary>
-    public class UserSummaryDto
-    {
-        /// <summary>
-        /// 用户ID
-        /// </summary>
-        public long Id { get; set; }
-
-        /// <summary>
-        /// 用户名
-        /// </summary>
-        public string Username { get; set; } = string.Empty;
-
-        /// <summary>
-        /// 用户类型
-        /// </summary>
-        public UserTypeDto Type { get; set; }
-
-        /// <summary>
-        /// 是否为系统账号
-        /// </summary>
-        public bool IsSystemAccount { get; set; }
-    }
-
-    /// <summary>
-    /// 用户列表响应DTO
-    /// </summary>
-    /// <summary>
     /// 创建用户请求DTO
     /// </summary>
     public class CreateUserRequestDto
