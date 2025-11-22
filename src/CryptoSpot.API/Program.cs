@@ -1,4 +1,5 @@
 using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Infrastructure.Extensions;
 using CryptoSpot.Application.Abstractions.Services.Auth;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
@@ -156,6 +157,8 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddSignalR(options => { options.EnableDetailedErrors = true; });
 
+builder.Services.AddCryptoSpotHealthChecks(builder.Configuration);
+
 var app = builder.Build();
 
 app.UseMiddleware<CryptoSpot.API.Middleware.ExceptionHandlingMiddleware>();
@@ -169,6 +172,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<CryptoSpot.Infrastructure.Hubs.TradingHub>("/tradingHub");
+app.MapCryptoSpotHealthChecks();
+
+// 初始化数据库
 await app.Services.InitDbContext();
+
+// 启动健康检查验证
+await app.PerformStartupHealthChecks(builder.Configuration);
+
 await app.RunAsync();
 

@@ -11,11 +11,16 @@ namespace CryptoSpot.API.Middleware
     {
         private readonly RequestDelegate _next;
         private readonly ILogger<ExceptionHandlingMiddleware> _logger;
+        private readonly IHostEnvironment _environment;
 
-        public ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
+        public ExceptionHandlingMiddleware(
+            RequestDelegate next, 
+            ILogger<ExceptionHandlingMiddleware> logger,
+            IHostEnvironment environment)
         {
             _next = next;
             _logger = logger;
+            _environment = environment;
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -32,26 +37,109 @@ namespace CryptoSpot.API.Middleware
 
         private async Task HandleExceptionAsync(HttpContext context, Exception exception)
         {
-            var code = HttpStatusCode.InternalServerError;
-            var result = string.Empty;
+            HttpStatusCode statusCode;
+            object error;
 
             switch (exception)
             {
-                case DomainException domainException:
-                    code = HttpStatusCode.BadRequest;
-                    result = JsonSerializer.Serialize(new { error = domainException.Message });
+                case ValidationException validationEx:
+                    statusCode = HttpStatusCode.BadRequest;
+                    error = new
+                    {
+                        type = "validation_error",
+                        message = validationEx.Message,
+                        errors = validationEx.Errors
+                    };
+                    break;
+
+                case NotFoundException notFoundEx:
+                    statusCode = HttpStatusCode.NotFound;
+                    error = new
+                    {
+                        type = "not_found",
+                        message = notFoundEx.Message
+                    };
+                    break;
+
+                case UnauthorizedException unauthorizedEx:
+                    statusCode = HttpStatusCode.Unauthorized;
+                    error = new
+                    {
+                        type = "unauthorized",
+                        message = unauthorizedEx.Message
+                    };
+                    break;
+
+                case BusinessException businessEx:
+                    statusCode = HttpStatusCode.BadRequest;
+                    error = new
+                    {
+                        type = "business_error",
+                        message = businessEx.Message
+                    };
+                    break;
+
+                case DomainException domainEx:
+                    statusCode = HttpStatusCode.BadRequest;
+                    error = new
+                    {
+                        type = "domain_error",
+                        message = domainEx.Message
+                    };
                     break;
 
                 default:
-                    _logger.LogError(exception, "Unhandled exception occurred");
-                    result = JsonSerializer.Serialize(new { error = "An error occurred while processing your request" });
+                    statusCode = HttpStatusCode.InternalServerError;
+                    error = new
+                    {
+                        type = "internal_error",
+                        message = _environment.IsDevelopment()
+                            ? exception.Message
+                            : "处理请求时发生错误"
+                    };
                     break;
             }
 
-            context.Response.ContentType = "application/json";
-            context.Response.StatusCode = (int)code;
+            // 记录错误日志
+            if (statusCode == HttpStatusCode.InternalServerError)
+            {
+                _logger.LogError(
+                    exception,
+                    "未处理的异常: {ExceptionType} - {Message}",
+                    exception.GetType().Name,
+                    exception.Message);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "业务异常: {ExceptionType} - {Message}",
+                    exception.GetType().Name,
+                    exception.Message);
+            }
 
-            await context.Response.WriteAsync(result);
+            context.Response.ContentType = "application/json";
+            context.Response.StatusCode = (int)statusCode;
+
+            var options = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = _environment.IsDevelopment()
+            };
+
+            // 在开发环境添加堆栈跟踪
+            object response = error;
+            if (_environment.IsDevelopment() && statusCode == HttpStatusCode.InternalServerError)
+            {
+                response = new
+                {
+                    error = error,
+                    stackTrace = exception.StackTrace,
+                    innerException = exception.InnerException?.Message
+                };
+            }
+
+            var json = JsonSerializer.Serialize(response, options);
+            await context.Response.WriteAsync(json);
         }
     }
 }

@@ -1,7 +1,7 @@
 namespace CryptoSpot.Application.Common.Models
 {
     /// <summary>
-    /// 统一返回结果
+    /// 统一返回结果（用于 CQRS Command/Query Handler）
     /// </summary>
     public class Result
     {
@@ -25,7 +25,7 @@ namespace CryptoSpot.Application.Common.Models
     }
 
     /// <summary>
-    /// 带返回值的统一结果
+    /// 带返回值的统一结果（用于 CQRS Command/Query Handler）
     /// </summary>
     public class Result<T> : Result
     {
