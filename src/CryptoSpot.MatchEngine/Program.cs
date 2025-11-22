@@ -5,6 +5,7 @@ using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.MatchEngine;
 using CryptoSpot.MatchEngine.Core;
 using CryptoSpot.MatchEngine.Events;
+using CryptoSpot.MatchEngine.Extensions;
 using CryptoSpot.MatchEngine.Services;
 using CryptoSpot.Redis;
 using CryptoSpot.Redis.Serializer;
@@ -22,7 +23,8 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddRedis(context.Configuration.GetSection("Redis"));
         services.AddCleanArchitecture();
 
-        services.AddSingleton<CryptoSpot.Application.Abstractions.Services.Trading.ITradingPairService, FallbackTradingPairService>();
+        // 使用基于 Redis 的交易对服务（撮合引擎不需要数据库）
+        services.AddSingleton<CryptoSpot.Application.Abstractions.Services.Trading.ITradingPairService, RedisTradingPairService>();
 
         services.AddSingleton<ISettlementService, LuaSettlementService>();
         services.AddSingleton<IOrderPayloadDecoder, CompositeOrderPayloadDecoder>();
@@ -39,8 +41,8 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IOrderBookSnapshotService, OrderBookSnapshotService>();
         services.AddSingleton<ITradingPairParser, TradingPairParserService>();
 
-        // 添加健康检查
-        services.AddCryptoSpotHealthChecks(context.Configuration);
+        // 添加健康检查（撮合引擎专用，不包含数据库）
+        services.AddMatchEngineHealthChecks(context.Configuration);
     })
     .Build();
 

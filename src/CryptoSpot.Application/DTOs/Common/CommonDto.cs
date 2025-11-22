@@ -66,6 +66,14 @@ namespace CryptoSpot.Application.DTOs.Common
                 ErrorCode = errorCode
             };
         }
+
+        /// <summary>
+        /// 创建失败响应（CreateError 的别名，保持 API 一致性）
+        /// </summary>
+        public static ApiResponseDto<T> CreateFailure(string error, string? errorCode = null)
+        {
+            return CreateError(error, errorCode);
+        }
     }
 
     /// <summary>
