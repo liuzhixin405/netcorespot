@@ -16,15 +16,15 @@ namespace CryptoSpot.MatchEngine
             return Task.FromResult(ApiResponseDto<TradingPairDto?>.CreateSuccess(dto));
         }
 
-        public Task<ApiResponseDto<TradingPairDto?>> GetTradingPairByIdAsync(int tradingPairId)
+        public Task<ApiResponseDto<TradingPairDto?>> GetTradingPairByIdAsync(long tradingPairId)
         {
             var dto = new TradingPairDto { Id = tradingPairId, Symbol = "TEST", IsActive = true };
             return Task.FromResult(ApiResponseDto<TradingPairDto?>.CreateSuccess(dto));
         }
 
-        public Task<ApiResponseDto<int>> GetTradingPairIdAsync(string symbol)
+        public Task<ApiResponseDto<long>> GetTradingPairIdAsync(string symbol)
         {
-            return Task.FromResult(ApiResponseDto<int>.CreateSuccess(1));
+            return Task.FromResult(ApiResponseDto<long>.CreateSuccess(1));
         }
 
         public Task<ApiResponseDto<IEnumerable<TradingPairDto>>> GetActiveTradingPairsAsync()

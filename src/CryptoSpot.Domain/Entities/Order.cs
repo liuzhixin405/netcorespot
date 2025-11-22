@@ -32,7 +32,7 @@ namespace CryptoSpot.Domain.Entities
         /// <summary>
         /// 用户ID（普通用户或系统账号）
         /// </summary>
-        public int? UserId { get; set; }
+        public long? UserId { get; set; }
 
         [Required]
         public long TradingPairId { get; set; }

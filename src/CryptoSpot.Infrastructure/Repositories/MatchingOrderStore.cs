@@ -97,7 +97,7 @@ namespace CryptoSpot.Infrastructure.Repositories
             return added;
         }
 
-        public async Task<bool> UpdateOrderStatusAsync(int orderId, OrderStatus status, decimal filledQuantityDelta = 0, decimal? averagePrice = null)
+        public async Task<bool> UpdateOrderStatusAsync(long orderId, OrderStatus status, decimal filledQuantityDelta = 0, decimal? averagePrice = null)
         {
             try
             {
@@ -146,7 +146,7 @@ namespace CryptoSpot.Infrastructure.Repositories
             }
         }
 
-        public async Task<bool> CancelOrderAsync(int orderId)
+        public async Task<bool> CancelOrderAsync(long orderId)
         {
             try
             {

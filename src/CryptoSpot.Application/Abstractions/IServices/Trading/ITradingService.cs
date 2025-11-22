@@ -20,21 +20,21 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         Task<ApiResponseDto<KLineDataDto?>> GetLatestKLineDataAsync(string symbol, string timeFrame);
 
         // 用户资产相关
-        Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(int userId);
-        Task<ApiResponseDto<AssetSummaryDto>> GetUserAssetSummaryAsync(int userId);
+        Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(long userId);
+        Task<ApiResponseDto<AssetSummaryDto>> GetUserAssetSummaryAsync(long userId);
 
         // 订单相关
-        Task<ApiResponseDto<IEnumerable<OrderDto>>> GetUserOrdersAsync(int userId, string? symbol = null);
-        Task<ApiResponseDto<IEnumerable<OrderDto>>> GetOpenOrdersAsync(int userId, string? symbol = null);
-        Task<ApiResponseDto<OrderDto?>> GetOrderAsync(int userId, int orderId);
-        Task<ApiResponseDto<OrderDto?>> SubmitOrderAsync(int userId, CreateOrderRequestDto request);
-        Task<ApiResponseDto<bool>> CancelOrderAsync(int userId, int orderId);
-        Task<ApiResponseDto<BatchCancelOrdersResultDto>> CancelAllOrdersAsync(int userId, BatchCancelOrdersRequestDto? request = null);
+        Task<ApiResponseDto<IEnumerable<OrderDto>>> GetUserOrdersAsync(long userId, string? symbol = null);
+        Task<ApiResponseDto<IEnumerable<OrderDto>>> GetOpenOrdersAsync(long userId, string? symbol = null);
+        Task<ApiResponseDto<OrderDto?>> GetOrderAsync(long userId, long orderId);
+        Task<ApiResponseDto<OrderDto?>> SubmitOrderAsync(long userId, CreateOrderRequestDto request);
+        Task<ApiResponseDto<bool>> CancelOrderAsync(long userId, long orderId);
+        Task<ApiResponseDto<BatchCancelOrdersResultDto>> CancelAllOrdersAsync(long userId, BatchCancelOrdersRequestDto? request = null);
 
         // 交易记录相关
-        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(int userId, string? symbol = null);
-        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(int userId, int orderId);
-        Task<ApiResponseDto<TradeStatisticsDto>> GetUserTradeStatisticsAsync(int userId);
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(long userId, string? symbol = null);
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(long userId, long orderId);
+        Task<ApiResponseDto<TradeStatisticsDto>> GetUserTradeStatisticsAsync(long userId);
 
         // 订单簿相关
         Task<ApiResponseDto<OrderBookDepthDto>> GetOrderBookDepthAsync(string symbol, int depth = 20);
@@ -43,7 +43,7 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         Task<ApiResponseDto<IEnumerable<MarketTradeDto>>> GetMarketRecentTradesAsync(string symbol, int limit = 50);
 
         // 订单测试
-        Task<ApiResponseDto<TestOrderResultDto>> TestOrderAsync(int userId, CreateOrderRequestDto request);
+        Task<ApiResponseDto<TestOrderResultDto>> TestOrderAsync(long userId, CreateOrderRequestDto request);
 
         // 批量操作
         // Removed unused paged history methods: GetOrderHistoryAsync / GetTradeHistoryAsync (not externally referenced)

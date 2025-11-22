@@ -147,7 +147,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         #region 用户资产相关
 
-        public async Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(int userId)
+        public async Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(long userId)
         {
             try
             {
@@ -163,7 +163,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<AssetSummaryDto>> GetUserAssetSummaryAsync(int userId)
+        public async Task<ApiResponseDto<AssetSummaryDto>> GetUserAssetSummaryAsync(long userId)
         {
             try
             {
@@ -192,7 +192,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         #region 订单相关
 
-        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetUserOrdersAsync(int userId, string? symbol = null)
+        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetUserOrdersAsync(long userId, string? symbol = null)
         {
             try
             {
@@ -211,7 +211,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetOpenOrdersAsync(int userId, string? symbol = null)
+        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetOpenOrdersAsync(long userId, string? symbol = null)
         {
             try
             {
@@ -229,7 +229,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<OrderDto?>> GetOrderAsync(int userId, int orderId)
+        public async Task<ApiResponseDto<OrderDto?>> GetOrderAsync(long userId, long orderId)
         {
             try
             {
@@ -244,7 +244,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<OrderDto?>> SubmitOrderAsync(int userId, CreateOrderRequestDto request)
+        public async Task<ApiResponseDto<OrderDto?>> SubmitOrderAsync(long userId, CreateOrderRequestDto request)
         {
             try
             {
@@ -278,7 +278,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> CancelOrderAsync(int userId, int orderId)
+        public async Task<ApiResponseDto<bool>> CancelOrderAsync(long userId, long orderId)
         {
             try
             {
@@ -295,7 +295,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<BatchCancelOrdersResultDto>> CancelAllOrdersAsync(int userId, BatchCancelOrdersRequestDto? request = null)
+        public async Task<ApiResponseDto<BatchCancelOrdersResultDto>> CancelAllOrdersAsync(long userId, BatchCancelOrdersRequestDto? request = null)
         {
             try
             {
@@ -311,7 +311,7 @@ namespace CryptoSpot.Infrastructure.Services
                     SuccessCount = 0,
                     FailedCount = 0,
                     Errors = new List<string>(),
-                    CancelledOrderIds = new List<int>()
+                    CancelledOrderIds = new List<long>()
                 };
 
                 foreach (var o in open.Data)
@@ -344,7 +344,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         #region 交易记录相关
 
-        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(int userId, string? symbol = null)
+        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(long userId, string? symbol = null)
         {
             try
             {
@@ -362,7 +362,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(int userId, int orderId)
+        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(long userId, long orderId)
         {
             try
             {
@@ -386,7 +386,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<TradeStatisticsDto>> GetUserTradeStatisticsAsync(int userId)
+        public async Task<ApiResponseDto<TradeStatisticsDto>> GetUserTradeStatisticsAsync(long userId)
         {
             try
             {
@@ -467,7 +467,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         #region 订单测试相关
 
-        public async Task<ApiResponseDto<TestOrderResultDto>> TestOrderAsync(int userId, CreateOrderRequestDto request)
+        public async Task<ApiResponseDto<TestOrderResultDto>> TestOrderAsync(long userId, CreateOrderRequestDto request)
         {
             try
             {

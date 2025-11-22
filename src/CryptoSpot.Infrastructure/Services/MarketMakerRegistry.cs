@@ -9,7 +9,7 @@ namespace CryptoSpot.Infrastructure.Services
     public class MarketMakerRegistry : IMarketMakerRegistry
     {
         private readonly IOptionsMonitor<MarketMakerOptions> _options;
-        private readonly ConcurrentDictionary<int, byte> _cache = new();
+        private readonly ConcurrentDictionary<long, byte> _cache = new();
 
         public MarketMakerRegistry(IOptionsMonitor<MarketMakerOptions> options)
         {
@@ -21,12 +21,12 @@ namespace CryptoSpot.Infrastructure.Services
         private void RebuildCache(MarketMakerOptions opts)
         {
             _cache.Clear();
-            foreach (var id in opts.UserIds ?? System.Array.Empty<int>())
+            foreach (var id in opts.UserIds ?? System.Array.Empty<long>())
             {
                 _cache[id] = 1;
             }
         }
 
-        public bool IsMaker(int userId) => _cache.ContainsKey(userId);
+        public bool IsMaker(long userId) => _cache.ContainsKey(userId);
     }
 }

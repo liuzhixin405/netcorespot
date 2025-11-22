@@ -3,6 +3,6 @@ namespace CryptoSpot.Application.Abstractions.Services.Users
 {
     public interface IMarketMakerRegistry
     {
-        bool IsMaker(int userId);
+        bool IsMaker(long userId);
     }
 }

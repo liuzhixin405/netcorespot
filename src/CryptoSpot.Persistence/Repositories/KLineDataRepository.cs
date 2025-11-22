@@ -27,14 +27,14 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
             .OrderByDescending(k => k.OpenTime).Take(limit).ToListAsync();
     }
 
-    public async Task<IEnumerable<KLineData>> GetKLineDataByTradingPairIdAsync(int tradingPairId, string interval, int limit = 100)
+    public async Task<IEnumerable<KLineData>> GetKLineDataByTradingPairIdAsync(long tradingPairId, string interval, int limit = 100)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         return await context.Set<KLineData>().Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
             .OrderByDescending(k => k.OpenTime).Take(limit).ToListAsync();
     }
 
-    public async Task<IEnumerable<KLineData>> GetKLineDataByTimeRangeAsync(int tradingPairId, string interval, DateTime startTime, DateTime endTime)
+    public async Task<IEnumerable<KLineData>> GetKLineDataByTimeRangeAsync(long tradingPairId, string interval, DateTime startTime, DateTime endTime)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var startMs = ((DateTimeOffset)startTime).ToUnixTimeMilliseconds();
@@ -43,7 +43,7 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
             .OrderBy(k => k.OpenTime).ToListAsync();
     }
 
-    public async Task<KLineData?> GetLatestKLineDataAsync(int tradingPairId, string interval)
+    public async Task<KLineData?> GetLatestKLineDataAsync(long tradingPairId, string interval)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         return await context.Set<KLineData>().Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
@@ -93,7 +93,7 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
         return true;
     }
 
-    public async Task<int> DeleteExpiredKLineDataAsync(int tradingPairId, string interval, int keepDays = 30)
+    public async Task<int> DeleteExpiredKLineDataAsync(long tradingPairId, string interval, int keepDays = 30)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var cutoff = DateTimeOffset.UtcNow.AddDays(-keepDays).ToUnixTimeMilliseconds();
@@ -103,7 +103,7 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
         return expired.Count;
     }
 
-    public async Task<KLineDataStatistics> GetKLineDataStatisticsAsync(int tradingPairId, string interval)
+    public async Task<KLineDataStatistics> GetKLineDataStatisticsAsync(long tradingPairId, string interval)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var data = await context.Set<KLineData>().Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval).ToListAsync();

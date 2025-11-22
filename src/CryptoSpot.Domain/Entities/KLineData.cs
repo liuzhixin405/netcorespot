@@ -8,7 +8,7 @@ namespace CryptoSpot.Domain.Entities
     public class KLineData : BaseEntity
     {
         [Required]
-        public int TradingPairId { get; set; }
+        public long TradingPairId { get; set; }
 
         [Required]
         [StringLength(10)]

@@ -18,8 +18,8 @@ namespace CryptoSpot.Application.Abstractions.Services.RealTime
         Task PushTradeDataAsync(string symbol, MarketTradeDto trade);
         
         // 用户相关推送
-        Task PushUserOrderUpdateAsync(int userId, OrderDto order);
-        Task PushUserTradeAsync(int userId, TradeDto trade);
-        Task PushUserAssetUpdateAsync(int userId, IEnumerable<AssetDto> assets);
+        Task PushUserOrderUpdateAsync(long userId, OrderDto order);
+        Task PushUserTradeAsync(long userId, TradeDto trade);
+        Task PushUserAssetUpdateAsync(long userId, IEnumerable<AssetDto> assets);
     }
 }

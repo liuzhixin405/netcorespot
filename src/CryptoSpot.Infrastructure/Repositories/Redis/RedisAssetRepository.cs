@@ -26,7 +26,7 @@ public class RedisAssetRepository
 
     // Build asset key. If tag is provided, include it as a Redis hash-tag so multiple keys related to
     // the same trading pair land in the same cluster slot: e.g. "asset:{BTCUSDT}:123:USDT".
-    private static string BuildAssetKey(int userId, string currency, string? tag = null)
+    private static string BuildAssetKey(long userId, string currency, string? tag = null)
     {
         if (!string.IsNullOrEmpty(tag))
         {
@@ -42,7 +42,7 @@ public class RedisAssetRepository
     /// <summary>
     /// 获取用户资产
     /// </summary>
-    public async Task<Asset?> GetAssetAsync(int userId, string symbol, string? tag = null)
+    public async Task<Asset?> GetAssetAsync(long userId, string symbol, string? tag = null)
     {
         var key = BuildAssetKey(userId, symbol, tag);
         var exists = await _redis.ExistsAsync(key);
@@ -55,7 +55,7 @@ public class RedisAssetRepository
     /// <summary>
     /// 获取用户所有资产
     /// </summary>
-    public async Task<List<Asset>> GetUserAssetsAsync(int userId)
+    public async Task<List<Asset>> GetUserAssetsAsync(long userId)
     {
         var assets = new List<Asset>();
         try
@@ -67,13 +67,16 @@ public class RedisAssetRepository
                 var rr = (StackExchange.Redis.RedisResult)members;
                 if (rr.Type == StackExchange.Redis.ResultType.MultiBulk)
                 {
-                    var arr = (StackExchange.Redis.RedisResult[])rr;
-                    foreach (var rv in arr)
+                    var arr = (StackExchange.Redis.RedisResult[]?)rr;
+                    if (arr is not null)
                     {
-                        var symbol = rv.ToString();
-                        if (string.IsNullOrEmpty(symbol)) continue;
-                        var asset = await GetAssetAsync(userId, symbol);
-                        if (asset != null) assets.Add(asset);
+                        foreach (var rv in arr)
+                        {
+                            var symbol = rv.ToString();
+                            if (string.IsNullOrEmpty(symbol)) continue;
+                            var asset = await GetAssetAsync(userId, symbol);
+                            if (asset is not null) assets.Add(asset);
+                        }
                     }
                 }
                 else
@@ -111,7 +114,7 @@ public class RedisAssetRepository
     /// <summary>
     /// 冻结资产（可用 → 冻结）
     /// </summary>
-    public async Task<bool> FreezeAssetAsync(int userId, string symbol, decimal amount, string? tag = null)
+    public async Task<bool> FreezeAssetAsync(long userId, string symbol, decimal amount, string? tag = null)
     {
         var key = BuildAssetKey(userId, symbol, tag);
         var amountLong = (long)(amount * PRECISION);
@@ -150,7 +153,7 @@ public class RedisAssetRepository
     /// <summary>
     /// 解冻资产（冻结 → 可用）
     /// </summary>
-    public async Task<bool> UnfreezeAssetAsync(int userId, string symbol, decimal amount, string? tag = null)
+    public async Task<bool> UnfreezeAssetAsync(long userId, string symbol, decimal amount, string? tag = null)
     {
         var key = BuildAssetKey(userId, symbol, tag);
         var amountLong = (long)(amount * PRECISION);
@@ -183,7 +186,7 @@ public class RedisAssetRepository
     /// <summary>
     /// 扣除冻结资产（用于成交后扣款）
     /// </summary>
-    public async Task<bool> DeductFrozenAssetAsync(int userId, string symbol, decimal amount, string? tag = null)
+    public async Task<bool> DeductFrozenAssetAsync(long userId, string symbol, decimal amount, string? tag = null)
     {
         var key = BuildAssetKey(userId, symbol, tag);
         var amountLong = (long)(amount * PRECISION);
@@ -215,7 +218,7 @@ public class RedisAssetRepository
     /// <summary>
     /// 增加可用资产（用于成交后入账）
     /// </summary>
-    public async Task<bool> AddAvailableAssetAsync(int userId, string symbol, decimal amount, string? tag = null)
+    public async Task<bool> AddAvailableAssetAsync(long userId, string symbol, decimal amount, string? tag = null)
     {
         var key = BuildAssetKey(userId, symbol, tag);
         var amountLong = (long)(amount * PRECISION);
@@ -319,7 +322,7 @@ public class RedisAssetRepository
     /// <summary>
     /// 将资产变更加入同步队列
     /// </summary>
-    private async Task EnqueueAssetSync(int userId, string symbol)
+    private async Task EnqueueAssetSync(long userId, string symbol)
     {
         var syncData = new
         {

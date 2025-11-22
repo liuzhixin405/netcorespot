@@ -36,7 +36,7 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         #region DTO 接口实现
-        public async Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(int userId)
+        public async Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(long userId)
         {
             try
             {
@@ -50,7 +50,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<AssetDto?>> GetUserAssetAsync(int userId, string symbol)
+        public async Task<ApiResponseDto<AssetDto?>> GetUserAssetAsync(long userId, string symbol)
         {
             try
             {
@@ -66,7 +66,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         // Removed unused: GetUserAssetSummaryAsync / GetSystemAssetsAsync / GetSystemAssetAsync
 
-        public async Task<ApiResponseDto<bool>> AddAssetAsync(int userId, AssetOperationRequestDto request)
+        public async Task<ApiResponseDto<bool>> AddAssetAsync(long userId, AssetOperationRequestDto request)
         {
             try
             {
@@ -81,7 +81,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> DeductAssetAsync(int userId, AssetOperationRequestDto request)
+        public async Task<ApiResponseDto<bool>> DeductAssetAsync(long userId, AssetOperationRequestDto request)
         {
             try
             {
@@ -96,7 +96,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> FreezeAssetAsync(int userId, AssetOperationRequestDto request)
+        public async Task<ApiResponseDto<bool>> FreezeAssetAsync(long userId, AssetOperationRequestDto request)
         {
             try
             {
@@ -111,7 +111,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> UnfreezeAssetAsync(int userId, AssetOperationRequestDto request)
+        public async Task<ApiResponseDto<bool>> UnfreezeAssetAsync(long userId, AssetOperationRequestDto request)
         {
             try
             {
@@ -126,7 +126,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> ConsumeFrozenAssetAsync(int userId, AssetOperationRequestDto request)
+        public async Task<ApiResponseDto<bool>> ConsumeFrozenAssetAsync(long userId, AssetOperationRequestDto request)
         {
             try
             {
@@ -141,7 +141,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> TransferAssetAsync(int fromUserId, AssetTransferRequestDto request)
+        public async Task<ApiResponseDto<bool>> TransferAssetAsync(long fromUserId, AssetTransferRequestDto request)
         {
             try
             {
@@ -176,7 +176,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         // Removed unused extended query / system asset methods
 
-        public async Task<ApiResponseDto<bool>> InitializeUserAssetsAsync(int userId, Dictionary<string, decimal> initialBalances)
+        public async Task<ApiResponseDto<bool>> InitializeUserAssetsAsync(long userId, Dictionary<string, decimal> initialBalances)
         {
             try
             {
@@ -200,7 +200,7 @@ namespace CryptoSpot.Infrastructure.Services
         /// <summary>
         /// 获取用户所有资产 (从 Redis)
         /// </summary>
-        private async Task<IEnumerable<Asset>> GetUserAssetsInternalAsync(int userId)
+        private async Task<IEnumerable<Asset>> GetUserAssetsInternalAsync(long userId)
         {
             return await _redisAssets.GetUserAssetsAsync(userId);
         }
@@ -208,7 +208,7 @@ namespace CryptoSpot.Infrastructure.Services
         /// <summary>
         /// 获取用户单个资产 (从 Redis)
         /// </summary>
-        private async Task<Asset?> GetUserAssetInternalAsync(int userId, string symbol)
+        private async Task<Asset?> GetUserAssetInternalAsync(long userId, string symbol)
         {
             return await _redisAssets.GetAssetAsync(userId, symbol);
         }
@@ -216,7 +216,7 @@ namespace CryptoSpot.Infrastructure.Services
         /// <summary>
         /// 创建用户资产 (写入 Redis, 自动同步到 MySQL)
         /// </summary>
-        private async Task<Asset> CreateUserAssetInternalAsync(int userId, string symbol, decimal available = 0, decimal frozen = 0)
+        private async Task<Asset> CreateUserAssetInternalAsync(long userId, string symbol, decimal available = 0, decimal frozen = 0)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var asset = new Asset
@@ -241,7 +241,7 @@ namespace CryptoSpot.Infrastructure.Services
         /// <summary>
         /// 检查余额是否充足 (从 Redis 查询)
         /// </summary>
-        private async Task<bool> HasSufficientBalanceInternalAsync(int userId, string symbol, decimal amount, bool includeFrozen = false)
+        private async Task<bool> HasSufficientBalanceInternalAsync(long userId, string symbol, decimal amount, bool includeFrozen = false)
         {
             var asset = await GetUserAssetInternalAsync(userId, symbol);
             if (asset == null) return false;
@@ -252,7 +252,7 @@ namespace CryptoSpot.Infrastructure.Services
         /// <summary>
         /// 冻结资产 (Redis 原子操作)
         /// </summary>
-        private async Task<bool> FreezeAssetInternalAsync(int userId, string symbol, decimal amount)
+        private async Task<bool> FreezeAssetInternalAsync(long userId, string symbol, decimal amount)
         {
             // ✅ 使用 Redis Lua 脚本保证原子性
             var success = await _redisAssets.FreezeAssetAsync(userId, symbol, amount);
@@ -274,7 +274,7 @@ namespace CryptoSpot.Infrastructure.Services
         /// <summary>
         /// 解冻资产 (Redis 原子操作)
         /// </summary>
-        private async Task<bool> UnfreezeAssetInternalAsync(int userId, string symbol, decimal amount)
+        private async Task<bool> UnfreezeAssetInternalAsync(long userId, string symbol, decimal amount)
         {
             // ✅ 使用 Redis Lua 脚本保证原子性
             var success = await _redisAssets.UnfreezeAssetAsync(userId, symbol, amount);
@@ -291,7 +291,7 @@ namespace CryptoSpot.Infrastructure.Services
         /// <summary>
         /// 扣除资产 (Redis 原子操作)
         /// </summary>
-        private async Task<bool> DeductAssetInternalAsync(int userId, string symbol, decimal amount, bool fromFrozen = false)
+        private async Task<bool> DeductAssetInternalAsync(long userId, string symbol, decimal amount, bool fromFrozen = false)
         {
             try
             {
@@ -331,7 +331,7 @@ namespace CryptoSpot.Infrastructure.Services
         /// <summary>
         /// 增加资产 (Redis 原子操作)
         /// </summary>
-        private async Task<bool> AddAssetInternalAsync(int userId, string symbol, decimal amount)
+        private async Task<bool> AddAssetInternalAsync(long userId, string symbol, decimal amount)
         {
             try
             {
@@ -360,7 +360,7 @@ namespace CryptoSpot.Infrastructure.Services
         }
         
         // 推送该用户最新资产快照
-        private async Task PushUserAssetsSnapshotAsync(int userId)
+        private async Task PushUserAssetsSnapshotAsync(long userId)
         {
             try
             {

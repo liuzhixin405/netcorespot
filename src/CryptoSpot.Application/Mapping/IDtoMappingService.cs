@@ -14,7 +14,7 @@ namespace CryptoSpot.Application.Mapping
     {
         // Order mappings
         OrderDto MapToDto(Order order);
-        Order MapToDomain(CreateOrderRequestDto orderRequest, int userId, int tradingPairId);
+        Order MapToDomain(CreateOrderRequestDto orderRequest, long userId, long tradingPairId);
         IEnumerable<OrderDto> MapToDto(IEnumerable<Order> orders);
 
         // Trade mappings

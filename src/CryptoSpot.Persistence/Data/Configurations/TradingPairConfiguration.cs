@@ -9,6 +9,12 @@ public class TradingPairConfiguration : IEntityTypeConfiguration<TradingPair>
     public void Configure(EntityTypeBuilder<TradingPair> entity)
     {
         entity.HasKey(e => e.Id);
+        
+        // 显式配置 Id 为 int 类型（覆盖 BaseEntity 的 long 类型）
+        entity.Property(e => e.Id)
+            .HasColumnType("int")
+            .ValueGeneratedOnAdd();
+        
         entity.Property(e => e.Symbol).IsRequired().HasMaxLength(20);
         entity.Property(e => e.BaseAsset).IsRequired().HasMaxLength(10);
         entity.Property(e => e.QuoteAsset).IsRequired().HasMaxLength(10);

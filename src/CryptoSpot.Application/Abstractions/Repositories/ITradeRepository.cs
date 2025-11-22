@@ -4,13 +4,13 @@ namespace CryptoSpot.Application.Abstractions.Repositories
 {
     public interface ITradeRepository : IRepository<Trade>
     {
-        Task<IEnumerable<Trade>> GetTradesByUserIdAsync(int userId, string? symbol = null, int limit = 100);
-        Task<IEnumerable<Trade>> GetTradesByTradingPairIdAsync(int tradingPairId, int limit = 100);
+        Task<IEnumerable<Trade>> GetTradesByUserIdAsync(long userId, string? symbol = null, int limit = 100);
+        Task<IEnumerable<Trade>> GetTradesByTradingPairIdAsync(long tradingPairId, int limit = 100);
         Task<IEnumerable<Trade>> GetRecentTradesAsync(string? symbol = null, int limit = 50);
-        Task<IEnumerable<Trade>> GetRecentTradesByPairIdAsync(int tradingPairId, int limit = 50);
+        Task<IEnumerable<Trade>> GetRecentTradesByPairIdAsync(long tradingPairId, int limit = 50);
         Task<IEnumerable<Trade>> GetTradesByTimeRangeAsync(DateTime startTime, DateTime endTime, string? symbol = null);
-        Task<TradeStatistics> GetTradeStatisticsAsync(int? userId = null, string? symbol = null, DateTime? startTime = null, DateTime? endTime = null);
-        Task<IEnumerable<Trade>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100);
+        Task<TradeStatistics> GetTradeStatisticsAsync(long? userId = null, string? symbol = null, DateTime? startTime = null, DateTime? endTime = null);
+        Task<IEnumerable<Trade>> GetTradeHistoryAsync(long userId, string? symbol = null, int limit = 100);
     }
 
     public class TradeStatistics

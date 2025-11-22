@@ -38,7 +38,7 @@ namespace CryptoSpot.Application.Mapping
             };
         }
 
-        public Order MapToDomain(CreateOrderRequestDto orderRequest, int userId, int tradingPairId)
+        public Order MapToDomain(CreateOrderRequestDto orderRequest, long userId, long tradingPairId)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             

@@ -26,7 +26,7 @@ public class MatchEngineAdapter : IOrderMatchingEngine
         _logger = logger;
     }
 
-    public async Task<OrderMatchResultDto> ProcessOrderAsync(CreateOrderRequestDto orderRequest, int userId = 0)
+    public async Task<OrderMatchResultDto> ProcessOrderAsync(CreateOrderRequestDto orderRequest, long userId = 0)
     {
         // Map request -> domain Order
         var tradingPairId = 0; // mapping service expects tradingPairId; some callers may set it later
@@ -80,7 +80,7 @@ public class MatchEngineAdapter : IOrderMatchingEngine
         return result;
     }
 
-    public async Task<bool> CancelOrderAsync(int orderId, int userId = 0)
+    public async Task<bool> CancelOrderAsync(long orderId, long userId = 0)
     {
         try
         {

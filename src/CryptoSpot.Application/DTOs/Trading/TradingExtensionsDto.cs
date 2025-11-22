@@ -194,6 +194,6 @@ namespace CryptoSpot.Application.DTOs.Trading
         /// <summary>
         /// 成功取消的订单ID列表
         /// </summary>
-        public List<int> CancelledOrderIds { get; set; } = new();
+        public List<long> CancelledOrderIds { get; set; } = new();
     }
 }

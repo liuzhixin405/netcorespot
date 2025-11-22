@@ -25,7 +25,7 @@ namespace CryptoSpot.Infrastructure.BgServices
         private readonly string[] _symbols = new[] { "BTCUSDT", "ETHUSDT", "SOLUSDT" }; // 可配置
         private readonly string[] _klineIntervals = new[] { "1m" }; // MVP 只推 1m
 
-        private readonly ConcurrentDictionary<string, int> _symbolIdCache = new();
+        private readonly ConcurrentDictionary<string, long> _symbolIdCache = new();
         private readonly ConcurrentDictionary<string, (string Hash, long LastPushMs)> _orderBookState = new();
         private const int OrderBookMinPushIntervalMs = 250;
         private readonly ConcurrentDictionary<string, (decimal Price, decimal Change, decimal Vol, decimal High, decimal Low, long LastPushMs, string Hash)> _lastTickerState = new();
@@ -273,11 +273,11 @@ namespace CryptoSpot.Infrastructure.BgServices
                 var push = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
                 var pairService = scope.ServiceProvider.GetService<IPriceDataService>();
                 var klineService = scope.ServiceProvider.GetService<IKLineDataService>();
-                int tradingPairId = await ResolveTradingPairIdAsync(k.Symbol, pairService, ct);
+                long tradingPairId = await ResolveTradingPairIdAsync(k.Symbol, pairService, ct);
 
                 var klineEntity = new KLineData
                 {
-                    TradingPairId = tradingPairId,
+                    TradingPairId = (int)tradingPairId,
                     TimeFrame = interval,
                     OpenTime = k.OpenTime,
                     CloseTime = k.OpenTime + GetIntervalMs(interval),
@@ -347,7 +347,7 @@ namespace CryptoSpot.Infrastructure.BgServices
             }
         }
 
-        private async Task<int> ResolveTradingPairIdAsync(string symbol, IPriceDataService? service, CancellationToken ct)
+        private async Task<long> ResolveTradingPairIdAsync(string symbol, IPriceDataService? service, CancellationToken ct)
         {
             if (_symbolIdCache.TryGetValue(symbol, out var id)) return id;
             if (service == null) return 0;

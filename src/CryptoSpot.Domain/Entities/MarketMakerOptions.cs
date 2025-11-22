@@ -6,6 +6,6 @@ namespace CryptoSpot.Domain.Entities
     /// </summary>
     public class MarketMakerOptions
     {
-        public int[] UserIds { get; set; } = System.Array.Empty<int>();
+        public long[] UserIds { get; set; } = System.Array.Empty<long>();
     }
 }

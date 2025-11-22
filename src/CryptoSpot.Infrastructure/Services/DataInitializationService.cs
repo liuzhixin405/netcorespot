@@ -162,7 +162,7 @@ namespace CryptoSpot.Infrastructure.Services
         private async Task InitializeSystemAssetsAsync()
         {
             // 支持多做市账号
-            var makerIds = _mmOptions?.Value?.UserIds?.Distinct().ToList() ?? new List<int>();
+            var makerIds = _mmOptions?.Value?.UserIds?.Distinct().ToList() ?? new List<long>();
             if (makerIds.Count == 0)
             {
                 // 兼容旧逻辑：按用户名查找单一做市账号

@@ -9,16 +9,16 @@ namespace CryptoSpot.Application.Abstractions.Services.Users
     public interface IAssetService
     {
         // ================= DTO 层 =================
-        Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(int userId);
-        Task<ApiResponseDto<AssetDto?>> GetUserAssetAsync(int userId, string symbol);
+        Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(long userId);
+        Task<ApiResponseDto<AssetDto?>> GetUserAssetAsync(long userId, string symbol);
         // Removed unused summary/system asset APIs
-        Task<ApiResponseDto<bool>> AddAssetAsync(int userId, AssetOperationRequestDto request);
-        Task<ApiResponseDto<bool>> DeductAssetAsync(int userId, AssetOperationRequestDto request);
-        Task<ApiResponseDto<bool>> FreezeAssetAsync(int userId, AssetOperationRequestDto request);
-        Task<ApiResponseDto<bool>> UnfreezeAssetAsync(int userId, AssetOperationRequestDto request);
-        Task<ApiResponseDto<bool>> ConsumeFrozenAssetAsync(int userId, AssetOperationRequestDto request); // 新增: 直接消耗冻结余额
-        Task<ApiResponseDto<bool>> TransferAssetAsync(int fromUserId, AssetTransferRequestDto request);
+        Task<ApiResponseDto<bool>> AddAssetAsync(long userId, AssetOperationRequestDto request);
+        Task<ApiResponseDto<bool>> DeductAssetAsync(long userId, AssetOperationRequestDto request);
+        Task<ApiResponseDto<bool>> FreezeAssetAsync(long userId, AssetOperationRequestDto request);
+        Task<ApiResponseDto<bool>> UnfreezeAssetAsync(long userId, AssetOperationRequestDto request);
+        Task<ApiResponseDto<bool>> ConsumeFrozenAssetAsync(long userId, AssetOperationRequestDto request); // 新增: 直接消耗冻结余额
+        Task<ApiResponseDto<bool>> TransferAssetAsync(long fromUserId, AssetTransferRequestDto request);
         // Removed unused extended/query APIs
-        Task<ApiResponseDto<bool>> InitializeUserAssetsAsync(int userId, Dictionary<string, decimal> initialBalances); // 新增: 初始化用户资产
+        Task<ApiResponseDto<bool>> InitializeUserAssetsAsync(long userId, Dictionary<string, decimal> initialBalances); // 新增: 初始化用户资产
     }
 }

@@ -120,7 +120,7 @@ namespace CryptoSpot.MatchEngine
 
                 var trade = new Trade
                 {
-                    Id = (int)await redis.StringIncrementAsync("global:trade_id"),
+                    Id = await redis.StringIncrementAsync("global:trade_id"),
                     TradingPairId = taker.TradingPairId,
                     BuyOrderId = taker.Side == OrderSide.Buy ? taker.Id : slice.Maker.Id,
                     SellOrderId = taker.Side == OrderSide.Sell ? taker.Id : slice.Maker.Id,

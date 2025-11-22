@@ -35,7 +35,7 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         // ========== DTO 方法实现 ==========
-        public async Task<ApiResponseDto<OrderDto?>> CreateOrderDtoAsync(int userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null)
+        public async Task<ApiResponseDto<OrderDto?>> CreateOrderDtoAsync(long userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null)
         {
             try
             {
@@ -117,7 +117,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> CancelOrderDtoAsync(int orderId, int? userId)
+        public async Task<ApiResponseDto<bool>> CancelOrderDtoAsync(long orderId, long? userId)
         {
             try
             {
@@ -152,7 +152,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetUserOrdersDtoAsync(int userId, OrderStatus? status = null, int limit = 100)
+        public async Task<ApiResponseDto<IEnumerable<OrderDto>>> GetUserOrdersDtoAsync(long userId, OrderStatus? status = null, int limit = 100)
         {
             try
             {
@@ -185,7 +185,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<OrderDto?>> GetOrderByIdDtoAsync(int orderId, int? userId)
+        public async Task<ApiResponseDto<OrderDto?>> GetOrderByIdDtoAsync(long orderId, long? userId)
         {
             try
             {
@@ -257,7 +257,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> UpdateOrderStatusDtoAsync(int orderId, OrderStatus status, decimal filledQuantity = 0, decimal averagePrice = 0)
+        public async Task<ApiResponseDto<bool>> UpdateOrderStatusDtoAsync(long orderId, OrderStatus status, decimal filledQuantity = 0, decimal averagePrice = 0)
         {
             try
             {

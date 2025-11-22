@@ -186,7 +186,7 @@ public class RedisOrderRepository
     /// <summary>
     /// 获取用户的所有订单
     /// </summary>
-        public async Task<List<DomainOrder>> GetUserOrdersAsync(int userId, int limit = 100)
+        public async Task<List<DomainOrder>> GetUserOrdersAsync(long userId, int limit = 100)
     {
         var orders = new List<DomainOrder>();
         try
@@ -199,7 +199,7 @@ public class RedisOrderRepository
                     var parts = s.Split(new[] { '\r', '\n', ' ' }, StringSplitOptions.RemoveEmptyEntries).Take(limit);
                     foreach (var part in parts)
                     {
-                        if (int.TryParse(part, out var orderId))
+                        if (long.TryParse(part, out var orderId))
                         {
                             var order = await GetOrderByIdAsync(orderId);
                             if (order != null) orders.Add(order);
@@ -298,7 +298,7 @@ public class RedisOrderRepository
     /// <summary>
     /// 取消订单
     /// </summary>
-    public async Task<bool> CancelOrderAsync(int orderId, int userId)
+    public async Task<bool> CancelOrderAsync(long orderId, long userId)
     {
         var order = await GetOrderByIdAsync(orderId);
         if (order == null || order.UserId != userId)

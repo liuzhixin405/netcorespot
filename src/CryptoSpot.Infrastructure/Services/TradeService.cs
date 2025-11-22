@@ -221,7 +221,7 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         // ========== DTO 查询实现 ==========
-        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100)
+        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(long userId, string? symbol = null, int limit = 100)
         {
             try
             {
@@ -245,7 +245,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(int userId, string symbol = "", int limit = 100)
+        public Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(long userId, string symbol = "", int limit = 100)
             => GetTradeHistoryAsync(userId, string.IsNullOrEmpty(symbol) ? null : symbol, limit);
 
         public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetRecentTradesAsync(string symbol, int limit = 50)
@@ -264,7 +264,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         // Removed unused trade detail / volume / price range APIs; re-added order trade queries for TradingService
 
-        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradesByOrderIdAsync(int orderId)
+        public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradesByOrderIdAsync(long orderId)
         {
             try
             {
@@ -278,7 +278,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(int orderId) => GetTradesByOrderIdAsync(orderId);
+        public Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(long orderId) => GetTradesByOrderIdAsync(orderId);
 
         public async Task<ApiResponseDto<IEnumerable<MarketTradeDto>>> GetMarketRecentTradesAsync(string symbol, int limit = 50)
         {
@@ -292,7 +292,7 @@ namespace CryptoSpot.Infrastructure.Services
                 }
 
                 // 获取更多数据以便过滤后仍有足够记录
-                var trades = await _tradeRepository.GetRecentTradesByPairIdAsync(tradingPair.Id, limit * 2);
+                var trades = await _tradeRepository.GetRecentTradesByPairIdAsync((int)tradingPair.Id, limit * 2);
                 
                 // 只过滤掉双方都是系统用户的成交,保留至少一方是真实用户的成交
                 var filteredTrades = trades

@@ -18,7 +18,7 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
         _cache = cache;
     }
 
-    public async Task<IEnumerable<Trade>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100)
+    public async Task<IEnumerable<Trade>> GetTradeHistoryAsync(long userId, string? symbol = null, int limit = 100)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var query = context.Set<Trade>().Where(t => t.BuyerId == userId || t.SellerId == userId);
@@ -39,7 +39,7 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
         return await context.Set<Trade>().Where(t => t.TradingPairId == tradingPairId).OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
     }
 
-    public async Task<IEnumerable<Trade>> GetRecentTradesByPairIdAsync(int tradingPairId, int limit = 50)
+    public async Task<IEnumerable<Trade>> GetRecentTradesByPairIdAsync(long tradingPairId, int limit = 50)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         return await context.Set<Trade>()
@@ -49,7 +49,7 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
             .ToListAsync();
     }
 
-    public async Task<IEnumerable<Trade>> GetTradesByUserIdAsync(int userId, string? symbol = null, int limit = 100)
+    public async Task<IEnumerable<Trade>> GetTradesByUserIdAsync(long userId, string? symbol = null, int limit = 100)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var query = context.Set<Trade>().Where(t => t.BuyerId == userId || t.SellerId == userId);
@@ -61,7 +61,7 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
         return await query.OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
     }
 
-    public async Task<IEnumerable<Trade>> GetTradesByTradingPairIdAsync(int tradingPairId, int limit = 100)
+    public async Task<IEnumerable<Trade>> GetTradesByTradingPairIdAsync(long tradingPairId, int limit = 100)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         return await context.Set<Trade>().Where(t => t.TradingPairId == tradingPairId).OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
@@ -81,7 +81,7 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
         return await query.OrderByDescending(t => t.ExecutedAt).ToListAsync();
     }
 
-    public async Task<TradeStatistics> GetTradeStatisticsAsync(int? userId = null, string? symbol = null, DateTime? startTime = null, DateTime? endTime = null)
+    public async Task<TradeStatistics> GetTradeStatisticsAsync(long? userId = null, string? symbol = null, DateTime? startTime = null, DateTime? endTime = null)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var query = context.Set<Trade>().AsQueryable();

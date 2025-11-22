@@ -53,7 +53,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<TradingPairDto?>> GetTradingPairByIdAsync(int tradingPairId)
+        public async Task<ApiResponseDto<TradingPairDto?>> GetTradingPairByIdAsync(long tradingPairId)
         {
             if (tradingPairId <= 0)
                 return ApiResponseDto<TradingPairDto?>.CreateError("TradingPairId 无效");
@@ -72,19 +72,19 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<int>> GetTradingPairIdAsync(string symbol)
+        public async Task<ApiResponseDto<long>> GetTradingPairIdAsync(string symbol)
         {
             try
             {
                 var resp = await GetTradingPairAsync(symbol);
                 if (!resp.Success || resp.Data == null)
-                    return ApiResponseDto<int>.CreateError(resp.Error ?? "交易对不存在", resp.ErrorCode);
-                return ApiResponseDto<int>.CreateSuccess(resp.Data.Id);
+                    return ApiResponseDto<long>.CreateError(resp.Error ?? "交易对不存在", resp.ErrorCode);
+                return ApiResponseDto<long>.CreateSuccess(resp.Data.Id);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "获取交易对ID失败: {Symbol}", symbol);
-                return ApiResponseDto<int>.CreateError("获取交易对ID失败", "TRADING_PAIR_ERROR");
+                return ApiResponseDto<long>.CreateError("获取交易对ID失败", "TRADING_PAIR_ERROR");
             }
         }
 

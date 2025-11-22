@@ -1,8 +1,9 @@
 -- ====================================================
 -- CryptoSpot 数据库初始化脚本
 -- 用途：手动初始化数据库（当自动初始化失败时使用）
--- 版本：1.0
--- 日期：2025-10-22
+-- 版本：2.0
+-- 日期：2025-11-22
+-- 说明：所有实体ID统一使用BIGINT类型（UserId, OrderId, TradeId, TradingPairId等）
 -- ====================================================
 
 -- 1. 创建数据库（如果不存在）
@@ -11,6 +12,161 @@ DEFAULT CHARACTER SET utf8mb4
 DEFAULT COLLATE utf8mb4_unicode_ci;
 
 USE cryptospot;
+
+-- ====================================================
+-- 1.5. 创建表结构（如果不存在）
+-- ====================================================
+
+-- TradingPairs 表 (Id 使用 BIGINT)
+CREATE TABLE IF NOT EXISTS TradingPairs (
+    Id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    Symbol VARCHAR(20) NOT NULL UNIQUE,
+    BaseAsset VARCHAR(10) NOT NULL,
+    QuoteAsset VARCHAR(10) NOT NULL,
+    MinQuantity DECIMAL(18,8) NOT NULL DEFAULT 0.00000001,
+    MaxQuantity DECIMAL(18,8) NOT NULL DEFAULT 1000000.00000000,
+    PricePrecision INT NOT NULL DEFAULT 2,
+    QuantityPrecision INT NOT NULL DEFAULT 8,
+    IsActive TINYINT(1) NOT NULL DEFAULT 1,
+    LastUpdated BIGINT NOT NULL,
+    CreatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    UpdatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    IsDeleted TINYINT(1) NOT NULL DEFAULT 0,
+    DeletedAt BIGINT NULL,
+    Version TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX IX_TradingPairs_Symbol (Symbol),
+    INDEX IX_TradingPairs_IsActive (IsActive)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Users 表 (Id 使用 BIGINT)
+CREATE TABLE IF NOT EXISTS Users (
+    Id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    Username VARCHAR(50) NOT NULL UNIQUE,
+    Type INT NOT NULL DEFAULT 0 COMMENT '0=Regular, 1=MarketMaker, 2=Admin',
+    Description VARCHAR(200) NULL,
+    IsActive TINYINT(1) NOT NULL DEFAULT 1,
+    IsAutoTradingEnabled TINYINT(1) NOT NULL DEFAULT 0,
+    MaxRiskRatio DECIMAL(5,4) NOT NULL DEFAULT 0.3000,
+    DailyTradingLimit DECIMAL(18,8) NOT NULL DEFAULT 100000.00000000,
+    DailyTradedAmount DECIMAL(18,8) NOT NULL DEFAULT 0.00000000,
+    CreatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    UpdatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    IsDeleted TINYINT(1) NOT NULL DEFAULT 0,
+    DeletedAt BIGINT NULL,
+    Version TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX IX_Users_Username (Username),
+    INDEX IX_Users_Type (Type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Assets 表 (Id 使用 BIGINT, UserId 使用 BIGINT)
+CREATE TABLE IF NOT EXISTS Assets (
+    Id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    UserId BIGINT NOT NULL,
+    Symbol VARCHAR(10) NOT NULL,
+    Available DECIMAL(18,8) NOT NULL DEFAULT 0.00000000,
+    Frozen DECIMAL(18,8) NOT NULL DEFAULT 0.00000000,
+    MinReserve DECIMAL(18,8) NOT NULL DEFAULT 0.00000000,
+    TargetBalance DECIMAL(18,8) NOT NULL DEFAULT 0.00000000,
+    AutoRefillEnabled TINYINT(1) NOT NULL DEFAULT 0,
+    CreatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    UpdatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    IsDeleted TINYINT(1) NOT NULL DEFAULT 0,
+    DeletedAt BIGINT NULL,
+    Version TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE INDEX IX_Assets_UserId_Symbol (UserId, Symbol),
+    INDEX IX_Assets_UserId (UserId),
+    INDEX IX_Assets_Symbol (Symbol)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Orders 表 (Id 使用 BIGINT, UserId 使用 BIGINT, TradingPairId 使用 BIGINT)
+CREATE TABLE IF NOT EXISTS Orders (
+    Id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    OrderId VARCHAR(50) NOT NULL UNIQUE,
+    UserId BIGINT NULL,
+    TradingPairId BIGINT NOT NULL,
+    ClientOrderId VARCHAR(50) NULL,
+    Side INT NOT NULL COMMENT '0=Buy, 1=Sell',
+    Type INT NOT NULL COMMENT '0=Limit, 1=Market',
+    Status INT NOT NULL DEFAULT 0 COMMENT '0=Pending, 1=Active, 2=PartiallyFilled, 3=Filled, 4=Cancelled',
+    Price DECIMAL(18,8) NULL,
+    Quantity DECIMAL(18,8) NOT NULL,
+    FilledQuantity DECIMAL(18,8) NOT NULL DEFAULT 0.00000000,
+    AveragePrice DECIMAL(18,8) NULL,
+    CreatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    UpdatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    IsDeleted TINYINT(1) NOT NULL DEFAULT 0,
+    DeletedAt BIGINT NULL,
+    Version TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX IX_Orders_OrderId (OrderId),
+    INDEX IX_Orders_UserId (UserId),
+    INDEX IX_Orders_TradingPairId (TradingPairId),
+    INDEX IX_Orders_Status (Status),
+    CONSTRAINT FK_Orders_TradingPairs_TradingPairId 
+        FOREIGN KEY (TradingPairId) REFERENCES TradingPairs(Id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Trades 表 (所有ID使用 BIGINT)
+CREATE TABLE IF NOT EXISTS Trades (
+    Id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    TradeId VARCHAR(50) NOT NULL UNIQUE,
+    TradingPairId BIGINT NOT NULL,
+    BuyOrderId BIGINT NOT NULL,
+    SellOrderId BIGINT NOT NULL,
+    BuyerId BIGINT NOT NULL,
+    SellerId BIGINT NOT NULL,
+    UserId BIGINT NULL COMMENT 'Deprecated: for compatibility',
+    Price DECIMAL(18,8) NOT NULL,
+    Quantity DECIMAL(18,8) NOT NULL,
+    Fee DECIMAL(18,8) NOT NULL DEFAULT 0.00000000,
+    FeeAsset VARCHAR(10) NULL,
+    ExecutedAt BIGINT NOT NULL,
+    CreatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    UpdatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    IsDeleted TINYINT(1) NOT NULL DEFAULT 0,
+    DeletedAt BIGINT NULL,
+    Version TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX IX_Trades_TradeId (TradeId),
+    INDEX IX_Trades_TradingPairId (TradingPairId),
+    INDEX IX_Trades_BuyOrderId (BuyOrderId),
+    INDEX IX_Trades_SellOrderId (SellOrderId),
+    INDEX IX_Trades_BuyerId (BuyerId),
+    INDEX IX_Trades_SellerId (SellerId),
+    INDEX IX_Trades_ExecutedAt (ExecutedAt),
+    CONSTRAINT FK_Trades_TradingPairs_TradingPairId 
+        FOREIGN KEY (TradingPairId) REFERENCES TradingPairs(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_Trades_Orders_BuyOrderId 
+        FOREIGN KEY (BuyOrderId) REFERENCES Orders(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_Trades_Orders_SellOrderId 
+        FOREIGN KEY (SellOrderId) REFERENCES Orders(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_Trades_Users_UserId 
+        FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- KLineData 表 (Id 使用 BIGINT, TradingPairId 使用 BIGINT)
+CREATE TABLE IF NOT EXISTS KLineData (
+    Id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    TradingPairId BIGINT NOT NULL,
+    TimeFrame VARCHAR(10) NOT NULL,
+    OpenTime BIGINT NOT NULL,
+    CloseTime BIGINT NOT NULL,
+    Open DECIMAL(18,8) NOT NULL,
+    High DECIMAL(18,8) NOT NULL,
+    Low DECIMAL(18,8) NOT NULL,
+    Close DECIMAL(18,8) NOT NULL,
+    Volume DECIMAL(18,8) NOT NULL,
+    QuoteVolume DECIMAL(18,8) NOT NULL,
+    TradeCount INT NOT NULL DEFAULT 0,
+    CreatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    UpdatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
+    IsDeleted TINYINT(1) NOT NULL DEFAULT 0,
+    DeletedAt BIGINT NULL,
+    Version TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE INDEX IX_KLineData_TradingPairId_TimeFrame_OpenTime (TradingPairId, TimeFrame, OpenTime),
+    INDEX IX_KLineData_TradingPairId (TradingPairId),
+    INDEX IX_KLineData_OpenTime (OpenTime),
+    CONSTRAINT FK_KLineData_TradingPairs_TradingPairId 
+        FOREIGN KEY (TradingPairId) REFERENCES TradingPairs(Id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ====================================================
 -- 2. 清空现有数据（可选，谨慎使用）

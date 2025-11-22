@@ -28,7 +28,7 @@ namespace CryptoSpot.Application.DTOs.Trading
         /// <summary>
         /// 用户ID
         /// </summary>
-        public int? UserId { get; set; }
+        public long? UserId { get; set; }
 
         /// <summary>
         /// 交易对符号

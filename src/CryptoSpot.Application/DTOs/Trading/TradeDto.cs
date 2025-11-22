@@ -21,22 +21,22 @@ namespace CryptoSpot.Application.DTOs.Trading
         /// <summary>
         /// 买方订单ID
         /// </summary>
-        public int BuyOrderId { get; set; }
+        public long BuyOrderId { get; set; }
 
         /// <summary>
         /// 卖方订单ID
         /// </summary>
-        public int SellOrderId { get; set; }
+        public long SellOrderId { get; set; }
 
         /// <summary>
         /// 买方用户ID
         /// </summary>
-        public int BuyerId { get; set; }
+        public long BuyerId { get; set; }
 
         /// <summary>
         /// 卖方用户ID
         /// </summary>
-        public int SellerId { get; set; }
+        public long SellerId { get; set; }
 
         /// <summary>
         /// 交易对符号

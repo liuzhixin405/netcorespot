@@ -32,7 +32,7 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         // 基础用户操作 (内部先获取领域实体再转 DTO)
-        public async Task<ApiResponseDto<UserDto?>> GetUserByIdAsync(int userId)
+        public async Task<ApiResponseDto<UserDto?>> GetUserByIdAsync(long userId)
         {
             try
             {
@@ -200,7 +200,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<UserDto>> UpdateUserAsync(int userId, UpdateUserRequestDto request)
+        public async Task<ApiResponseDto<UserDto>> UpdateUserAsync(long userId, UpdateUserRequestDto request)
         {
             try
             {
@@ -234,7 +234,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task<ApiResponseDto<bool>> DeleteUserAsync(int userId)
+        public async Task<ApiResponseDto<bool>> DeleteUserAsync(long userId)
         {
             try
             {
@@ -265,7 +265,7 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         // 用户验证
-        public async Task<ApiResponseDto<bool>> ValidateUserAsync(int userId)
+        public async Task<ApiResponseDto<bool>> ValidateUserAsync(long userId)
         {
             try
             {
@@ -309,17 +309,17 @@ namespace CryptoSpot.Infrastructure.Services
         }
 
         // 系统账号特殊操作 (暂未实现)
-        public Task<ApiResponseDto<bool>> EnableAutoTradingAsync(int systemUserId, bool enabled)
+        public Task<ApiResponseDto<bool>> EnableAutoTradingAsync(long systemUserId, bool enabled)
             => Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "此功能尚未实现"));
 
-        public Task<ApiResponseDto<bool>> UpdateTradingLimitsAsync(int systemUserId, decimal dailyLimit, decimal maxRiskRatio)
+        public Task<ApiResponseDto<bool>> UpdateTradingLimitsAsync(long systemUserId, decimal dailyLimit, decimal maxRiskRatio)
             => Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "此功能尚未实现"));
 
-        public Task<ApiResponseDto<bool>> ResetDailyTradedAmountAsync(int systemUserId)
+        public Task<ApiResponseDto<bool>> ResetDailyTradedAmountAsync(long systemUserId)
             => Task.FromResult(ApiResponseDto<bool>.CreateSuccess(false, "此功能尚未实现"));
 
         // 内部: 通过仓储获取领域实体
-        private async Task<User?> GetDomainUserByIdInternal(int userId)
+        private async Task<User?> GetDomainUserByIdInternal(long userId)
         {
             return await _userRepository.GetByIdAsync(userId);
         }

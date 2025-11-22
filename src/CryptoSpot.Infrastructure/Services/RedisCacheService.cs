@@ -35,7 +35,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         #region User Cache Methods
 
-        public async Task<User?> GetUserAsync(int userId)
+        public async Task<User?> GetUserAsync(long userId)
         {
             try
             {
@@ -78,7 +78,7 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        public async Task RemoveUserAsync(int userId)
+        public async Task RemoveUserAsync(long userId)
         {
             try
             {
@@ -273,7 +273,7 @@ namespace CryptoSpot.Infrastructure.Services
         // 标记用户为脏数据，供后台定期落库使用
         private const string DIRTY_USERS_SET = "dirty:users";
 
-        public async Task MarkUserDirtyAsync(int userId)
+        public async Task MarkUserDirtyAsync(long userId)
         {
             try
             {

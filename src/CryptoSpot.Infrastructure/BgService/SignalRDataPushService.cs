@@ -231,7 +231,7 @@ namespace CryptoSpot.Infrastructure.BgServices
             }
         }
 
-        public async Task PushUserOrderUpdateAsync(int userId, OrderDto order)
+        public async Task PushUserOrderUpdateAsync(long userId, OrderDto order)
         {
             try
             {
@@ -246,7 +246,7 @@ namespace CryptoSpot.Infrastructure.BgServices
             }
         }
 
-        public async Task PushUserTradeAsync(int userId, TradeDto trade)
+        public async Task PushUserTradeAsync(long userId, TradeDto trade)
         {
             try
             {
@@ -260,7 +260,7 @@ namespace CryptoSpot.Infrastructure.BgServices
             }
         }
 
-        public async Task PushUserAssetUpdateAsync(int userId, IEnumerable<AssetDto> assets)
+        public async Task PushUserAssetUpdateAsync(long userId, IEnumerable<AssetDto> assets)
         {
             try
             {

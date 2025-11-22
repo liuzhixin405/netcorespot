@@ -10,12 +10,12 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         Task<ApiResponseDto<TradeDto?>> ExecuteTradeAsync(ExecuteTradeRequestDto request); // 新增: 替代 Raw 执行
 
         // ========== DTO 查询接口 ==========
-        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(int userId, string? symbol = null, int limit = 100);
-        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(int userId, string symbol = "", int limit = 100);
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradeHistoryAsync(long userId, string? symbol = null, int limit = 100);
+        Task<ApiResponseDto<IEnumerable<TradeDto>>> GetUserTradesAsync(long userId, string symbol = "", int limit = 100);
         Task<ApiResponseDto<IEnumerable<TradeDto>>> GetRecentTradesAsync(string symbol, int limit = 50);
     // 保留订单成交查询 (被 TradingService 使用)
-    Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradesByOrderIdAsync(int orderId);
-    Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(int orderId) => GetTradesByOrderIdAsync(orderId);
+    Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradesByOrderIdAsync(long orderId);
+    Task<ApiResponseDto<IEnumerable<TradeDto>>> GetOrderTradesAsync(long orderId) => GetTradesByOrderIdAsync(orderId);
         
         // ========== 市场公开数据接口 ==========
         /// <summary>

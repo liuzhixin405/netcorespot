@@ -7,7 +7,7 @@ namespace CryptoSpot.Application.DomainCommands.Trading
     /// </summary>
     public class CancelOrderCommand : ICommand<CancelOrderResult>
     {
-        public int UserId { get; set; }
-        public int OrderId { get; set; }
+        public long UserId { get; set; }
+        public long OrderId { get; set; }
     }
 }

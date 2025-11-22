@@ -8,7 +8,7 @@ namespace CryptoSpot.Application.DomainCommands.Trading
     /// </summary>
     public class SubmitOrderCommand : ICommand<SubmitOrderResult>
     {
-        public int UserId { get; set; }
+        public long UserId { get; set; }
         public string Symbol { get; set; } = string.Empty;
         public OrderSide Side { get; set; }
         public OrderType Type { get; set; }

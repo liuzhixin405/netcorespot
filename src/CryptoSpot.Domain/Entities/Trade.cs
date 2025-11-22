@@ -9,19 +9,19 @@ namespace CryptoSpot.Domain.Entities
     public class Trade : BaseEntity
     {
         [Required]
-        public int BuyOrderId { get; set; }
+        public long BuyOrderId { get; set; }
 
         [Required]
-        public int SellOrderId { get; set; }
+        public long SellOrderId { get; set; }
 
         [Required]
-        public int BuyerId { get; set; }
+        public long BuyerId { get; set; }
 
         [Required]
-        public int SellerId { get; set; }
+        public long SellerId { get; set; }
 
         [Required]
-        public int TradingPairId { get; set; }
+        public long TradingPairId { get; set; }
 
         [Required]
         [StringLength(50)]
