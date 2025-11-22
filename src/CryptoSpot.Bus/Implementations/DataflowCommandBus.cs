@@ -39,7 +39,7 @@ namespace CryptoSpot.Bus.Implementations
         {
             _provider = serviceProvider;
             _logger = logger;
-            _maxConcurrency = maxConcurrency ?? Environment.ProcessorCount * 2;
+            _maxConcurrency = maxConcurrency ?? Environment.ProcessorCount * 10;
             _concurrencyLimiter = new SemaphoreSlim(_maxConcurrency, _maxConcurrency);
             
             // 创建数据流网络

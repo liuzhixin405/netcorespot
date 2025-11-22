@@ -207,8 +207,8 @@ const AccountTabs: React.FC = () => {
       const nonTerminal = currentOrders;
       const combined = [...nonTerminal, ...historyOrders];
       setOrders(prev => {
-        // 去重并保留最近
-        const map = new Map<number, Order>();
+        // 去重并保留最近 (ID现在是string类型)
+        const map = new Map<string, Order>();
         [...combined, ...prev].forEach(o => { map.set(o.id, o); });
         return Array.from(map.values()).slice(0, 400);
       });
@@ -219,7 +219,7 @@ const AccountTabs: React.FC = () => {
   useEffect(() => {
     if (userTrades.length > 0) {
       setTrades(prev => {
-        const map = new Map<number, Trade>();
+        const map = new Map<string, Trade>();
         [...userTrades, ...prev].forEach(t => map.set(t.id, t));
         return Array.from(map.values()).slice(0, 200);
       });

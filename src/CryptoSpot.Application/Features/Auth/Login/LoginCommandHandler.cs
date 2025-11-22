@@ -42,11 +42,18 @@ namespace CryptoSpot.Application.Features.Auth.Login
             if (user == null)
                 return Result<LoginResponse>.Failure("Invalid username or password");
 
-            // 3. 验证密码
+            // 3. 检查密码哈希是否存在
+            if (string.IsNullOrEmpty(user.PasswordHash))
+            {
+                _logger.LogWarning("User {Username} has no password hash set", user.Username);
+                return Result<LoginResponse>.Failure("Account not properly configured. Please contact administrator.");
+            }
+
+            // 4. 验证密码
             if (!_passwordHasher.Verify(command.Password, user.PasswordHash))
                 return Result<LoginResponse>.Failure("Invalid username or password");
 
-            // 4. 生成 Token
+            // 5. 生成 Token
             var token = _tokenService.GenerateToken(user.Id, user.Username);
 
             _logger.LogInformation("User {Username} logged in successfully", user.Username);
@@ -54,7 +61,7 @@ namespace CryptoSpot.Application.Features.Auth.Login
             return Result<LoginResponse>.Success(new LoginResponse(
                 user.Id,
                 user.Username,
-                user.Email,
+                user.Email ?? string.Empty, // 确保Email不为null
                 token
             ));
         }

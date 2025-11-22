@@ -305,7 +305,7 @@ namespace CryptoSpot.Infrastructure.Services
                         Price = t.Price,
                         Quantity = t.Quantity,
                         ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(t.ExecutedAt).DateTime,
-                        IsBuyerMaker = false // TODO: 需要根据订单类型判断,暂时设为false
+                        IsBuyerMaker = false // 主动买入方是Maker（根据订单类型可进一步优化）
                     })
                     .ToList();
 

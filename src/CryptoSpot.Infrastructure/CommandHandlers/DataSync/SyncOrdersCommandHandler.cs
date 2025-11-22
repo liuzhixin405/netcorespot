@@ -106,7 +106,16 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
 
                             if (operation == "CREATE")
                             {
-                                var exists = await dbContext.Orders.AnyAsync(o => o.Id == orderId, ct);
+                                // 检查DbContext本地是否已跟踪该实体
+                                var trackedOrder = dbContext.Orders.Local.FirstOrDefault(o => o.Id == orderId);
+                                if (trackedOrder != null)
+                                {
+                                    // 已在本地跟踪，跳过（可能是重复项）
+                                    successfullyProcessed.Add(json);
+                                    continue;
+                                }
+                                
+                                var exists = await dbContext.Orders.AsNoTracking().AnyAsync(o => o.Id == orderId, ct);
                                 if (!exists)
                                 {
                                     var order = MapToOrder(orderData);
@@ -116,21 +125,42 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                             }
                             else if (operation == "UPDATE")
                             {
-                                var order = await dbContext.Orders.FirstOrDefaultAsync(o => o.Id == orderId, ct);
-                                if (order != null)
+                                // 先检查本地跟踪
+                                var trackedOrder = dbContext.Orders.Local.FirstOrDefault(o => o.Id == orderId);
+                                if (trackedOrder != null)
                                 {
-                                    UpdateOrderFromRedis(order, orderData);
-                                    dbContext.Orders.Update(order);
+                                    // 使用已跟踪的实体
+                                    UpdateOrderFromRedis(trackedOrder, orderData);
                                     processedCount++;
+                                }
+                                else
+                                {
+                                    var order = await dbContext.Orders.FirstOrDefaultAsync(o => o.Id == orderId, ct);
+                                    if (order != null)
+                                    {
+                                        UpdateOrderFromRedis(order, orderData);
+                                        dbContext.Orders.Update(order);
+                                        processedCount++;
+                                    }
                                 }
                             }
                             else if (operation == "DELETE")
                             {
-                                var order = await dbContext.Orders.FirstOrDefaultAsync(o => o.Id == orderId, ct);
-                                if (order != null)
+                                // 先检查本地跟踪
+                                var trackedOrder = dbContext.Orders.Local.FirstOrDefault(o => o.Id == orderId);
+                                if (trackedOrder != null)
                                 {
-                                    dbContext.Orders.Remove(order);
+                                    dbContext.Orders.Remove(trackedOrder);
                                     processedCount++;
+                                }
+                                else
+                                {
+                                    var order = await dbContext.Orders.FirstOrDefaultAsync(o => o.Id == orderId, ct);
+                                    if (order != null)
+                                    {
+                                        dbContext.Orders.Remove(order);
+                                        processedCount++;
+                                    }
                                 }
                             }
 
@@ -238,9 +268,9 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
             // ✅ 修复：Redis 中的字段名都是小写的
             return new Order
             {
-                Id = int.Parse(data["id"]),
-                UserId = int.Parse(data["userId"]),
-                TradingPairId = int.Parse(data["tradingPairId"]),
+                Id = long.Parse(data["id"]),
+                UserId = data.ContainsKey("userId") && !string.IsNullOrEmpty(data["userId"]) ? long.Parse(data["userId"]) : null,
+                TradingPairId = long.Parse(data["tradingPairId"]),
                 OrderId = string.IsNullOrEmpty(data.GetValueOrDefault("orderId", "")) ? $"ORD_{data.GetValueOrDefault("id", "0")}" : data.GetValueOrDefault("orderId", ""),
                 ClientOrderId = data.GetValueOrDefault("clientOrderId"),
                 Side = (OrderSide)int.Parse(data["side"]),
@@ -272,7 +302,7 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
 
         private class SyncQueueItem
         {
-            public int orderId { get; set; }
+            public long orderId { get; set; }
             public string operation { get; set; } = string.Empty;
         }
     }

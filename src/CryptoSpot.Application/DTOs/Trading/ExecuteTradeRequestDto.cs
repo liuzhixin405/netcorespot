@@ -5,8 +5,8 @@ namespace CryptoSpot.Application.DTOs.Trading
     /// </summary>
     public class ExecuteTradeRequestDto
     {
-        public int BuyOrderId { get; set; }
-        public int SellOrderId { get; set; }
+        public long BuyOrderId { get; set; }
+        public long SellOrderId { get; set; }
         public decimal Price { get; set; }
         public decimal Quantity { get; set; }
     }

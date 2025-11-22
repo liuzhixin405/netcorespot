@@ -15,8 +15,8 @@ export class AuthApi extends BaseApi {
   }
 
   // 获取当前用户信息（保持解包兼容 UserDto 简化使用）
-  async getCurrentUser(): Promise<ApiResponseDto<{ id: number; username: string; email: string; createdAt: string; lastLoginAt?: string } | null>> {
-    const resp = await this.client.get<ApiResponseDto<{ id: number; username: string; email: string; createdAt: string; lastLoginAt?: string } | null>>('/auth/me');
+  async getCurrentUser(): Promise<ApiResponseDto<User | null>> {
+    const resp = await this.client.get<ApiResponseDto<User | null>>('/auth/me');
     return resp.data; // 返回实际数据体
   }
 

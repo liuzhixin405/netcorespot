@@ -42,19 +42,23 @@ CREATE TABLE IF NOT EXISTS TradingPairs (
 CREATE TABLE IF NOT EXISTS Users (
     Id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     Username VARCHAR(50) NOT NULL UNIQUE,
-    Type INT NOT NULL DEFAULT 0 COMMENT '0=Regular, 1=MarketMaker, 2=Admin',
+    Email VARCHAR(100) NULL,
+    PasswordHash VARCHAR(255) NULL COMMENT 'Base64 encoded PBKDF2 hash',
+    Type INT NOT NULL DEFAULT 1 COMMENT '1=Regular, 2=MarketMaker, 3=RiskManagement, 4=LiquidityProvider, 5=Admin',
     Description VARCHAR(200) NULL,
     IsActive TINYINT(1) NOT NULL DEFAULT 1,
     IsAutoTradingEnabled TINYINT(1) NOT NULL DEFAULT 0,
-    MaxRiskRatio DECIMAL(5,4) NOT NULL DEFAULT 0.3000,
+    MaxRiskRatio DECIMAL(5,4) NOT NULL DEFAULT 0.1000,
     DailyTradingLimit DECIMAL(18,8) NOT NULL DEFAULT 100000.00000000,
     DailyTradedAmount DECIMAL(18,8) NOT NULL DEFAULT 0.00000000,
+    LastLoginAt BIGINT NULL,
     CreatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
     UpdatedAt BIGINT NOT NULL DEFAULT (UNIX_TIMESTAMP() * 1000),
     IsDeleted TINYINT(1) NOT NULL DEFAULT 0,
     DeletedAt BIGINT NULL,
     Version TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX IX_Users_Username (Username),
+    INDEX IX_Users_Email (Email),
     INDEX IX_Users_Type (Type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -196,29 +200,29 @@ WHERE NOT EXISTS (SELECT 1 FROM TradingPairs WHERE Symbol = 'SOLUSDT');
 -- ====================================================
 -- 4. 插入系统用户
 -- ====================================================
--- 系统做市商（UserType: 1 = MarketMaker）
-INSERT INTO Users (Username, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
-SELECT 'SystemMarketMaker', 1, '系统做市商账号', 1, 1, 0.10, 1000000.00, 0.00
-WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = 'SystemMarketMaker' AND Type = 1);
+-- 系统做市商（UserType: 2 = MarketMaker）- 密码: maker123
+INSERT INTO Users (Username, Email, PasswordHash, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
+SELECT 'SystemMarketMaker', 'maker@cryptospot.local', '/In3aL/qvVS/x50yEPUUFypFCkqnLfYH/ycRQY/dj5eUhjG2', 2, '系统做市商账号', 1, 1, 0.10, 1000000.00, 0.00
+WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = 'SystemMarketMaker');
 
--- 系统管理员（UserType: 2 = Admin）
-INSERT INTO Users (Username, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
-SELECT 'SystemAdmin', 2, '系统管理员账号', 1, 0, 0.05, 500000.00, 0.00
-WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = 'SystemAdmin' AND Type = 2);
+-- 系统管理员（UserType: 5 = Admin）- 密码: admin123
+INSERT INTO Users (Username, Email, PasswordHash, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
+SELECT 'SystemAdmin', 'admin@cryptospot.local', '0grSBrIOk8nfnYCFn6BJL874YhOYO3ypa2fyiIn20ykxe7O1', 5, '系统管理员账号', 1, 0, 0.05, 500000.00, 0.00
+WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = 'SystemAdmin');
 
 -- ====================================================
--- 5. 插入测试用户（UserType: 0 = Regular）
+-- 5. 插入测试用户（UserType: 1 = Regular）- 密码: test123
 -- ====================================================
-INSERT INTO Users (Username, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
-SELECT 'test_user_1', 0, '测试用户1', 1, 0, 0.30, 10000.00, 0.00
+INSERT INTO Users (Username, Email, PasswordHash, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
+SELECT 'test_user_1', 'test1@example.com', 'uc1fdOpWT+T6ZaUHlNFpS3MVHfF3T4megX2YhhUeLoE5NZc8', 1, '测试用户1', 1, 0, 0.30, 10000.00, 0.00
 WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = 'test_user_1');
 
-INSERT INTO Users (Username, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
-SELECT 'test_user_2', 0, '测试用户2', 1, 0, 0.30, 10000.00, 0.00
+INSERT INTO Users (Username, Email, PasswordHash, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
+SELECT 'test_user_2', 'test2@example.com', 'uc1fdOpWT+T6ZaUHlNFpS3MVHfF3T4megX2YhhUeLoE5NZc8', 1, '测试用户2', 1, 0, 0.30, 10000.00, 0.00
 WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = 'test_user_2');
 
-INSERT INTO Users (Username, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
-SELECT 'test_user_3', 0, '测试用户3', 1, 0, 0.30, 10000.00, 0.00
+INSERT INTO Users (Username, Email, PasswordHash, Type, Description, IsActive, IsAutoTradingEnabled, MaxRiskRatio, DailyTradingLimit, DailyTradedAmount)
+SELECT 'test_user_3', 'test3@example.com', 'uc1fdOpWT+T6ZaUHlNFpS3MVHfF3T4megX2YhhUeLoE5NZc8', 1, '测试用户3', 1, 0, 0.30, 10000.00, 0.00
 WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = 'test_user_3');
 
 -- ====================================================

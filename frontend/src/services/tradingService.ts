@@ -192,7 +192,7 @@ export class TradingService {
     }
   }
 
-  async cancelOrder(orderId: number) {
+  async cancelOrder(orderId: string) {
     return tradingApi.cancelOrder(orderId);
   }
 
@@ -259,7 +259,7 @@ export class TradingService {
 
   private mapOrder(o: any): Order {
     return {
-      id: o.id,
+      id: String(o.id), // 确保ID为string类型
       orderId: o.orderId,
       symbol: o.symbol,
       side: (o.side || '').toLowerCase() === 'sell' ? 'sell' : 'buy',
@@ -271,13 +271,15 @@ export class TradingService {
       status: this.normalizeStatus(o.status),
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
-      averagePrice: o.averagePrice
+      averagePrice: o.averagePrice,
+      tradingPairId: o.tradingPairId ? String(o.tradingPairId) : undefined,
+      userId: o.userId ? String(o.userId) : undefined
     };
   }
 
   private mapTrade(t: any): Trade {
     return {
-      id: t.id,
+      id: String(t.id), // 确保ID为string类型
       tradeId: t.tradeId,
       symbol: t.symbol,
       quantity: t.quantity,
@@ -286,7 +288,11 @@ export class TradingService {
       feeAsset: t.feeAsset,
       totalValue: t.totalValue,
       executedAt: t.executedAt,
-      side: (t.side || '').toLowerCase() === 'sell' ? 'sell' : (t.side ? 'buy' : undefined)
+      side: (t.side || '').toLowerCase() === 'sell' ? 'sell' : (t.side ? 'buy' : undefined),
+      buyOrderId: t.buyOrderId ? String(t.buyOrderId) : undefined,
+      sellOrderId: t.sellOrderId ? String(t.sellOrderId) : undefined,
+      buyerId: t.buyerId ? String(t.buyerId) : undefined,
+      sellerId: t.sellerId ? String(t.sellerId) : undefined
     };
   }
 

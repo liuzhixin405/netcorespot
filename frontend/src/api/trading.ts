@@ -66,17 +66,17 @@ export class TradingApi extends BaseApi {
   }
 
   // 获取指定订单
-  async getOrder(id: number): Promise<Order> {
+  async getOrder(id: string): Promise<Order> {
     return this.get<Order>(`${TRADING_BASE}/orders/${id}`);
   }
 
   // 获取订单成交明细
-  async getOrderTrades(id: number): Promise<Trade[]> {
+  async getOrderTrades(id: string): Promise<Trade[]> {
     return this.get<Trade[]>(`${TRADING_BASE}/orders/${id}/trades`);
   }
 
   // 取消订单
-  async cancelOrder(orderId: number): Promise<any> {
+  async cancelOrder(orderId: string): Promise<any> {
     return this.delete(`${TRADING_BASE}/orders/${orderId}`);
   }
 

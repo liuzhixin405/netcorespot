@@ -26,7 +26,6 @@ namespace CryptoSpot.API.Controllers
     {
         private readonly ICommandBus _commandBus;
         private readonly ILogger<TradingController> _logger;
-        // TODO: 临时保留旧服务接口，后续逐步迁移所有功能到CQRS模式
         private readonly ITradingService _tradingService;
 
         public TradingController(
@@ -40,10 +39,10 @@ namespace CryptoSpot.API.Controllers
         }
 
         // 辅助方法：获取当前用户ID
-        private int GetCurrentUserId()
+        private long GetCurrentUserId()
         {
             var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-            if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
+            if (userIdClaim == null || !long.TryParse(userIdClaim.Value, out var userId))
             {
                 throw new UnauthorizedAccessException("无效的用户认证信息");
             }

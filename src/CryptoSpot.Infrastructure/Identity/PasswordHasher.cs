@@ -1,4 +1,5 @@
 using CryptoSpot.Application.Common.Interfaces;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -53,9 +54,11 @@ namespace CryptoSpot.Infrastructure.Identity
 
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                {
+                    throw new Exception($"{nameof(PasswordHasher)}{nameof(Verify)}:{ex.Message}");
+                }
             }
         }
     }

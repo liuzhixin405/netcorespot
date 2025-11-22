@@ -18,24 +18,55 @@ export class AuthService {
   async login(credentials: LoginRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
       const resp = await authApi.login(credentials);
-      if (!resp.success || !resp.data) {
-        return { success: false, error: resp.error || '登录失败' };
+      
+      // 注意：后端直接返回 LoginResponse，不是包装格式
+      // 检查是否是错误响应（包装格式）
+      if (resp && typeof resp === 'object') {
+        // 如果有 success 字段，说明是包装格式（错误情况）
+        if ('success' in resp && !resp.success) {
+          return { success: false, error: (resp as any).error || '登录失败' };
+        }
+        
+        // 如果有 data 字段，说明是包装格式（成功情况）
+        if ('data' in resp) {
+          const authData = (resp as any).data;
+          if (!authData || !authData.token) {
+            return { success: false, error: '缺少token' };
+          }
+          localStorage.setItem('token', authData.token);
+          
+          this.currentUser = { 
+            id: String(authData.userId), 
+            username: authData.username, 
+            email: authData.email || '', 
+            createdAt: new Date().toISOString(),
+            lastLoginAt: undefined
+          };
+          return { success: true, user: this.currentUser };
+        }
+        
+        // 否则，直接是 LoginResponse 对象 { userId, username, email, token }
+        const authData = resp as any;
+        if (!authData.token) {
+          return { success: false, error: '缺少token' };
+        }
+        
+        localStorage.setItem('token', authData.token);
+        
+        // 直接从扁平结构构建User对象
+        if (authData.userId !== undefined && authData.username) {
+          this.currentUser = { 
+            id: String(authData.userId), 
+            username: authData.username, 
+            email: authData.email || '', 
+            createdAt: new Date().toISOString(),
+            lastLoginAt: undefined
+          };
+          return { success: true, user: this.currentUser };
+        }
       }
-      const authData = resp.data;
-      if (!authData.token) return { success: false, error: '缺少token' };
-      localStorage.setItem('token', authData.token);
-      const userObj = authData.user;
-      if (userObj) {
-        this.currentUser = { id: userObj.id, username: userObj.username, email: userObj.email, createdAt: userObj.createdAt, lastLoginAt: userObj.lastLoginAt };
-        return { success: true, user: this.currentUser };
-      }
-      // 兜底：再调 /auth/me
-      const me = await authApi.getCurrentUser();
-      if (me.success && me.data) {
-        const u = me.data; this.currentUser = { id: u.id, username: u.username, email: u.email, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
-        return { success: true, user: this.currentUser };
-      }
-      return { success: true, user: { id: 0, username: 'Unknown', email: '', createdAt: new Date().toISOString() } };
+      
+      return { success: false, error: '登录响应格式错误' };
     } catch (error: any) {
       const msg = error.response?.data?.error || error.response?.data?.message || error.message || '登录失败';
       return { success: false, error: msg };
@@ -46,22 +77,53 @@ export class AuthService {
   async register(userData: RegisterRequest): Promise<{ success: boolean; user?: User; error?: string }> {
     try {
       const resp = await authApi.register(userData);
-      if (!resp.success || !resp.data) {
-        return { success: false, error: resp.error || '注册失败' };
+      
+      // 注意：后端直接返回 RegisterResponse，不是包装格式
+      if (resp && typeof resp === 'object') {
+        // 如果有 success 字段，说明是包装格式（错误情况）
+        if ('success' in resp && !resp.success) {
+          return { success: false, error: (resp as any).error || '注册失败' };
+        }
+        
+        // 如果有 data 字段，说明是包装格式
+        if ('data' in resp) {
+          const authData = (resp as any).data;
+          if (!authData || !authData.token) {
+            return { success: false, error: '缺少token' };
+          }
+          localStorage.setItem('token', authData.token);
+          
+          this.currentUser = { 
+            id: String(authData.userId),
+            username: authData.username, 
+            email: authData.email || '', 
+            createdAt: new Date().toISOString(),
+            lastLoginAt: undefined
+          };
+          return { success: true, user: this.currentUser };
+        }
+        
+        // 否则，直接是响应对象
+        const authData = resp as any;
+        if (!authData.token) {
+          return { success: false, error: '缺少token' };
+        }
+        
+        localStorage.setItem('token', authData.token);
+        
+        if (authData.userId !== undefined && authData.username) {
+          this.currentUser = { 
+            id: String(authData.userId),
+            username: authData.username, 
+            email: authData.email || '', 
+            createdAt: new Date().toISOString(),
+            lastLoginAt: undefined
+          };
+          return { success: true, user: this.currentUser };
+        }
       }
-      const authData = resp.data;
-      localStorage.setItem('token', authData.token);
-      const userObj = authData.user;
-      if (userObj) {
-        this.currentUser = { id: userObj.id, username: userObj.username, email: userObj.email, createdAt: userObj.createdAt, lastLoginAt: userObj.lastLoginAt };
-        return { success: true, user: this.currentUser };
-      }
-      const me = await authApi.getCurrentUser();
-      if (me.success && me.data) {
-        const u = me.data; this.currentUser = { id: u.id, username: u.username, email: u.email, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
-        return { success: true, user: this.currentUser };
-      }
-      return { success: true, user: { id: 0, username: userData.username, email: userData.email, createdAt: new Date().toISOString() } };
+      
+      return { success: false, error: '注册响应格式错误' };
     } catch (error: any) {
       const msg = error.response?.data?.error || error.response?.data?.message || error.message || '注册失败';
       return { success: false, error: msg };
@@ -113,14 +175,40 @@ export class AuthService {
   async initializeUser(): Promise<User | null> {
     const token = localStorage.getItem('token');
     if (!token) return null;
+    
+    // 先检查token是否过期，避免无效请求
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const exp = payload.exp * 1000; // JWT exp是秒，转换为毫秒
+      if (Date.now() >= exp) {
+        // Token已过期，清理并返回null
+        localStorage.removeItem('token');
+        this.currentUser = null;
+        return null;
+      }
+    } catch (error) {
+      // Token格式错误，清理并返回null
+      console.error('Token格式错误:', error);
+      localStorage.removeItem('token');
+      this.currentUser = null;
+      return null;
+    }
+    
+    // Token有效，调用API获取用户信息
     try {
       const me = await authApi.getCurrentUser();
       if (me.success && me.data) {
-        const u = me.data; this.currentUser = { id: u.id, username: u.username, email: u.email, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
+        this.currentUser = me.data;
         return this.currentUser;
       }
       return null;
-    } catch { return null; }
+    } catch (error) {
+      // API调用失败（如401），清理token
+      console.error('获取用户信息失败:', error);
+      localStorage.removeItem('token');
+      this.currentUser = null;
+      return null;
+    }
   }
 
   // 验证表单
