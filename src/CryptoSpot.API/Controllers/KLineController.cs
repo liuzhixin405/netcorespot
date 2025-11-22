@@ -152,34 +152,6 @@ namespace CryptoSpot.API.Controllers
         }
 
         /// <summary>
-        /// 获取支持的交易对列表
-        /// </summary>
-        /// <returns>支持的交易对列表</returns>
-        [HttpGet("symbols")]
-        public IActionResult GetSupportedSymbols()
-        {
-            var symbols = new[]
-            {
-                "BTCUSDT",
-                "ETHUSDT", 
-                "SOLUSDT",
-                "ADAUSDT",
-                "DOTUSDT",
-                "LINKUSDT",
-                "UNIUSDT",
-                "LTCUSDT",
-                "BCHUSDT",
-                "XLMUSDT"
-            };
-
-            return Ok(new
-            {
-                success = true,
-                data = symbols
-            });
-        }
-
-        /// <summary>
         /// 获取支持的时间间隔
         /// </summary>
         /// <returns>支持的时间间隔列表</returns>
