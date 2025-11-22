@@ -1,4 +1,3 @@
-using CryptoSpot.Application.Common.Exceptions;
 using CryptoSpot.Domain.Exceptions;
 using System.Net;
 using System.Text.Json;
@@ -38,25 +37,6 @@ namespace CryptoSpot.API.Middleware
 
             switch (exception)
             {
-                case ValidationException validationException:
-                    code = HttpStatusCode.BadRequest;
-                    result = JsonSerializer.Serialize(new
-                    {
-                        error = "Validation failed",
-                        errors = validationException.Errors
-                    });
-                    break;
-
-                case NotFoundException notFoundException:
-                    code = HttpStatusCode.NotFound;
-                    result = JsonSerializer.Serialize(new { error = notFoundException.Message });
-                    break;
-
-                case UnauthorizedException unauthorizedException:
-                    code = HttpStatusCode.Unauthorized;
-                    result = JsonSerializer.Serialize(new { error = unauthorizedException.Message });
-                    break;
-
                 case DomainException domainException:
                     code = HttpStatusCode.BadRequest;
                     result = JsonSerializer.Serialize(new { error = domainException.Message });

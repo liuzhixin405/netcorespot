@@ -186,6 +186,9 @@ builder.Services.AddSignalR(options => { options.EnableDetailedErrors = true; })
 
 var app = builder.Build();
 
+// 注册全局异常处理中间件
+app.UseMiddleware<CryptoSpot.API.Middleware.ExceptionHandlingMiddleware>();
+
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
 
 app.UseHttpsRedirection();
