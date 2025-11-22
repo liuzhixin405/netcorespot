@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using CryptoSpot.MatchEngine.Services;
 using CryptoSpot.Redis;
 using Microsoft.Extensions.Logging;
 
@@ -12,17 +13,22 @@ namespace CryptoSpot.MatchEngine.Core
     {
         private readonly IRedisCache _redis;
         private readonly ILogger<LuaSettlementService> _logger;
+        private readonly ITradingPairParser _pairParser;
         private const long PRECISION = 100_000_000;
 
-        public LuaSettlementService(IRedisCache redis, ILogger<LuaSettlementService> logger)
+        public LuaSettlementService(
+            IRedisCache redis, 
+            ILogger<LuaSettlementService> logger,
+            ITradingPairParser pairParser)
         {
             _redis = redis;
             _logger = logger;
+            _pairParser = pairParser;
         }
 
         public Task<SettlementResult> SettleAsync(SettlementContext ctx)
         {
-            var (baseCurrency, quoteCurrency) = ParseSymbol(ctx.Symbol);
+            var (baseCurrency, quoteCurrency) = _pairParser.ParseSymbol(ctx.Symbol);
             var baseAmount = ctx.Quantity;
             var quoteAmount = ctx.Quantity * ctx.Price;
 
@@ -55,12 +61,6 @@ namespace CryptoSpot.MatchEngine.Core
                 _logger.LogError(ex, "Lua 结算失败");
                 return Task.FromResult(new SettlementResult(false, ex.Message));
             }
-        }
-
-        private (string baseCurrency, string quoteCurrency) ParseSymbol(string symbol)
-        {
-            var quote = "USDT"; // TODO: 未来通过 TradingPair 配置
-            return (symbol.Replace(quote, string.Empty), quote);
         }
     }
 }

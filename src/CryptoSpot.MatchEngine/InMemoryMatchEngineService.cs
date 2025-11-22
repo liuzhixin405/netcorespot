@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using CryptoSpot.MatchEngine.Core;
 using CryptoSpot.MatchEngine.Events;
+using CryptoSpot.MatchEngine.Services;
 
 namespace CryptoSpot.MatchEngine
 {
@@ -29,8 +30,18 @@ namespace CryptoSpot.MatchEngine
         private readonly IMatchEngineEventBus _eventBus;
         private readonly IMatchingAlgorithm _algorithm;
         private readonly IMatchEngineMetrics _metrics;
+        private readonly IOrderBookSnapshotService _snapshotService;
+        private readonly ITradingPairParser _pairParser;
 
-        public InMemoryMatchEngineService(ILogger<InMemoryMatchEngineService> logger, IServiceProvider sp, ISettlementService settlement, IMatchEngineEventBus eventBus, IMatchingAlgorithm algorithm, IMatchEngineMetrics metrics)
+        public InMemoryMatchEngineService(
+            ILogger<InMemoryMatchEngineService> logger, 
+            IServiceProvider sp, 
+            ISettlementService settlement, 
+            IMatchEngineEventBus eventBus, 
+            IMatchingAlgorithm algorithm, 
+            IMatchEngineMetrics metrics,
+            IOrderBookSnapshotService snapshotService,
+            ITradingPairParser pairParser)
         {
             _logger = logger;
             _sp = sp;
@@ -38,6 +49,10 @@ namespace CryptoSpot.MatchEngine
             _eventBus = eventBus;
             _algorithm = algorithm;
             _metrics = metrics;
+            _snapshotService = snapshotService;
+            _pairParser = pairParser;
+            _snapshotService = snapshotService;
+            _pairParser = pairParser;
         }
 
         public async Task<Order> PlaceOrderAsync(Order order, string symbol)
@@ -59,7 +74,7 @@ namespace CryptoSpot.MatchEngine
                 var redisOrders = scope.ServiceProvider.GetRequiredService<RedisOrderRepository>();
                 var redis = scope.ServiceProvider.GetRequiredService<IRedisCache>();
 
-                var (currency, amount) = GetFreezeAmount(order, symbol);
+                var (currency, amount) = _pairParser.GetFreezeAmount(order, symbol);
                 var userId = order.UserId ?? throw new InvalidOperationException("订单缺少用户ID");
                 // pass `symbol` as tag so asset keys used in Lua scripts share the same cluster hash slot
                 var freezeSuccess = await redisAssets.FreezeAssetAsync(userId, currency, amount, symbol);
@@ -85,7 +100,7 @@ namespace CryptoSpot.MatchEngine
                 {
                     try
                     {
-                        await PushOrderBookUpdate(symbol);
+                        await _snapshotService.PushSnapshotAsync(symbol);
                         await _eventBus.PublishAsync(new OrderPlacedEvent(symbol, order));
                         await _eventBus.PublishAsync(new OrderBookChangedEvent(symbol));
                     }
@@ -198,63 +213,6 @@ namespace CryptoSpot.MatchEngine
             {
                 _logger.LogWarning(ex, "Failed to push trade realtime");
             }
-        }
-
-        private (string currency, decimal amount) GetFreezeAmount(Order order, string symbol)
-        {
-            var quoteCurrency = "USDT";
-            var baseCurrency = symbol.Replace(quoteCurrency, "");
-            var price = order.Price ?? 0;
-            if (order.Side == OrderSide.Buy)
-            {
-                return (quoteCurrency, order.Quantity * price);
-            }
-            else
-            {
-                return (baseCurrency, order.Quantity);
-            }
-        }
-
-        private (string baseCurrency, string quoteCurrency) ParseSymbol(string symbol)
-        {
-            var quoteCurrency = "USDT";
-            var baseCurrency = symbol.Replace(quoteCurrency, "");
-            return (baseCurrency, quoteCurrency);
-        }
-
-        /// <summary>
-        /// 推送订单簿快照给实时推送服务（SignalR 等）。
-        /// </summary>
-        private async Task PushOrderBookUpdate(string symbol)
-        {
-            try
-            {
-                // 获取聚合深度
-                var bids = await GetAggregatedDepth(symbol, OrderSide.Buy, 20);
-                var asks = await GetAggregatedDepth(symbol, OrderSide.Sell, 20);
-
-                var bidDtos = bids.Select(x => new CryptoSpot.Application.DTOs.Trading.OrderBookLevelDto { Price = x.price, Quantity = x.quantity }).ToList();
-                var askDtos = asks.Select(x => new CryptoSpot.Application.DTOs.Trading.OrderBookLevelDto { Price = x.price, Quantity = x.quantity }).ToList();
-
-                using var scope = _sp.CreateScope();
-                var realTimePush = scope.ServiceProvider.GetService<CryptoSpot.Application.Abstractions.Services.RealTime.IRealTimeDataPushService>();
-                if (realTimePush != null)
-                {
-                    await realTimePush.PushExternalOrderBookSnapshotAsync(symbol, bidDtos, askDtos, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to push order book snapshot for {Symbol}", symbol);
-            }
-        }
-
-        private async Task<List<(decimal price, decimal quantity)>> GetAggregatedDepth(string symbol, OrderSide side, int depth)
-        {
-            // Query Redis repository to get aggregated depth to keep snapshot consistent with Redis-backed view
-            using var scope = _sp.CreateScope();
-            var redisOrders = scope.ServiceProvider.GetRequiredService<RedisOrderRepository>();
-            return await redisOrders.GetOrderBookDepthAsync(symbol, depth).ContinueWith(t => side == OrderSide.Buy ? t.Result.bids : t.Result.asks);
         }
     }
 }

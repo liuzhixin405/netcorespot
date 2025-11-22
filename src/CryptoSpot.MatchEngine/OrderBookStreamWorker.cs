@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using CryptoSpot.Infrastructure.Repositories.Redis;
+using CryptoSpot.MatchEngine.Services;
 using CryptoSpot.Redis;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -19,15 +20,20 @@ namespace CryptoSpot.MatchEngine
     {
         private readonly ILogger<OrderBookStreamWorker> _logger;
         private readonly IServiceProvider _sp;
+        private readonly IOrderBookSnapshotService _snapshotService;
         private const string StreamKey = "orders:stream";
         private const string GroupName = "order_book_push_group";
         private const string ConsumerPrefix = "orderbook-pusher-";
         private const string DlqStream = "orders:stream:dlq";
 
-        public OrderBookStreamWorker(ILogger<OrderBookStreamWorker> logger, IServiceProvider sp)
+        public OrderBookStreamWorker(
+            ILogger<OrderBookStreamWorker> logger, 
+            IServiceProvider sp,
+            IOrderBookSnapshotService snapshotService)
         {
             _logger = logger;
             _sp = sp;
+            _snapshotService = snapshotService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -132,16 +138,8 @@ namespace CryptoSpot.MatchEngine
         {
             try
             {
-                // Push snapshot (reuse RedisOrderRepository + realTime push)
-                using var scope = _sp.CreateScope();
-                var redisOrders = scope.ServiceProvider.GetRequiredService<RedisOrderRepository>();
-                var realTimePush = scope.ServiceProvider.GetService<CryptoSpot.Application.Abstractions.Services.RealTime.IRealTimeDataPushService>();
-                if (realTimePush == null) return;
-
-                var (bids, asks) = await redisOrders.GetOrderBookDepthAsync(symbol, 20);
-                var bidDtos = bids.ConvertAll(x => new CryptoSpot.Application.DTOs.Trading.OrderBookLevelDto { Price = x.price, Quantity = x.quantity });
-                var askDtos = asks.ConvertAll(x => new CryptoSpot.Application.DTOs.Trading.OrderBookLevelDto { Price = x.price, Quantity = x.quantity });
-                await realTimePush.PushExternalOrderBookSnapshotAsync(symbol, bidDtos, askDtos, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                // 使用统一的快照服务
+                await _snapshotService.PushSnapshotAsync(symbol);
 
                 // Acknowledge will be handled by caller after successful processing
             }

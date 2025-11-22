@@ -5,6 +5,7 @@ using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.MatchEngine;
 using CryptoSpot.MatchEngine.Core;
 using CryptoSpot.MatchEngine.Events;
+using CryptoSpot.MatchEngine.Services;
 using CryptoSpot.Redis;
 using CryptoSpot.Redis.Serializer;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,6 +34,10 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<System.Collections.Concurrent.ConcurrentDictionary<string, IOrderBook>>();
 
         services.AddSingleton(typeof(CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService), typeof(InMemoryMatchEngineService));
+
+        // 添加重构后的服务
+        services.AddSingleton<IOrderBookSnapshotService, OrderBookSnapshotService>();
+        services.AddSingleton<ITradingPairParser, TradingPairParserService>();
 
         // 添加健康检查
         services.AddCryptoSpotHealthChecks(context.Configuration);
