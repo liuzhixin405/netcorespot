@@ -5,11 +5,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using CryptoSpot.Redis;
-using System.Text.Json;
 using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
-using MessagePack;
-using MessagePack.Resolvers;
 using CryptoSpot.MatchEngine.Core;
 
 namespace CryptoSpot.MatchEngine;

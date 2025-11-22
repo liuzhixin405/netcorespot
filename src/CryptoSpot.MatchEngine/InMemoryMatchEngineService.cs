@@ -51,8 +51,6 @@ namespace CryptoSpot.MatchEngine
             _metrics = metrics;
             _snapshotService = snapshotService;
             _pairParser = pairParser;
-            _snapshotService = snapshotService;
-            _pairParser = pairParser;
         }
 
         public async Task<Order> PlaceOrderAsync(Order order, string symbol)

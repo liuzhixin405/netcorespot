@@ -20,26 +20,30 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddHostedService<OrderBookSnapshotWorker>();
         services.AddHostedService<MatchEngineEventDispatcherWorker>();
 
+        // 基础设施
         services.AddRedis(context.Configuration.GetSection("Redis"));
         services.AddCleanArchitecture();
 
-        // 使用基于 Redis 的交易对服务（撮合引擎不需要数据库）
+        // 核心服务
         services.AddSingleton<CryptoSpot.Application.Abstractions.Services.Trading.ITradingPairService, RedisTradingPairService>();
-
+        services.AddSingleton<CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService, InMemoryMatchEngineService>();
+        
+        // 撮合引擎组件
         services.AddSingleton<ISettlementService, LuaSettlementService>();
+        services.AddSingleton<IMatchingAlgorithm, PriceTimePriorityMatchingAlgorithm>();
         services.AddSingleton<IOrderPayloadDecoder, CompositeOrderPayloadDecoder>();
+        
+        // 事件总线
         services.AddSingleton<AsyncMatchEngineEventBus>();
         services.AddSingleton<IMatchEngineEventBus>(sp => sp.GetRequiredService<AsyncMatchEngineEventBus>());
-        services.AddSingleton<IMatchingAlgorithm, PriceTimePriorityMatchingAlgorithm>();
-        services.AddSingleton<IMatchEngineMetrics, NoOpMatchEngineMetrics>();
-
-        services.AddSingleton<System.Collections.Concurrent.ConcurrentDictionary<string, IOrderBook>>();
-
-        services.AddSingleton(typeof(CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService), typeof(InMemoryMatchEngineService));
-
-        // 添加重构后的服务
+        
+        // 辅助服务
         services.AddSingleton<IOrderBookSnapshotService, OrderBookSnapshotService>();
         services.AddSingleton<ITradingPairParser, TradingPairParserService>();
+        services.AddSingleton<IMatchEngineMetrics, NoOpMatchEngineMetrics>();
+        
+        // 订单簿存储
+        services.AddSingleton<System.Collections.Concurrent.ConcurrentDictionary<string, IOrderBook>>();
 
         // 添加健康检查（撮合引擎专用，不包含数据库）
         services.AddMatchEngineHealthChecks(context.Configuration);
