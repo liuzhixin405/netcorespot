@@ -35,7 +35,7 @@ public class TradingPairRepository : BaseRepository<TradingPair>, ITradingPairRe
         return await context.Set<TradingPair>().Where(tp => tp.IsActive).OrderByDescending(tp => tp.Volume24h).Take(limit).ToListAsync();
     }
 
-    public async Task<int> GetTradingPairIdAsync(string symbol) => (await GetBySymbolAsync(symbol))?.Id ?? 0;
+    public async Task<long> GetTradingPairIdAsync(string symbol) => (await GetBySymbolAsync(symbol))?.Id ?? 0;
 
     public async Task<IEnumerable<TradingPair>> SearchTradingPairsAsync(string searchTerm, int limit)
     {

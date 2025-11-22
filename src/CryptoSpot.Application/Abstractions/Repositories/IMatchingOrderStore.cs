@@ -9,11 +9,11 @@ namespace CryptoSpot.Application.Abstractions.Repositories
     /// </summary>
     public interface IMatchingOrderStore
     {
-        Task<Order?> GetOrderAsync(int orderId);
+        Task<Order?> GetOrderAsync(long orderId);
         Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null);
-        Task<IEnumerable<Order>> GetUserOrdersAsync(int userId, OrderStatus? status = null, int limit = 100);
+        Task<IEnumerable<Order>> GetUserOrdersAsync(long userId, OrderStatus? status = null, int limit = 100);
         Task<Order> AddOrderAsync(Order order);
-        Task<bool> UpdateOrderStatusAsync(int orderId, OrderStatus status, decimal filledQuantityDelta = 0, decimal? averagePrice = null);
-        Task<bool> CancelOrderAsync(int orderId);
+        Task<bool> UpdateOrderStatusAsync(long orderId, OrderStatus status, decimal filledQuantityDelta = 0, decimal? averagePrice = null);
+        Task<bool> CancelOrderAsync(long orderId);
     }
 }

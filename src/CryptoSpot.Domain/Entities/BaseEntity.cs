@@ -13,7 +13,7 @@ namespace CryptoSpot.Domain.Entities
         /// 主键ID
         /// </summary>
         [Key]
-        public int Id { get; set; }
+        public long Id { get; set; }
 
         /// <summary>
         /// 创建时间戳 (Unix timestamp in milliseconds)

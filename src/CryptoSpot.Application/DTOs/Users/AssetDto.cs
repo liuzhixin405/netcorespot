@@ -10,12 +10,12 @@ namespace CryptoSpot.Application.DTOs.Users
         /// <summary>
         /// 资产内部ID
         /// </summary>
-        public int Id { get; set; }
+        public long Id { get; set; }
 
         /// <summary>
         /// 用户ID
         /// </summary>
-        public int? UserId { get; set; }
+        public long? UserId { get; set; }
 
         /// <summary>
         /// 资产符号

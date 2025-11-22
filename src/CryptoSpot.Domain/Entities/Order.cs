@@ -35,7 +35,7 @@ namespace CryptoSpot.Domain.Entities
         public int? UserId { get; set; }
 
         [Required]
-        public int TradingPairId { get; set; }
+        public long TradingPairId { get; set; }
 
         [Required]
         [StringLength(50)]

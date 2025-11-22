@@ -10,7 +10,7 @@ namespace CryptoSpot.Application.DTOs.MarketData
         /// <summary>
         /// K线数据内部ID
         /// </summary>
-        public int Id { get; set; }
+        public long Id { get; set; }
 
         /// <summary>
         /// 交易对符号

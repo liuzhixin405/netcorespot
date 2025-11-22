@@ -173,7 +173,7 @@ public class RedisOrderRepository
     /// <summary>
     /// 根据 ID 获取订单
     /// </summary>
-    public async Task<DomainOrder?> GetOrderByIdAsync(int orderId)
+    public async Task<DomainOrder?> GetOrderByIdAsync(long orderId)
     {
         var key = $"order:{orderId}";
         var exists = await _redis.ExistsAsync(key);
@@ -253,7 +253,7 @@ public class RedisOrderRepository
     /// <summary>
     /// 更新订单状态
     /// </summary>
-    public async Task UpdateOrderStatusAsync(int orderId, OrderStatus newStatus, decimal filledQuantity)
+    public async Task UpdateOrderStatusAsync(long orderId, OrderStatus newStatus, decimal filledQuantity)
     {
         var order = await GetOrderByIdAsync(orderId);
         if (order == null)
@@ -346,7 +346,7 @@ public class RedisOrderRepository
     /// <summary>
     /// 从活跃订单簿移除
     /// </summary>
-    private async Task RemoveFromActiveOrderBook(int orderId, string symbol, OrderSide side)
+    private async Task RemoveFromActiveOrderBook(long orderId, string symbol, OrderSide side)
     {
         var key = $"orders:active:{symbol}:{side}";
         try

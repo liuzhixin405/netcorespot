@@ -13,7 +13,7 @@ namespace CryptoSpot.Application.DTOs.Trading
         /// <summary>
         /// 订单内部ID
         /// </summary>
-        public int Id { get; set; }
+        public long Id { get; set; }
 
         /// <summary>
         /// 业务订单号
@@ -39,7 +39,7 @@ namespace CryptoSpot.Application.DTOs.Trading
         /// <summary>
         /// 交易对内部ID
         /// </summary>
-        public int TradingPairId { get; set; }
+        public long TradingPairId { get; set; }
 
         /// <summary>
         /// 订单方向

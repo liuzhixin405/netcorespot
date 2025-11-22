@@ -1,40 +1,51 @@
-using CryptoSpot.Application.DTOs.Trading;
-using CryptoSpot.Application.DTOs.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System.Security.Claims;
-using CryptoSpot.Application.DTOs.MarketData;
-using System.Text.Json;
+using CryptoSpot.Application.Features.Trading.PlaceOrder;
+using CryptoSpot.Application.Features.Trading.CancelOrder;
+using CryptoSpot.Application.Features.Trading.GetOrders;
+using CryptoSpot.Application.Features.Trading.GetAssets;
+using CryptoSpot.Bus.Core;
+using CryptoSpot.Application.Common.Models;
+using CryptoSpot.Domain.Entities;
+using CryptoSpot.Application.DTOs.Common;
+using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.Users;
+using CryptoSpot.Application.DTOs.MarketData;
 using CryptoSpot.Application.Abstractions.Services.Trading;
+using System.Text.Json;
 
 namespace CryptoSpot.API.Controllers
 {
     /// <summary>
-    /// 交易控制器
+    /// 交易控制器 - 使用 CQRS 模式
     /// </summary>
     [ApiController]
     [Route("api/trading")]
     [Authorize]
     public class TradingController : ControllerBase
     {
-        private readonly ITradingService _tradingService;
+        private readonly ICommandBus _commandBus;
         private readonly ILogger<TradingController> _logger;
+        // TODO: 临时保留旧服务接口，后续逐步迁移所有功能到CQRS模式
+        private readonly ITradingService _tradingService;
 
         public TradingController(
-            ITradingService tradingService,
-            ILogger<TradingController> logger)
+            ICommandBus commandBus,
+            ILogger<TradingController> logger,
+            ITradingService tradingService)
         {
-            _tradingService = tradingService;
+            _commandBus = commandBus;
             _logger = logger;
+            _tradingService = tradingService;
         }
 
+        // 辅助方法：获取当前用户ID
         private int GetCurrentUserId()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
+            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
             if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out var userId))
             {
-                throw new UnauthorizedAccessException("用户未认证");
+                throw new UnauthorizedAccessException("无效的用户认证信息");
             }
             return userId;
         }

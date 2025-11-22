@@ -8,7 +8,7 @@ namespace CryptoSpot.Application.DomainCommands.Trading
     public class SubmitOrderResult
     {
         public bool Success { get; set; }
-        public int? OrderId { get; set; }
+        public long? OrderId { get; set; }
         public string OrderIdString { get; set; } = string.Empty; // 订单ID字符串
         public string ErrorMessage { get; set; } = string.Empty;
         public List<Trade> ExecutedTrades { get; set; } = new();

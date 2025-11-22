@@ -119,10 +119,10 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
         };
     }
 
-    private async Task<int> ResolveTradingPairIdAsync(string symbol)
+    private async Task<long> ResolveTradingPairIdAsync(string symbol)
     {
         var key = TradingPairCachePrefix + symbol;
-        if (_cache.TryGetValue<int>(key, out var id)) return id;
+        if (_cache.TryGetValue<long>(key, out var id)) return id;
         id = await _tradingPairRepository.GetTradingPairIdAsync(symbol);
         _cache.Set(key, id, TimeSpan.FromMinutes(5));
         return id;

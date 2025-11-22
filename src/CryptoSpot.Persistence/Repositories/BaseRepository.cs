@@ -18,7 +18,7 @@ public class BaseRepository<T> : IRepository<T> where T : class
         _dbContextFactory = dbContextFactory;
     }
 
-    public virtual async Task<T?> GetByIdAsync(int id)
+    public virtual async Task<T?> GetByIdAsync(long id)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         return await context.Set<T>().FindAsync(id);

@@ -22,7 +22,7 @@ namespace CryptoSpot.Application.DTOs.Users
         /// <summary>
         /// 用户内部ID
         /// </summary>
-        public int Id { get; set; }
+        public long Id { get; set; }
 
         /// <summary>
         /// 用户名
@@ -95,7 +95,7 @@ namespace CryptoSpot.Application.DTOs.Users
         /// <summary>
         /// 用户ID
         /// </summary>
-        public int Id { get; set; }
+        public long Id { get; set; }
 
         /// <summary>
         /// 用户名

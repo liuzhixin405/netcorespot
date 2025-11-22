@@ -56,6 +56,9 @@ builder.Services.AddRedis(builder.Configuration.GetSection("Redis"));
 // Clean Architecture (命令总线 / 匹配引擎 / 映射)
 builder.Services.AddCleanArchitecture();
 
+// HttpContextAccessor (CurrentUserService 需要)
+builder.Services.AddHttpContextAccessor();
+
 // Database Coordinator (Singleton)
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 

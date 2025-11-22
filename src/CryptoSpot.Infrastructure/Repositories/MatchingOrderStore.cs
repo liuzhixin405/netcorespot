@@ -30,7 +30,7 @@ namespace CryptoSpot.Infrastructure.Repositories
             _redisOrderRepository = redisOrderRepository;
         }
 
-        public async Task<Order?> GetOrderAsync(int orderId)
+        public async Task<Order?> GetOrderAsync(long orderId)
         {
             // 优先尝试从 Redis 仓储获取（若可用），以便处理通过 Redis 创建但尚未写入 DB 的订单
             try
@@ -52,7 +52,7 @@ namespace CryptoSpot.Infrastructure.Repositories
 
         public Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null) => _orderRepository.GetActiveOrdersAsync(symbol);
 
-        public Task<IEnumerable<Order>> GetUserOrdersAsync(int userId, OrderStatus? status = null, int limit = 100) => _orderRepository.GetUserOrdersAsync(userId, null, status, limit);
+        public Task<IEnumerable<Order>> GetUserOrdersAsync(long userId, OrderStatus? status = null, int limit = 100) => _orderRepository.GetUserOrdersAsync(userId, null, status, limit);
 
         public async Task<Order> AddOrderAsync(Order order)
         {

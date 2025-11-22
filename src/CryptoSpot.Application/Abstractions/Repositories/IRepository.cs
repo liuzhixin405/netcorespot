@@ -8,7 +8,7 @@ namespace CryptoSpot.Application.Abstractions.Repositories
     /// <typeparam name="T">实体类型</typeparam>
     public interface IRepository<T> where T : class
     {
-        Task<T?> GetByIdAsync(int id);
+        Task<T?> GetByIdAsync(long id);
         Task<T?> GetFirstOrDefaultAsync(Expression<Func<T, bool>> predicate);
         Task<IEnumerable<T>> FindAsync(Expression<Func<T, bool>> predicate);
         Task<IEnumerable<T>> GetAllAsync();
