@@ -3,8 +3,6 @@ using CryptoSpot.Application.Common.Models;
 using CryptoSpot.Application.Common.Interfaces;
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Domain.Exceptions;
-using CryptoSpot.Domain.DomainEvents;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Application.Features.Trading.PlaceOrder
