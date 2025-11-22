@@ -7,7 +7,7 @@ using CryptoSpot.Domain.Entities; // 为枚举保留 (后续可用 DTO 中的枚
 namespace CryptoSpot.Application.CommandHandlers.Trading
 {
     /// <summary>
-    /// 取消订单命令处理器 (已改用 DTO 接口，不再依赖 Domain Order 返回)
+    /// 取消订单命令处理器
     /// </summary>
     public class CancelOrderCommandHandler : ICommandHandler<CancelOrderCommand, CancelOrderResult>
     {

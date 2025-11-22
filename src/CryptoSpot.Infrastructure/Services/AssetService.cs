@@ -64,8 +64,6 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        // Removed unused: GetUserAssetSummaryAsync / GetSystemAssetsAsync / GetSystemAssetAsync
-
         public async Task<ApiResponseDto<bool>> AddAssetAsync(long userId, AssetOperationRequestDto request)
         {
             try
@@ -173,8 +171,6 @@ namespace CryptoSpot.Infrastructure.Services
                 return ApiResponseDto<bool>.CreateError("转账失败");
             }
         }
-
-        // Removed unused extended query / system asset methods
 
         public async Task<ApiResponseDto<bool>> InitializeUserAssetsAsync(long userId, Dictionary<string, decimal> initialBalances)
         {

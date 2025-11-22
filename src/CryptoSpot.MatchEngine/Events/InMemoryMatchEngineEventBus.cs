@@ -36,7 +36,6 @@ namespace CryptoSpot.MatchEngine.Events
                     }
                     catch (Exception)
                     {
-                        // TODO: 记录日志（此处暂保持最小依赖，稍后可注入 ILogger）
                     }
                 }
             }

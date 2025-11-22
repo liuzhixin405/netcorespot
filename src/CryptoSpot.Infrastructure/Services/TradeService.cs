@@ -51,13 +51,6 @@ namespace CryptoSpot.Infrastructure.Services
 
         public async Task<Trade> ExecuteTradeRawAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity)
         {
-            // ⚠️ 重要提示：此方法仅用于 MySQL 持久化，不应再操作资产
-            // 资产操作已在 RedisOrderMatchingEngine.ExecuteTrade 中通过 Lua 脚本原子性完成
-            // 如果在这里再次操作资产，会导致：
-            // 1. 重复扣款/加款（用户资金翻倍损失）
-            // 2. Redis-MySQL 数据不一致（MySQL 事务回滚但 Redis 已操作）
-            
-            // Redis-first: try cache path
             if (_redis != null)
             {
                 try
@@ -261,8 +254,6 @@ namespace CryptoSpot.Infrastructure.Services
                 return ApiResponseDto<IEnumerable<TradeDto>>.CreateError("获取最近成交失败");
             }
         }
-
-        // Removed unused trade detail / volume / price range APIs; re-added order trade queries for TradingService
 
         public async Task<ApiResponseDto<IEnumerable<TradeDto>>> GetTradesByOrderIdAsync(long orderId)
         {

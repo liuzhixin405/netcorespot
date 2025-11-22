@@ -338,8 +338,6 @@ namespace CryptoSpot.Infrastructure.Services
             }
         }
 
-        // Removed unused GetOrderHistoryAsync
-
         #endregion
 
         #region 交易记录相关
@@ -371,7 +369,6 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     return ApiResponseDto<IEnumerable<TradeDto>>.CreateError(orderResp.Error ?? "订单不存在", orderResp.ErrorCode);
                 }
-                // 接口方法已精简，改用 GetTradesByOrderIdAsync (仍保留交易记录查询能力)
                 var resp = await _tradeService.GetTradesByOrderIdAsync(orderId);
                 if (!resp.Success || resp.Data == null)
                 {
@@ -513,8 +510,6 @@ namespace CryptoSpot.Infrastructure.Services
         #endregion
 
         #region 批量操作相关
-
-        // Removed unused paged trade history
         #endregion
     }
 }

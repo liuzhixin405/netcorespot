@@ -222,8 +222,6 @@ namespace CryptoSpot.MatchEngine
             return (baseCurrency, quoteCurrency);
         }
 
-        // 内部 OrderBook 类已抽离为 InMemoryOrderBook
-
         /// <summary>
         /// 推送订单簿快照给实时推送服务（SignalR 等）。
         /// </summary>

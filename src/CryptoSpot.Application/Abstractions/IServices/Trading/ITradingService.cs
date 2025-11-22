@@ -42,10 +42,6 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         // 市场公开数据
         Task<ApiResponseDto<IEnumerable<MarketTradeDto>>> GetMarketRecentTradesAsync(string symbol, int limit = 50);
 
-        // 订单测试
         Task<ApiResponseDto<TestOrderResultDto>> TestOrderAsync(long userId, CreateOrderRequestDto request);
-
-        // 批量操作
-        // Removed unused paged history methods: GetOrderHistoryAsync / GetTradeHistoryAsync (not externally referenced)
     }
 }

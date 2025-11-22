@@ -8,6 +8,4 @@ namespace CryptoSpot.Application.Abstractions.Services.Trading
         (IReadOnlyList<OrderBookLevel> bids, IReadOnlyList<OrderBookLevel> asks, long timestamp)? Get(string symbol);
         Task<bool> TryLoadAsync(string symbol, CancellationToken ct = default);
     }
-
-    // Removed duplicate OrderBookLevel definition. Use OrderBookLevel declared in Domain.
 }

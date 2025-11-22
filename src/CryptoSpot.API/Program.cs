@@ -1,5 +1,4 @@
-// removed old Core interface usings
-using CryptoSpot.Application.Abstractions.Repositories; // IDatabaseCoordinator
+using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.Auth;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
@@ -27,42 +26,31 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 配置日志记录，避免EventLog问题
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
-// Add services to the container.
 builder.Services.AddControllers(options => { })
     .AddJsonOptions(o =>
     {
-        // 统一输出/输入字段为 camelCase，便于前端直接使用 data.token / data.user.username
         o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
-        // 允许前端传递小写/驼峰枚举 (buy/sell, limit/market)
         o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
-        // 兼容旧格式: 额外开启大小写不敏感读取（仅影响反序列化）
         o.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
     });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Database & Persistence
 builder.Services.AddPersistence(builder.Configuration);
 
-// 添加 Redis
 builder.Services.AddRedis(builder.Configuration.GetSection("Redis"));
 
-// Clean Architecture (命令总线 / 匹配引擎 / 映射)
 builder.Services.AddCleanArchitecture();
 
-// HttpContextAccessor (CurrentUserService 需要)
 builder.Services.AddHttpContextAccessor();
 
-// Database Coordinator (Singleton)
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 
-// Redis Cache Service (Singleton)
 builder.Services.AddSingleton<IRedisCache>(provider =>
 {
     var configuration = provider.GetRequiredService<IConfiguration>();
@@ -91,41 +79,28 @@ builder.Services.AddSingleton<IRedisService>(provider =>
     return new RedisService(provider.GetRequiredService<ILogger<RedisService>>(), connection, redisConfig, serializer);
 });
 builder.Services.AddSingleton<RedisCacheService>();
-// Infrastructure-specific registrations
 builder.Services.AddInfrastructureServices();
 
-// Provide backward-compatible IOrderMatchingEngine adapter so existing infrastructure handlers can resolve it.
 builder.Services.AddScoped<CryptoSpot.Application.Abstractions.Services.Trading.IOrderMatchingEngine, CryptoSpot.Infrastructure.Services.MatchEngineAdapter>();
 
-// API runs as producer-only: register a lightweight IMatchEngineService that persists orders to Redis and publishes stream messages.
 builder.Services.AddScoped<CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService, CryptoSpot.API.Services.ApiOrderPublisherService>();
 
-// 已在 AddPersistence 中统一注册的服务此处不再重复注册 (ITradingPairService / IKLineDataService / ITradingService / IOrderService / ITradeService / IAssetService / IUserService)
-// 仅补充未在 AddPersistence 中的额外服务
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IPriceDataService, PriceDataService>(); // 价格聚合 (依赖 TradingPairService)
+builder.Services.AddScoped<IPriceDataService, PriceDataService>();
 
-    // NOTE: Match engine runs as an independent service. API will persist orders to Redis and publish events for the match engine to consume.
-    // Do not register the match engine or its adapters here to keep the API service independent.
-
-// 实时推送与缓存
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
 builder.Services.AddSingleton<IOrderBookSnapshotCache, OrderBookSnapshotCache>();
 
-// 行情流 Provider & 自动交易
 builder.Services.AddSingleton<IMarketDataStreamProvider, OkxMarketDataStreamProvider>();
 builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 
-// Background Services
 builder.Services.AddHostedService<AutoTradingService>();
 builder.Services.AddHostedService<AssetFlushBackgroundService>();
 builder.Services.AddHostedService<MarketDataStreamRelayService>();
-// 定期将缓存脏数据落库
 builder.Services.AddHostedService<CryptoSpot.Infrastructure.Services.CacheFlushHostedService>();
 
 builder.Services.AddMemoryCache();
 
-// HttpClient for Binance API with proxy support
 builder.Services.AddHttpClient<BinanceMarketDataProvider>((serviceProvider, client) =>
 {
     var configuration = serviceProvider.GetRequiredService<IConfiguration>();
@@ -146,7 +121,6 @@ builder.Services.AddHttpClient<BinanceMarketDataProvider>((serviceProvider, clie
     return handler;
 });
 
-// JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
 var issuer = jwtSettings["Issuer"] ?? "CryptoSpot";
@@ -169,7 +143,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp", policy =>
@@ -181,12 +154,10 @@ builder.Services.AddCors(options =>
     });
 });
 
-// SignalR
 builder.Services.AddSignalR(options => { options.EnableDetailedErrors = true; });
 
 var app = builder.Build();
 
-// 注册全局异常处理中间件
 app.UseMiddleware<CryptoSpot.API.Middleware.ExceptionHandlingMiddleware>();
 
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
