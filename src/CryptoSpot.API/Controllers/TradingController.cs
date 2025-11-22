@@ -1,9 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using CryptoSpot.Application.Features.Trading.PlaceOrder;
-using CryptoSpot.Application.Features.Trading.CancelOrder;
-using CryptoSpot.Application.Features.Trading.GetOrders;
-using CryptoSpot.Application.Features.Trading.GetAssets;
 using CryptoSpot.Bus.Core;
 using CryptoSpot.Application.Common.Models;
 using CryptoSpot.Domain.Entities;
