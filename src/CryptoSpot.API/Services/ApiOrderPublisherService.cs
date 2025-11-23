@@ -1,6 +1,6 @@
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Infrastructure.Repositories.Redis;
+using CryptoSpot.Persistence.Redis.Repositories;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
 

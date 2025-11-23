@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Domain.Entities; // 内部仍可使用领域实体
 using CryptoSpot.Application.Abstractions.Repositories;
-using CryptoSpot.Infrastructure.Repositories.Redis; // ✅ Redis 仓储
+using CryptoSpot.Persistence.Redis.Repositories;
 
 namespace CryptoSpot.Infrastructure.Services
 {

@@ -1,7 +1,7 @@
 // filepath: g:\\github\\netcorespot\\src\\CryptoSpot.Infrastructure\\Repositories\\MatchingOrderStore.cs
 using CryptoSpot.Application.Abstractions.Repositories;
-using CryptoSpot.Infrastructure.Repositories.Redis;
 using CryptoSpot.Domain.Entities;
+using CryptoSpot.Persistence.Redis.Repositories;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Repositories

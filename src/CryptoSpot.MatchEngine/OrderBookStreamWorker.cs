@@ -3,7 +3,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using CryptoSpot.Infrastructure.Repositories.Redis;
+using CryptoSpot.Persistence.Redis.Repositories;
 using CryptoSpot.MatchEngine.Services;
 using CryptoSpot.Redis;
 using Microsoft.Extensions.Hosting;

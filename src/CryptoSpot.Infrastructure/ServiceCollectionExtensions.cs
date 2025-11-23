@@ -4,7 +4,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Infrastructure.Repositories;
-using CryptoSpot.Infrastructure.Repositories.Redis;
+using CryptoSpot.Persistence.Redis.Repositories;
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.Infrastructure.BgService;
 using CryptoSpot.Infrastructure.BgServices;

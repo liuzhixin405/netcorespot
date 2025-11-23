@@ -1,12 +1,6 @@
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.DTOs.Trading;
-using CryptoSpot.Infrastructure.Repositories.Redis;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
+using CryptoSpot.Persistence.Redis.Repositories;
 
 namespace CryptoSpot.MatchEngine.Services
 {

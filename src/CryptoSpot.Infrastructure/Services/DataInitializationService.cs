@@ -1,7 +1,7 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
 using Microsoft.Extensions.Logging;
-using CryptoSpot.Infrastructure.Repositories.Redis;
+using CryptoSpot.Persistence.Redis.Repositories;
 using Microsoft.Extensions.Options; // 读取 MarketMakerOptions
 
 namespace CryptoSpot.Infrastructure.Services

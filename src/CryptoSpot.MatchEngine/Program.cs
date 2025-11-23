@@ -1,7 +1,5 @@
 using CryptoSpot.Application.DependencyInjection;
-using CryptoSpot.Infrastructure;
-using CryptoSpot.Infrastructure.Extensions;
-using CryptoSpot.Infrastructure.Services;
+using CryptoSpot.Infrastructure.Extensions; // 仅用于健康检查扩展方法
 using CryptoSpot.MatchEngine;
 using CryptoSpot.MatchEngine.Core;
 using CryptoSpot.MatchEngine.Extensions;

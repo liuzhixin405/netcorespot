@@ -5,7 +5,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.DTOs.Common;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.Mapping;
-using CryptoSpot.Infrastructure.Repositories.Redis;
+using CryptoSpot.Persistence.Redis.Repositories;
 
 namespace CryptoSpot.Infrastructure.Services
 {

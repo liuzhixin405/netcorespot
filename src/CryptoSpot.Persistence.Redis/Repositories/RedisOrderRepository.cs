@@ -7,7 +7,7 @@ using System.Linq;
 using DomainOrder = CryptoSpot.Domain.Entities.Order;
 using StackExchange.Redis;
 
-namespace CryptoSpot.Infrastructure.Repositories.Redis;
+namespace CryptoSpot.Persistence.Redis.Repositories;
 
 /// <summary>
 /// Redis 订单仓储（运行时所有订单操作都在 Redis 中）

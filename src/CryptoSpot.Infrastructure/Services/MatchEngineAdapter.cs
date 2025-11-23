@@ -2,7 +2,7 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.Mapping;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Infrastructure.Repositories.Redis;
+using CryptoSpot.Persistence.Redis.Repositories;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services;
@@ -68,7 +68,8 @@ public class MatchEngineAdapter : IOrderMatchingEngine
         var result = new OrderBookDepthDto { Symbol = symbol, Bids = new List<OrderBookLevelDto>(), Asks = new List<OrderBookLevelDto>(), Timestamp = DateTime.UtcNow };
         try
         {
-            var (bids, asks) = await _redisOrders.GetOrderBookDepthAsync(symbol, depth);
+            (List<(decimal price, decimal quantity)> bids, List<(decimal price, decimal quantity)> asks) = 
+                await _redisOrders.GetOrderBookDepthAsync(symbol, depth);
             result.Bids = bids.Select(b => new OrderBookLevelDto { Price = b.price, Quantity = b.quantity }).ToList();
             result.Asks = asks.Select(a => new OrderBookLevelDto { Price = a.price, Quantity = a.quantity }).ToList();
         }

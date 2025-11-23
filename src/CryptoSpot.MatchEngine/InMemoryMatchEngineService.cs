@@ -1,18 +1,13 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Services.Trading;
-using CryptoSpot.Infrastructure.Repositories.Redis;
 using CryptoSpot.Redis;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.DependencyInjection;
 using CryptoSpot.MatchEngine.Core;
 using CryptoSpot.MatchEngine.Commands;
 using CryptoSpot.MatchEngine.Services;
 using CryptoSpot.Bus.Core;
+using CryptoSpot.Persistence.Redis.Repositories;
+
 
 namespace CryptoSpot.MatchEngine
 {

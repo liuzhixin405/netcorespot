@@ -5,7 +5,7 @@ using CryptoSpot.Domain.Extensions;
 using StackExchange.Redis;
 using System.Text.Json;
 
-namespace CryptoSpot.Infrastructure.Repositories.Redis;
+namespace CryptoSpot.Persistence.Redis.Repositories;
 
 /// <summary>
 /// Redis 资产仓储（运行时所有资产操作都在 Redis 中）
