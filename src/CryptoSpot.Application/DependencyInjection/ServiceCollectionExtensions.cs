@@ -12,6 +12,8 @@ using CryptoSpot.Application.Common.Models;
 using CryptoSpot.Application.Features.Auth.Register;
 using CryptoSpot.Application.Features.Auth.Login;
 using CryptoSpot.Application.Features.Auth.GetCurrentUser;
+using FluentValidation;
+using System.Reflection;
 
 namespace CryptoSpot.Application.DependencyInjection
 {
@@ -35,7 +37,11 @@ namespace CryptoSpot.Application.DependencyInjection
             // 注册认证Handler
             RegisterAuthHandlers(services);
 
+            // ✅ 注册 FluentValidation 验证器（自动扫描当前程序集）
+            services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
+
             // 注册管道行为（使用项目自己的 ICommandPipelineBehavior）
+            services.AddScoped(typeof(ICommandPipelineBehavior<,>), typeof(ValidationBehavior<,>)); // ✅ 验证行为（第一个执行）
             services.AddScoped(typeof(ICommandPipelineBehavior<,>), typeof(LoggingBehavior<,>));
             services.AddScoped(typeof(ICommandPipelineBehavior<,>), typeof(TransactionBehavior<,>));
 

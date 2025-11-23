@@ -4,25 +4,25 @@ using CryptoSpot.Infrastructure.Extensions;
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.MatchEngine;
 using CryptoSpot.MatchEngine.Core;
-using CryptoSpot.MatchEngine.Events;
 using CryptoSpot.MatchEngine.Extensions;
 using CryptoSpot.MatchEngine.Services;
+using CryptoSpot.MatchEngine.CommandHandlers;
+using CryptoSpot.MatchEngine.Commands;
+using CryptoSpot.Bus.Core;
 using CryptoSpot.Redis;
-using CryptoSpot.Redis.Serializer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 IHost host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
     {
+        // 后台服务
         services.AddHostedService<MatchEngineWorker>();
         services.AddHostedService<OrderBookStreamWorker>();
-        services.AddHostedService<OrderBookSnapshotWorker>();
-        services.AddHostedService<MatchEngineEventDispatcherWorker>();
 
         // 基础设施
         services.AddRedis(context.Configuration.GetSection("Redis"));
-        services.AddCleanArchitecture();
+        services.AddCleanArchitecture();  // 包含 CommandBus 注册
 
         // 核心服务
         services.AddSingleton<CryptoSpot.Application.Abstractions.Services.Trading.ITradingPairService, RedisTradingPairService>();
@@ -33,9 +33,11 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton<IMatchingAlgorithm, PriceTimePriorityMatchingAlgorithm>();
         services.AddSingleton<IOrderPayloadDecoder, CompositeOrderPayloadDecoder>();
         
-        // 事件总线
-        services.AddSingleton<AsyncMatchEngineEventBus>();
-        services.AddSingleton<IMatchEngineEventBus>(sp => sp.GetRequiredService<AsyncMatchEngineEventBus>());
+        // 撮合引擎 Command Handlers（使用统一的 CommandBus）
+        services.AddScoped<ICommandHandler<OrderPlacedCommand, bool>, OrderPlacedCommandHandler>();
+        services.AddScoped<ICommandHandler<TradeExecutedCommand, bool>, TradeExecutedCommandHandler>();
+        services.AddScoped<ICommandHandler<OrderBookChangedCommand, bool>, OrderBookChangedCommandHandler>();
+        services.AddScoped<ICommandHandler<OrderCancelledCommand, bool>, OrderCancelledCommandHandler>();
         
         // 辅助服务
         services.AddSingleton<IOrderBookSnapshotService, OrderBookSnapshotService>();
@@ -45,7 +47,7 @@ IHost host = Host.CreateDefaultBuilder(args)
         // 订单簿存储
         services.AddSingleton<System.Collections.Concurrent.ConcurrentDictionary<string, IOrderBook>>();
 
-        // 添加健康检查（撮合引擎专用，不包含数据库）
+        // 健康检查（撮合引擎专用，不包含数据库）
         services.AddMatchEngineHealthChecks(context.Configuration);
     })
     .Build();

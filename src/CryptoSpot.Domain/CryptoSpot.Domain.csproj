@@ -16,6 +16,10 @@
     <!-- Repository interfaces retained temporarily until migrated to Application.Abstractions -->
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="MessagePack.Annotations" Version="2.5.198" />
+  </ItemGroup>
+
   <!-- AuthCommands 保留; 其余接口逐步迁移到 Application.Abstractions -->
 
 </Project>

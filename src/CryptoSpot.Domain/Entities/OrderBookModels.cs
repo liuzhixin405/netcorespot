@@ -4,6 +4,7 @@ namespace CryptoSpot.Domain.Entities
     /// <summary>
     /// In-memory order book depth snapshot (not persisted)
     /// </summary>
+    [MessagePack.MessagePackObject(true)]
     public class OrderBookDepth
     {
         public string Symbol { get; set; } = string.Empty;
@@ -11,7 +12,7 @@ namespace CryptoSpot.Domain.Entities
         public List<OrderBookLevel> Asks { get; set; } = new();
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     }
-
+    [MessagePack.MessagePackObject(true)]
     public class OrderBookLevel
     {
         public decimal Price { get; set; }

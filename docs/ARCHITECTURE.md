@@ -539,7 +539,63 @@ public class ExceptionHandlingMiddleware
 
 ---
 
-### 11. 依赖注入 & 模块化配置
+### 11. 统一响应 DTO
+
+为避免重复，项目使用统一的 `ApiResponseDto<T>` 处理所有服务层响应：
+
+#### 统一响应结构
+```csharp
+public class ApiResponseDto<T>
+{
+    public bool Success { get; set; }
+    public T? Data { get; set; }
+    public string? Message { get; set; }
+    public string? Error { get; set; }
+    public string? ErrorCode { get; set; }
+    public Dictionary<string, string[]>? ValidationErrors { get; set; }  // ✅ 支持验证错误
+    public DateTime Timestamp { get; set; }
+    public string? RequestId { get; set; }  // 用于追踪
+}
+```
+
+#### 与 Result<T> 的区别
+| 类型 | 用途 | 位置 |
+|---|---|---|
+| `Result<T>` | CQRS Handler 返回 | Application/Common/Models |
+| `ApiResponseDto<T>` | Service 层和 API 返回 | Application/DTOs/Common |
+
+**设计理由：**
+- `Result<T>`: 内部领域逻辑，轻量、纯粹
+- `ApiResponseDto<T>`: 对外接口，包含时间戳、请求ID、验证错误等扩展信息
+
+#### 使用示例
+```csharp
+// Service 层
+public async Task<ApiResponseDto<OrderDto>> CreateOrderAsync(CreateOrderRequestDto request)
+{
+    try
+    {
+        var order = await _orderService.CreateAsync(request);
+        return ApiResponseDto<OrderDto>.CreateSuccess(order, "订单创建成功");
+    }
+    catch (ValidationException ex)
+    {
+        return ApiResponseDto<OrderDto>.CreateValidationFailure(ex.Errors);
+    }
+    catch (Exception ex)
+    {
+        return ApiResponseDto<OrderDto>.CreateError(ex.Message, "ORDER_CREATE_ERROR");
+    }
+}
+```
+
+**⚠️ 已废弃类型：**
+- `OperationResultDto` 和 `OperationResultDto<T>` 已合并到 `ApiResponseDto<T>`
+- 保留类型别名以维持向后兼容，建议迁移到 `ApiResponseDto<T>`
+
+---
+
+### 12. 依赖注入 & 模块化配置
 
 #### 扩展方法模式
 ```csharp
@@ -619,7 +675,7 @@ await app.RunAsync();
 
 ---
 
-### 12. Background Services（后台服务）
+### 13. Background Services（后台服务）
 
 #### 资产同步服务
 ```csharp

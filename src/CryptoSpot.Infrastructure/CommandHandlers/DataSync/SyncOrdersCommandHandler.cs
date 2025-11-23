@@ -119,6 +119,10 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                                 if (!exists)
                                 {
                                     var order = MapToOrder(orderData);
+                                    
+                                    // 验证外键：确保 TradingPair 存在，如果不存在则从 Redis 同步
+                                    await EnsureTradingPairExistsAsync(order.TradingPairId, dbContext, ct);
+                                    
                                     dbContext.Orders.Add(order);
                                     processedCount++;
                                 }
@@ -298,6 +302,56 @@ namespace CryptoSpot.Infrastructure.CommandHandlers.DataSync;
                 ? decimal.Parse(data["averagePrice"]) 
                 : 0m;
             order.UpdatedAt = long.Parse(data["updatedAt"]);
+        }
+
+        /// <summary>
+        /// 确保交易对存在于数据库中，如果不存在则从 Redis 同步
+        /// </summary>
+        private async Task EnsureTradingPairExistsAsync(
+            long tradingPairId, 
+            ApplicationDbContext dbContext, 
+            CancellationToken ct)
+        {
+            // 检查数据库中是否存在
+            var exists = await dbContext.TradingPairs
+                .AsNoTracking()
+                .AnyAsync(tp => tp.Id == tradingPairId, ct);
+            
+            if (exists) return;
+
+            // 从 Redis 读取交易对数据
+            var tradingPairData = await _redis.HGetAllAsync($"tradingpair:{tradingPairId}");
+            if (tradingPairData == null || tradingPairData.Count == 0)
+            {
+                _logger.LogWarning(
+                    "交易对在 Redis 中不存在: TradingPairId={TradingPairId}", 
+                    tradingPairId);
+                throw new InvalidOperationException($"交易对 {tradingPairId} 在 Redis 和数据库中都不存在");
+            }
+
+            // 映射并插入交易对
+            var tradingPair = new CryptoSpot.Domain.Entities.TradingPair
+            {
+                Id = tradingPairId,
+                Symbol = tradingPairData["symbol"],
+                BaseAsset = tradingPairData["baseAsset"],
+                QuoteAsset = tradingPairData["quoteAsset"],
+                MinQuantity = decimal.Parse(tradingPairData.GetValueOrDefault("minQuantity", "0.00000001")),
+                MaxQuantity = decimal.Parse(tradingPairData.GetValueOrDefault("maxQuantity", "1000000")),
+                PricePrecision = int.Parse(tradingPairData.GetValueOrDefault("pricePrecision", "2")),
+                QuantityPrecision = int.Parse(tradingPairData.GetValueOrDefault("quantityPrecision", "8")),
+                IsActive = tradingPairData.GetValueOrDefault("isActive", "1") == "1",
+                LastUpdated = long.Parse(tradingPairData.GetValueOrDefault("lastUpdated", "0")),
+                CreatedAt = long.Parse(tradingPairData.GetValueOrDefault("createdAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString())),
+                UpdatedAt = long.Parse(tradingPairData.GetValueOrDefault("updatedAt", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString()))
+            };
+
+            dbContext.TradingPairs.Add(tradingPair);
+            await dbContext.SaveChangesAsync(ct);
+
+            _logger.LogInformation(
+                "已从 Redis 同步交易对到数据库: TradingPairId={TradingPairId}, Symbol={Symbol}", 
+                tradingPairId, tradingPair.Symbol);
         }
 
         private class SyncQueueItem

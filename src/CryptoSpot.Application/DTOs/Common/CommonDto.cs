@@ -1,7 +1,7 @@
 namespace CryptoSpot.Application.DTOs.Common
 {
     /// <summary>
-    /// 通用API响应DTO
+    /// 通用API响应DTO（统一所有服务层返回，合并了 OperationResultDto 功能）
     /// </summary>
     /// <typeparam name="T">数据类型</typeparam>
     public class ApiResponseDto<T>
@@ -30,6 +30,11 @@ namespace CryptoSpot.Application.DTOs.Common
         /// 错误代码
         /// </summary>
         public string? ErrorCode { get; set; }
+
+        /// <summary>
+        /// 详细验证错误信息（字段级错误）
+        /// </summary>
+        public Dictionary<string, string[]>? ValidationErrors { get; set; }
 
         /// <summary>
         /// 时间戳
@@ -73,6 +78,20 @@ namespace CryptoSpot.Application.DTOs.Common
         public static ApiResponseDto<T> CreateFailure(string error, string? errorCode = null)
         {
             return CreateError(error, errorCode);
+        }
+
+        /// <summary>
+        /// 创建验证失败响应
+        /// </summary>
+        public static ApiResponseDto<T> CreateValidationFailure(Dictionary<string, string[]> validationErrors, string? message = "验证失败")
+        {
+            return new ApiResponseDto<T>
+            {
+                Success = false,
+                Error = message,
+                ErrorCode = "VALIDATION_ERROR",
+                ValidationErrors = validationErrors
+            };
         }
     }
 
@@ -149,106 +168,24 @@ namespace CryptoSpot.Application.DTOs.Common
         public string? SearchKeyword { get; set; }
     }
 
+    // ⚠️ 已弃用: OperationResultDto 和 OperationResultDto<T> 已合并到 ApiResponseDto<T>
+    // 保留类型别名以保持向后兼容，建议迁移到 ApiResponseDto<T>
+    
     /// <summary>
-    /// 操作结果DTO
+    /// [已弃用] 操作结果DTO - 请使用 ApiResponseDto&lt;object&gt; 替代
+    /// 此类型继承自 ApiResponseDto&lt;object&gt;，保持向后兼容
     /// </summary>
-    public class OperationResultDto
+    [Obsolete("请使用 ApiResponseDto<object> 替代此类型", false)]
+    public class OperationResultDto : ApiResponseDto<object>
     {
-        /// <summary>
-        /// 操作是否成功
-        /// </summary>
-        public bool Success { get; set; }
-
-        /// <summary>
-        /// 消息
-        /// </summary>
-        public string? Message { get; set; }
-
-        /// <summary>
-        /// 错误代码
-        /// </summary>
-        public string? ErrorCode { get; set; }
-
-        /// <summary>
-        /// 详细错误信息
-        /// </summary>
-        public Dictionary<string, string[]>? ValidationErrors { get; set; }
-
-        /// <summary>
-        /// 创建成功结果
-        /// </summary>
-        public static OperationResultDto CreateSuccess(string? message = null)
-        {
-            return new OperationResultDto
-            {
-                Success = true,
-                Message = message
-            };
-        }
-
-        /// <summary>
-        /// 创建失败结果
-        /// </summary>
-        public static OperationResultDto CreateFailure(string message, string? errorCode = null)
-        {
-            return new OperationResultDto
-            {
-                Success = false,
-                Message = message,
-                ErrorCode = errorCode
-            };
-        }
-
-        /// <summary>
-        /// 创建验证失败结果
-        /// </summary>
-        public static OperationResultDto CreateValidationFailure(Dictionary<string, string[]> validationErrors)
-        {
-            return new OperationResultDto
-            {
-                Success = false,
-                Message = "验证失败",
-                ErrorCode = "VALIDATION_ERROR",
-                ValidationErrors = validationErrors
-            };
-        }
     }
 
     /// <summary>
-    /// 操作结果DTO（带返回数据）
+    /// [已弃用] 操作结果DTO（带返回数据）- 请使用 ApiResponseDto&lt;T&gt; 替代
+    /// 此类型继承自 ApiResponseDto&lt;T&gt;，保持向后兼容
     /// </summary>
-    /// <typeparam name="T">返回数据类型</typeparam>
-    public class OperationResultDto<T> : OperationResultDto
+    [Obsolete("请使用 ApiResponseDto<T> 替代此类型", false)]
+    public class OperationResultDto<T> : ApiResponseDto<T>
     {
-        /// <summary>
-        /// 返回数据
-        /// </summary>
-        public T? Data { get; set; }
-
-        /// <summary>
-        /// 创建成功结果
-        /// </summary>
-        public static OperationResultDto<T> CreateSuccess(T? data = default, string? message = null)
-        {
-            return new OperationResultDto<T>
-            {
-                Success = true,
-                Data = data,
-                Message = message
-            };
-        }
-
-        /// <summary>
-        /// 创建失败结果
-        /// </summary>
-        public new static OperationResultDto<T> CreateFailure(string message, string? errorCode = null)
-        {
-            return new OperationResultDto<T>
-            {
-                Success = false,
-                Message = message,
-                ErrorCode = errorCode
-            };
-        }
     }
 }

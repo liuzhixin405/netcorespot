@@ -11,6 +11,8 @@
     <!-- 仍不直接引用 Infrastructure 保持依赖方向 -->
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="FluentValidation" Version="11.9.0" />
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="11.9.0" />
     <PackageReference Include="MessagePackAnalyzer" Version="2.2.60" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />

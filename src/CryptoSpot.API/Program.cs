@@ -13,6 +13,7 @@ using CryptoSpot.Infrastructure.BgService;
 using CryptoSpot.Infrastructure.BgServices;
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Services;
+using CryptoSpot.API.Middleware;
 using CryptoSpot.Redis;
 using CryptoSpot.Redis.Configuration;
 using CryptoSpot.Redis.Serializer;
@@ -161,7 +162,8 @@ builder.Services.AddCryptoSpotHealthChecks(builder.Configuration);
 
 var app = builder.Build();
 
-app.UseMiddleware<CryptoSpot.API.Middleware.ExceptionHandlingMiddleware>();
+// ✅ 全局异常处理中间件（必须在最前面）
+app.UseGlobalExceptionHandling();
 
 if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
 
