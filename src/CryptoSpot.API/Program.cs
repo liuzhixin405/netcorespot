@@ -14,13 +14,10 @@ using CryptoSpot.Infrastructure.BgServices;
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.API.Middleware;
-using CryptoSpot.Redis;
-using CryptoSpot.Redis.Configuration;
-using CryptoSpot.Redis.Serializer;
+using CryptoSpot.MatchEngine;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
-using StackExchange.Redis;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -45,61 +42,25 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddPersistence(builder.Configuration);
 
-builder.Services.AddRedis(builder.Configuration.GetSection("Redis"));
-
 builder.Services.AddCleanArchitecture();
 
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 
-builder.Services.AddSingleton<IRedisCache>(provider =>
-{
-    var configuration = provider.GetRequiredService<IConfiguration>();
-    var connectionString = configuration.GetConnectionString("Redis") ?? "localhost:6379";
-    var logger = provider.GetRequiredService<ILogger<RedisCache>>();
-    var serializer = new CryptoSpot.Redis.Serializer.JsonSerializer(null);
-    var redisConfig = new CryptoSpot.Redis.Configuration.RedisConfiguration
-    {
-        Hosts = connectionString.Split(',').Select(c => c.Split(':')).Where(c => c.Length == 2)
-            .Select(c => new CryptoSpot.Redis.Configuration.RedisHost { Host = c[0], Port = int.Parse(c[1]) }).ToArray()
-    };
-    var connection = ConnectionMultiplexer.Connect(redisConfig.ConfigurationOptions);
-    return new CryptoSpot.Redis.RedisCache(logger, connection, redisConfig, serializer);
-});
-builder.Services.AddSingleton<IRedisService>(provider =>
-{
-    var configuration = provider.GetRequiredService<IConfiguration>();
-    var connectionString = configuration.GetConnectionString("Redis") ?? "localhost:6379";
-    var redisConfig = new CryptoSpot.Redis.Configuration.RedisConfiguration
-    {
-        Hosts = connectionString.Split(',').Select(c => c.Split(':')).Where(c => c.Length == 2)
-           .Select(c => new CryptoSpot.Redis.Configuration.RedisHost { Host = c[0], Port = int.Parse(c[1]) }).ToArray()
-    };
-    var serializer = new MsgPackSerializer();
-    var connection = ConnectionMultiplexer.Connect(redisConfig.ConfigurationOptions);
-    return new RedisService(provider.GetRequiredService<ILogger<RedisService>>(), connection, redisConfig, serializer);
-});
-builder.Services.AddSingleton<RedisCacheService>();
 builder.Services.AddInfrastructureServices();
 
-builder.Services.AddScoped<CryptoSpot.Application.Abstractions.Services.Trading.IOrderMatchingEngine, CryptoSpot.Infrastructure.Services.MatchEngineAdapter>();
-
-builder.Services.AddScoped<CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService, CryptoSpot.API.Services.ApiOrderPublisherService>();
-
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IPriceDataService, PriceDataService>();
+builder.Services.AddSingleton<CryptoSpot.MatchEngine.ChannelMatchEngineService>();
+builder.Services.AddSingleton<CryptoSpot.Application.Abstractions.Services.Trading.IMatchEngineService>(
+    provider => provider.GetRequiredService<CryptoSpot.MatchEngine.ChannelMatchEngineService>());
 
 builder.Services.AddScoped<IRealTimeDataPushService,SignalRDataPushService>();
-builder.Services.AddSingleton<IOrderBookSnapshotCache, OrderBookSnapshotCache>();
 
 builder.Services.AddSingleton<IMarketDataStreamProvider, OkxMarketDataStreamProvider>();
 builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 
-builder.Services.AddHostedService<AutoTradingService>();
-builder.Services.AddHostedService<AssetFlushBackgroundService>();
-builder.Services.AddHostedService<MarketDataStreamRelayService>();
-builder.Services.AddHostedService<CryptoSpot.Infrastructure.Services.CacheFlushHostedService>();
+builder.Services.AddSingleton<InMemoryAssetStore>();
+builder.Services.AddHostedService<CryptoSpot.API.Services.MatchEngineInitializationService>();
 
 builder.Services.AddMemoryCache();
 

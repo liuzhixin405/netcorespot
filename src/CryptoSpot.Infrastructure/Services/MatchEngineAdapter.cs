@@ -2,7 +2,6 @@ using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.Mapping;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Persistence.Redis.Repositories;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services;
@@ -14,14 +13,18 @@ namespace CryptoSpot.Infrastructure.Services;
 public class MatchEngineAdapter : IOrderMatchingEngine
 {
     private readonly IMatchEngineService _matchEngine;
-    private readonly RedisOrderRepository _redisOrders;
+    private readonly IOrderService _orderService;
     private readonly IDtoMappingService _mapping;
     private readonly ILogger<MatchEngineAdapter> _logger;
 
-    public MatchEngineAdapter(IMatchEngineService matchEngine, RedisOrderRepository redisOrders, IDtoMappingService mapping, ILogger<MatchEngineAdapter> logger)
+    public MatchEngineAdapter(
+        IMatchEngineService matchEngine, 
+        IOrderService orderService,
+        IDtoMappingService mapping, 
+        ILogger<MatchEngineAdapter> logger)
     {
         _matchEngine = matchEngine;
-        _redisOrders = redisOrders;
+        _orderService = orderService;
         _mapping = mapping;
         _logger = logger;
     }
@@ -65,28 +68,26 @@ public class MatchEngineAdapter : IOrderMatchingEngine
 
     public async Task<OrderBookDepthDto> GetOrderBookDepthAsync(string symbol, int depth = 20)
     {
-        var result = new OrderBookDepthDto { Symbol = symbol, Bids = new List<OrderBookLevelDto>(), Asks = new List<OrderBookLevelDto>(), Timestamp = DateTime.UtcNow };
-        try
-        {
-            (List<(decimal price, decimal quantity)> bids, List<(decimal price, decimal quantity)> asks) = 
-                await _redisOrders.GetOrderBookDepthAsync(symbol, depth);
-            result.Bids = bids.Select(b => new OrderBookLevelDto { Price = b.price, Quantity = b.quantity }).ToList();
-            result.Asks = asks.Select(a => new OrderBookLevelDto { Price = a.price, Quantity = a.quantity }).ToList();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get order book depth from Redis for {Symbol}", symbol);
-        }
-
-        return result;
+        // Order book depth is now managed by ChannelMatchEngineService
+        // Return empty depth for now - can be enhanced later to query from match engine
+        _logger.LogInformation("GetOrderBookDepthAsync called for {Symbol} - returning empty depth", symbol);
+        
+        return new OrderBookDepthDto 
+        { 
+            Symbol = symbol, 
+            Bids = new List<OrderBookLevelDto>(), 
+            Asks = new List<OrderBookLevelDto>(), 
+            Timestamp = DateTime.UtcNow 
+        };
     }
 
     public async Task<bool> CancelOrderAsync(long orderId, long userId = 0)
     {
         try
         {
-            // Use RedisOrderRepository cancellation (existing behavior)
-            return await _redisOrders.CancelOrderAsync(orderId, userId);
+            // Use OrderService to cancel order
+            var result = await _orderService.CancelOrderDtoAsync(orderId, userId);
+            return result.Success;
         }
         catch (Exception ex)
         {

@@ -1,7 +1,7 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
 using Microsoft.Extensions.Logging;
-using CryptoSpot.Persistence.Redis.Repositories;
+
 using Microsoft.Extensions.Options; // 读取 MarketMakerOptions
 
 namespace CryptoSpot.Infrastructure.Services
@@ -16,22 +16,19 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IAssetRepository _assetRepository;
         private readonly ILogger<DataInitializationService> _logger;
         private readonly IOptions<MarketMakerOptions>? _mmOptions; // 可为空以兼容旧构造
-        private readonly RedisAssetRepository? _redisAssetRepository;
 
         public DataInitializationService(
            ITradingPairRepository tradingPairRepository,
            IUserRepository userRepository,
            IAssetRepository assetRepository,
             ILogger<DataInitializationService> logger,
-            IOptions<MarketMakerOptions>? mmOptions = null,
-            RedisAssetRepository? redisAssetRepository = null)
+            IOptions<MarketMakerOptions>? mmOptions = null)
         {
             _tradingPairRepository = tradingPairRepository;
             _userRepository = userRepository;
             _assetRepository = assetRepository;
             _logger = logger;
             _mmOptions = mmOptions;
-            _redisAssetRepository = redisAssetRepository;
         }
 
         /// <summary>
@@ -200,17 +197,7 @@ namespace CryptoSpot.Infrastructure.Services
                     {
                         await _assetRepository.AddAsync(asset);
                         // 同步到 Redis 缓存（可选）
-                        try
-                        {
-                            if (_redisAssetRepository != null)
-                            {
-                                await _redisAssetRepository.SaveAssetAsync(asset);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "同步做市商资产到 Redis 失败: {MakerId} {Symbol}", makerId, asset.Symbol);
-                        }
+
 
                         _logger.LogInformation("创建做市商 {MakerId} 系统资产: {Symbol} - {Amount}", makerId, asset.Symbol, asset.Available);
                     }
@@ -337,17 +324,7 @@ namespace CryptoSpot.Infrastructure.Services
                     if (!existing.Any())
                     {
                         await _assetRepository.AddAsync(asset);
-                        try
-                        {
-                            if (_redisAssetRepository != null)
-                            {
-                                await _redisAssetRepository.SaveAssetAsync(asset);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "同步测试用户资产到 Redis 失败: {Username} {Symbol}", username, asset.Symbol);
-                        }
+
 
                         _logger.LogInformation("创建测试用户 {Username} 资产: {Symbol} - {Amount}", username, asset.Symbol, asset.Available);
                     }

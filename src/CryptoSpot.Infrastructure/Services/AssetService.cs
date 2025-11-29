@@ -3,50 +3,45 @@ using CryptoSpot.Application.DTOs.Common;
 using CryptoSpot.Application.Mapping;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Users;
-using CryptoSpot.Domain.Entities; // 内部仍可使用领域实体
+using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
-using CryptoSpot.Persistence.Redis.Repositories;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
-    /// 资产服务实现 - Redis First 架构（所有操作通过 Redis）
+    /// 资产服务实现 - 纯数据库实现
     /// </summary>
     public class AssetService : IAssetService
     {
-        // ✅ 使用 Redis 仓储替代数据库仓储
-        private readonly RedisAssetRepository _redisAssets;
-        private readonly IUnitOfWork _unitOfWork; // 保留用于异常回滚
+        private readonly IAssetRepository _assetRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IDtoMappingService _mappingService;
         private readonly ILogger<AssetService> _logger;
-        private readonly CryptoSpot.Application.Abstractions.Services.RealTime.IRealTimeDataPushService _realTimePush;
 
         public AssetService(
-            RedisAssetRepository redisAssets, // ✅ 注入 Redis 仓储
+            IAssetRepository assetRepository,
             IUnitOfWork unitOfWork,
             IDtoMappingService mappingService,
-            ILogger<AssetService> logger,
-            CryptoSpot.Application.Abstractions.Services.RealTime.IRealTimeDataPushService realTimePush)
+            ILogger<AssetService> logger)
         {
-            _redisAssets = redisAssets;
+            _assetRepository = assetRepository;
             _unitOfWork = unitOfWork;
             _mappingService = mappingService;
             _logger = logger;
-            _realTimePush = realTimePush;
         }
 
-        #region DTO 接口实现
         public async Task<ApiResponseDto<IEnumerable<AssetDto>>> GetUserAssetsAsync(long userId)
         {
             try
             {
-                var assets = await GetUserAssetsInternalAsync(userId);
-                return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(_mappingService.MapToDto(assets));
+                var assets = await _assetRepository.GetAssetsByUserIdAsync((int)userId);
+                var dtos = assets.Select(_mappingService.MapToDto);
+                return ApiResponseDto<IEnumerable<AssetDto>>.CreateSuccess(dtos);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting user assets for user {UserId}", userId);
-                return ApiResponseDto<IEnumerable<AssetDto>>.CreateError("获取用户资产失败");
+                _logger.LogError(ex, "Error getting assets for user {UserId}", userId);
+                return ApiResponseDto<IEnumerable<AssetDto>>.CreateError("获取资产失败");
             }
         }
 
@@ -54,13 +49,17 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var asset = await GetUserAssetInternalAsync(userId, symbol);
-                return ApiResponseDto<AssetDto?>.CreateSuccess(asset == null ? null : _mappingService.MapToDto(asset));
+                var asset = await _assetRepository.GetAssetByUserIdAndSymbolAsync((int)userId, symbol);
+                if (asset == null)
+                    return ApiResponseDto<AssetDto?>.CreateError("资产不存在");
+
+                var dto = _mappingService.MapToDto(asset);
+                return ApiResponseDto<AssetDto?>.CreateSuccess(dto);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting asset {Symbol} for user {UserId}", symbol, userId);
-                return ApiResponseDto<AssetDto?>.CreateError("获取用户资产失败");
+                return ApiResponseDto<AssetDto?>.CreateError("获取资产失败");
             }
         }
 
@@ -68,13 +67,17 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var ok = await AddAssetInternalAsync(userId, request.Symbol, request.Amount);
-                if (ok) await PushUserAssetsSnapshotAsync(userId);
-                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产增加成功" : "资产增加失败");
+                var success = await _assetRepository.UpdateBalanceAsync((int)userId, request.Symbol, request.Amount);
+                if (success)
+                    await _unitOfWork.SaveChangesAsync();
+
+                return success
+                    ? ApiResponseDto<bool>.CreateSuccess(true, "资产增加成功")
+                    : ApiResponseDto<bool>.CreateError("资产增加失败");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error adding asset {Symbol} for user {UserId}", request.Symbol, userId);
+                _logger.LogError(ex, "Error adding asset for user {UserId}", userId);
                 return ApiResponseDto<bool>.CreateError("资产增加失败");
             }
         }
@@ -83,14 +86,18 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var ok = await DeductAssetInternalAsync(userId, request.Symbol, request.Amount);
-                if (ok) await PushUserAssetsSnapshotAsync(userId);
-                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产扣除成功" : "资产扣除失败");
+                var success = await _assetRepository.UpdateBalanceAsync((int)userId, request.Symbol, -request.Amount);
+                if (success)
+                    await _unitOfWork.SaveChangesAsync();
+
+                return success
+                    ? ApiResponseDto<bool>.CreateSuccess(true, "资产扣减成功")
+                    : ApiResponseDto<bool>.CreateError("资产扣减失败");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error deducting asset {Symbol} for user {UserId}", request.Symbol, userId);
-                return ApiResponseDto<bool>.CreateError("资产扣除失败");
+                _logger.LogError(ex, "Error deducting asset for user {UserId}", userId);
+                return ApiResponseDto<bool>.CreateError("资产扣减失败");
             }
         }
 
@@ -98,13 +105,17 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var ok = await FreezeAssetInternalAsync(userId, request.Symbol, request.Amount);
-                if (ok) await PushUserAssetsSnapshotAsync(userId);
-                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产冻结成功" : "资产冻结失败");
+                var success = await _assetRepository.FreezeAssetAsync((int)userId, request.Symbol, request.Amount);
+                if (success)
+                    await _unitOfWork.SaveChangesAsync();
+
+                return success
+                    ? ApiResponseDto<bool>.CreateSuccess(true, "资产冻结成功")
+                    : ApiResponseDto<bool>.CreateError("资产冻结失败");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error freezing asset {Symbol} for user {UserId}", request.Symbol, userId);
+                _logger.LogError(ex, "Error freezing asset for user {UserId}", userId);
                 return ApiResponseDto<bool>.CreateError("资产冻结失败");
             }
         }
@@ -113,13 +124,17 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var ok = await UnfreezeAssetInternalAsync(userId, request.Symbol, request.Amount);
-                if (ok) await PushUserAssetsSnapshotAsync(userId);
-                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "资产解冻成功" : "资产解冻失败");
+                var success = await _assetRepository.UnfreezeAssetAsync((int)userId, request.Symbol, request.Amount);
+                if (success)
+                    await _unitOfWork.SaveChangesAsync();
+
+                return success
+                    ? ApiResponseDto<bool>.CreateSuccess(true, "资产解冻成功")
+                    : ApiResponseDto<bool>.CreateError("资产解冻失败");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error unfreezing asset {Symbol} for user {UserId}", request.Symbol, userId);
+                _logger.LogError(ex, "Error unfreezing asset for user {UserId}", userId);
                 return ApiResponseDto<bool>.CreateError("资产解冻失败");
             }
         }
@@ -128,14 +143,22 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var ok = await DeductAssetInternalAsync(userId, request.Symbol, request.Amount, fromFrozen: true);
-                if (ok) await PushUserAssetsSnapshotAsync(userId);
-                return ApiResponseDto<bool>.CreateSuccess(ok, ok ? "冻结资产消耗成功" : "冻结资产消耗失败");
+                // Unfreeze then deduct
+                var unfreezeSuccess = await _assetRepository.UnfreezeAssetAsync((int)userId, request.Symbol, request.Amount);
+                if (!unfreezeSuccess)
+                    return ApiResponseDto<bool>.CreateError("解冻资产失败");
+
+                var deductSuccess = await _assetRepository.UpdateBalanceAsync((int)userId, request.Symbol, -request.Amount);
+                if (!deductSuccess)
+                    return ApiResponseDto<bool>.CreateError("扣减资产失败");
+
+                await _unitOfWork.SaveChangesAsync();
+                return ApiResponseDto<bool>.CreateSuccess(true, "消耗冻结资产成功");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error consuming frozen asset {Symbol} for user {UserId}", request.Symbol, userId);
-                return ApiResponseDto<bool>.CreateError("冻结资产消耗失败");
+                _logger.LogError(ex, "Error consuming frozen asset for user {UserId}", userId);
+                return ApiResponseDto<bool>.CreateError("消耗冻结资产失败");
             }
         }
 
@@ -143,32 +166,23 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var fromAsset = await GetUserAssetInternalAsync(fromUserId, request.Symbol);
-                if (fromAsset == null || !await HasSufficientBalanceInternalAsync(fromUserId, request.Symbol, request.Amount))
-                {
-                    return ApiResponseDto<bool>.CreateSuccess(false, "余额不足");
-                }
-                var deduct = await DeductAssetInternalAsync(fromUserId, request.Symbol, request.Amount);
-                if (deduct)
-                {
-                    var add = await AddAssetInternalAsync(request.ToUserId, request.Symbol, request.Amount);
-                    if (!add)
-                    {
-                        await AddAssetInternalAsync(fromUserId, request.Symbol, request.Amount); // 回滚
-                        return ApiResponseDto<bool>.CreateSuccess(false, "转账失败，已回滚");
-                    }
-                }
-                if (deduct)
-                {
-                    await PushUserAssetsSnapshotAsync(fromUserId);
-                    await PushUserAssetsSnapshotAsync(request.ToUserId);
-                }
-                return ApiResponseDto<bool>.CreateSuccess(deduct, deduct ? "转账成功" : "转账失败");
+                // Deduct from sender
+                var deductSuccess = await _assetRepository.UpdateBalanceAsync((int)fromUserId, request.Symbol, -request.Amount);
+                if (!deductSuccess)
+                    return ApiResponseDto<bool>.CreateError("扣减发送方资产失败");
+
+                // Add to receiver
+                var addSuccess = await _assetRepository.UpdateBalanceAsync((int)request.ToUserId, request.Symbol, request.Amount);
+                if (!addSuccess)
+                    return ApiResponseDto<bool>.CreateError("增加接收方资产失败");
+
+                await _unitOfWork.SaveChangesAsync();
+                return ApiResponseDto<bool>.CreateSuccess(true, "资产转账成功");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error transferring asset from user {FromUserId} to user {ToUserId}", fromUserId, request.ToUserId);
-                return ApiResponseDto<bool>.CreateError("转账失败");
+                _logger.LogError(ex, "Error transferring asset from user {FromUserId} to {ToUserId}", fromUserId, request.ToUserId);
+                return ApiResponseDto<bool>.CreateError("资产转账失败");
             }
         }
 
@@ -176,200 +190,28 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                foreach (var kv in initialBalances)
+                foreach (var (symbol, balance) in initialBalances)
                 {
-                    await AddAssetInternalAsync(userId, kv.Key, kv.Value);
-                }
-                await PushUserAssetsSnapshotAsync(userId);
-                return ApiResponseDto<bool>.CreateSuccess(true, "初始化成功");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error initializing user assets for user {UserId}", userId);
-                return ApiResponseDto<bool>.CreateError("初始化资产失败");
-            }
-        }
-        #endregion
-
-        #region 内部领域操作（私有 - Redis First）
-        
-        /// <summary>
-        /// 获取用户所有资产 (从 Redis)
-        /// </summary>
-        private async Task<IEnumerable<Asset>> GetUserAssetsInternalAsync(long userId)
-        {
-            return await _redisAssets.GetUserAssetsAsync(userId);
-        }
-
-        /// <summary>
-        /// 获取用户单个资产 (从 Redis)
-        /// </summary>
-        private async Task<Asset?> GetUserAssetInternalAsync(long userId, string symbol)
-        {
-            return await _redisAssets.GetAssetAsync(userId, symbol);
-        }
-
-        /// <summary>
-        /// 创建用户资产 (写入 Redis, 自动同步到 MySQL)
-        /// </summary>
-        private async Task<Asset> CreateUserAssetInternalAsync(long userId, string symbol, decimal available = 0, decimal frozen = 0)
-        {
-            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var asset = new Asset
-            {
-                UserId = userId,
-                Symbol = symbol,
-                Available = available,
-                Frozen = frozen,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
-            
-            // ✅ 保存到 Redis (会自动加入同步队列)
-            await _redisAssets.SaveAssetAsync(asset);
-            
-            _logger.LogInformation("✅ 创建资产: UserId={UserId} Symbol={Symbol} Available={Available}", 
-                userId, symbol, available);
-            
-            return asset;
-        }
-
-        /// <summary>
-        /// 检查余额是否充足 (从 Redis 查询)
-        /// </summary>
-        private async Task<bool> HasSufficientBalanceInternalAsync(long userId, string symbol, decimal amount, bool includeFrozen = false)
-        {
-            var asset = await GetUserAssetInternalAsync(userId, symbol);
-            if (asset == null) return false;
-            var balance = includeFrozen ? asset.Total : asset.Available;
-            return balance >= amount;
-        }
-
-        /// <summary>
-        /// 冻结资产 (Redis 原子操作)
-        /// </summary>
-        private async Task<bool> FreezeAssetInternalAsync(long userId, string symbol, decimal amount)
-        {
-            // ✅ 使用 Redis Lua 脚本保证原子性
-            var success = await _redisAssets.FreezeAssetAsync(userId, symbol, amount);
-            
-            if (success)
-            {
-                _logger.LogDebug("🔒 冻结资产成功: UserId={UserId} Symbol={Symbol} Amount={Amount}", 
-                    userId, symbol, amount);
-            }
-            else
-            {
-                _logger.LogWarning("⚠️ 冻结资产失败(余额不足): UserId={UserId} Symbol={Symbol} Amount={Amount}",
-                    userId, symbol, amount);
-            }
-            
-            return success;
-        }
-
-        /// <summary>
-        /// 解冻资产 (Redis 原子操作)
-        /// </summary>
-        private async Task<bool> UnfreezeAssetInternalAsync(long userId, string symbol, decimal amount)
-        {
-            // ✅ 使用 Redis Lua 脚本保证原子性
-            var success = await _redisAssets.UnfreezeAssetAsync(userId, symbol, amount);
-            
-            if (success)
-            {
-                _logger.LogDebug("🔓 解冻资产成功: UserId={UserId} Symbol={Symbol} Amount={Amount}", 
-                    userId, symbol, amount);
-            }
-            
-            return success;
-        }
-
-        /// <summary>
-        /// 扣除资产 (Redis 原子操作)
-        /// </summary>
-        private async Task<bool> DeductAssetInternalAsync(long userId, string symbol, decimal amount, bool fromFrozen = false)
-        {
-            try
-            {
-                bool success;
-                
-                if (fromFrozen)
-                {
-                    // ✅ 从冻结余额扣除
-                    success = await _redisAssets.DeductFrozenAssetAsync(userId, symbol, amount);
-                }
-                else
-                {
-                    // 从可用余额扣除 - 先冻结再扣除
-                    success = await _redisAssets.FreezeAssetAsync(userId, symbol, amount);
-                    if (success)
+                    var asset = new Asset
                     {
-                        success = await _redisAssets.DeductFrozenAssetAsync(userId, symbol, amount);
-                    }
+                        UserId = (int)userId,
+                        Symbol = symbol,
+                        Available = balance,
+                        Frozen = 0,
+                        CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    };
+                    await _assetRepository.AddAsync(asset);
                 }
-                
-                if (!success)
-                {
-                    _logger.LogWarning("⚠️ 扣除资产失败: UserId={UserId} Symbol={Symbol} Amount={Amount} FromFrozen={FromFrozen}", 
-                        userId, symbol, amount, fromFrozen);
-                }
-                
-                return success;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ 扣除资产异常: UserId={UserId}, Symbol={Symbol}, Amount={Amount}, FromFrozen={FromFrozen}", 
-                    userId, symbol, amount, fromFrozen);
-                return false;
-            }
-        }
 
-        /// <summary>
-        /// 增加资产 (Redis 原子操作)
-        /// </summary>
-        private async Task<bool> AddAssetInternalAsync(long userId, string symbol, decimal amount)
-        {
-            try
-            {
-                // ✅ 增加可用余额 (Redis 原子操作)
-                var success = await _redisAssets.AddAvailableAssetAsync(userId, symbol, amount);
-                
-                // 如果资产不存在, 创建新资产
-                if (!success)
-                {
-                    var existingAsset = await GetUserAssetInternalAsync(userId, symbol);
-                    if (existingAsset == null)
-                    {
-                        await CreateUserAssetInternalAsync(userId, symbol, available: amount);
-                        return true;
-                    }
-                }
-                
-                return success;
+                await _unitOfWork.SaveChangesAsync();
+                return ApiResponseDto<bool>.CreateSuccess(true, "资产初始化成功");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ 增加资产异常: UserId={UserId}, Symbol={Symbol}, Amount={Amount}", 
-                    userId, symbol, amount);
-                return false;
+                _logger.LogError(ex, "Error initializing assets for user {UserId}", userId);
+                return ApiResponseDto<bool>.CreateError("资产初始化失败");
             }
         }
-        
-        // 推送该用户最新资产快照
-        private async Task PushUserAssetsSnapshotAsync(long userId)
-        {
-            try
-            {
-                var assets = await GetUserAssetsInternalAsync(userId);
-                var dto = _mappingService.MapToDto(assets);
-                await _realTimePush.PushUserAssetUpdateAsync(userId, dto);
-                _logger.LogDebug("[AssetService] 已推送用户资产更新: UserId={UserId}, Count={Count}", userId, dto.Count());
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "推送用户资产更新失败: UserId={UserId}", userId);
-            }
-        }
-        #endregion
     }
 }

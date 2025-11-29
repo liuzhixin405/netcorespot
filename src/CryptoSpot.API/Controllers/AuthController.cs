@@ -1,26 +1,21 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using CryptoSpot.Application.Features.Auth.Register;
-using CryptoSpot.Application.Features.Auth.Login;
-using CryptoSpot.Application.Features.Auth.GetCurrentUser;
-using CryptoSpot.Bus.Core;
 using CryptoSpot.Application.Common.Models;
+using CryptoSpot.Application.DTOs.Users;
 
 namespace CryptoSpot.API.Controllers
 {
     /// <summary>
-    /// 认证控制器 - 使用 CQRS 模式
+    /// 认证控制器
     /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
-        private readonly ICommandBus _commandBus;
         private readonly ILogger<AuthController> _logger;
 
-        public AuthController(ICommandBus commandBus, ILogger<AuthController> logger)
+        public AuthController(ILogger<AuthController> logger)
         {
-            _commandBus = commandBus;
             _logger = logger;
         }
 
@@ -29,12 +24,10 @@ namespace CryptoSpot.API.Controllers
         /// </summary>
         [HttpPost("register")]
         [AllowAnonymous]
-        [ProducesResponseType(typeof(RegisterResponse), 200)]
-        [ProducesResponseType(400)]
-        public async Task<IActionResult> Register([FromBody] RegisterCommand command)
+        public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
         {
-            var result = await _commandBus.SendAsync<RegisterCommand, Result<RegisterResponse>>(command);
-            return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+            _logger.LogWarning("Register endpoint not implemented yet");
+            return StatusCode(501, new { error = "认证服务尚未实现" });
         }
 
         /// <summary>
@@ -42,12 +35,10 @@ namespace CryptoSpot.API.Controllers
         /// </summary>
         [HttpPost("login")]
         [AllowAnonymous]
-        [ProducesResponseType(typeof(LoginResponse), 200)]
-        [ProducesResponseType(400)]
-        public async Task<IActionResult> Login([FromBody] LoginCommand command)
+        public async Task<IActionResult> Login([FromBody] LoginRequestDto request)
         {
-            var result = await _commandBus.SendAsync<LoginCommand, Result<LoginResponse>>(command);
-            return result.IsSuccess ? Ok(result.Value) : BadRequest(new { error = result.Error });
+            _logger.LogWarning("Login endpoint not implemented yet");
+            return StatusCode(501, new { error = "认证服务尚未实现" });
         }
 
         /// <summary>
@@ -55,12 +46,10 @@ namespace CryptoSpot.API.Controllers
         /// </summary>
         [HttpGet("me")]
         [Authorize]
-        [ProducesResponseType(typeof(CurrentUserResponse), 200)]
-        [ProducesResponseType(401)]
         public async Task<IActionResult> GetCurrentUser()
         {
-            var result = await _commandBus.SendAsync<GetCurrentUserQuery, Result<CurrentUserResponse>>(new GetCurrentUserQuery());
-            return result.IsSuccess ? Ok(result.Value) : Unauthorized(new { error = result.Error });
+            _logger.LogWarning("GetCurrentUser endpoint not implemented yet");
+            return StatusCode(501, new { error = "认证服务尚未实现" });
         }
     }
 }

@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using CryptoSpot.Bus.Core;
 using CryptoSpot.Application.Common.Models;
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.DTOs.Common;
@@ -13,23 +12,20 @@ using System.Text.Json;
 namespace CryptoSpot.API.Controllers
 {
     /// <summary>
-    /// 交易控制器 - 使用 CQRS 模式
+    /// 交易控制器
     /// </summary>
     [ApiController]
     [Route("api/trading")]
     [Authorize]
     public class TradingController : ControllerBase
     {
-        private readonly ICommandBus _commandBus;
         private readonly ILogger<TradingController> _logger;
         private readonly ITradingService _tradingService;
 
         public TradingController(
-            ICommandBus commandBus,
             ILogger<TradingController> logger,
             ITradingService tradingService)
         {
-            _commandBus = commandBus;
             _logger = logger;
             _tradingService = tradingService;
         }

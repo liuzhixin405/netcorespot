@@ -7,21 +7,18 @@ using CryptoSpot.Domain.Entities;
 using CryptoSpot.Domain.Extensions;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Trading;
-using CryptoSpot.Application.DomainCommands.Trading;
-using CryptoSpot.Bus.Core;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.Users;
 
 namespace CryptoSpot.Infrastructure.Services
 {
     /// <summary>
-    /// 交易服务实现
+    /// 交易服务实现 (简化版 - 移除Bus依赖)
     /// </summary>
     public class TradingService : ITradingService
     {
         private readonly IDtoMappingService _mappingService;
         private readonly ILogger<TradingService> _logger;
-        private readonly ICommandBus _commandBus;
         private readonly ITradingPairService _tradingPairService;
         private readonly IOrderService _orderService;
         private readonly ITradeService _tradeService;
@@ -32,7 +29,6 @@ namespace CryptoSpot.Infrastructure.Services
         public TradingService(
             IDtoMappingService mappingService,
             ILogger<TradingService> logger,
-            ICommandBus commandBus,
             ITradingPairService tradingPairService,
             IOrderService orderService,
             ITradeService tradeService,
@@ -42,7 +38,6 @@ namespace CryptoSpot.Infrastructure.Services
         {
             _mappingService = mappingService;
             _logger = logger;
-            _commandBus = commandBus;
             _tradingPairService = tradingPairService;
             _orderService = orderService;
             _tradeService = tradeService;
@@ -248,28 +243,15 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var command = new SubmitOrderCommand
-                {
-                    UserId = userId,
-                    Symbol = request.Symbol,
-                    Side = (OrderSide)request.Side,
-                    Type = (OrderType)request.Type,
-                    Quantity = request.Quantity,
-                    Price = request.Price,
-                    ClientOrderId = request.ClientOrderId
-                };
-
-                var result = await _commandBus.SendAsync<SubmitOrderCommand, SubmitOrderResult>(command);
-                if (!result.Success || !result.OrderId.HasValue)
-                {
-                    return ApiResponseDto<OrderDto?>.CreateError(result.ErrorMessage ?? "订单提交失败");
-                }
-
-                var orderResp = await _orderService.GetOrderByIdDtoAsync(result.OrderId.Value, userId);
-                if (!orderResp.Success)
-                    return ApiResponseDto<OrderDto?>.CreateError(orderResp.Error ?? "订单不存在", orderResp.ErrorCode);
-
-                return ApiResponseDto<OrderDto?>.CreateSuccess(orderResp.Data, "订单提交成功");
+                // 直接调用OrderService创建订单
+                return await _orderService.CreateOrderDtoAsync(
+                    userId,
+                    request.Symbol,
+                    (OrderSide)request.Side,
+                    (OrderType)request.Type,
+                    request.Quantity,
+                    request.Price
+                );
             }
             catch (Exception ex)
             {
@@ -282,11 +264,8 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var command = new CancelOrderCommand { UserId = userId, OrderId = orderId };
-                var result = await _commandBus.SendAsync<CancelOrderCommand, CancelOrderResult>(command);
-                return result.Success ?
-                    ApiResponseDto<bool>.CreateSuccess(true, "订单取消成功") :
-                    ApiResponseDto<bool>.CreateError(result.ErrorMessage ?? "订单取消失败");
+                // 直接调用OrderService取消订单
+                return await _orderService.CancelOrderDtoAsync(orderId, userId);
             }
             catch (Exception ex)
             {

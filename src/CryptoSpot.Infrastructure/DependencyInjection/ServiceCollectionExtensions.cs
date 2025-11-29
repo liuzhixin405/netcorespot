@@ -13,9 +13,7 @@ namespace CryptoSpot.Infrastructure.DependencyInjection
         /// </summary>
         public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
         {
-            // RedisCacheService is registered in Program as a singleton. Expose the IKLineCache interface
-            // so application handlers can depend on the interface instead of concrete implementation.
-            services.AddSingleton<CryptoSpot.Application.Abstractions.Services.IKLineCache>(sp => sp.GetRequiredService<CryptoSpot.Infrastructure.Services.RedisCacheService>());
+            // Redis cache service removed
 
             // UnitOfWork 和仓储
             services.AddScoped<IUnitOfWork, UnitOfWork>();

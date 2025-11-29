@@ -7,7 +7,7 @@ using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.Common;
 using CryptoSpot.Application.Mapping;
 using CryptoSpot.Application.DTOs.Users; // 新增资产操作 DTO
-using CryptoSpot.Redis;
+
 using System.Text.Json;
 
 namespace CryptoSpot.Infrastructure.Services
@@ -21,11 +21,10 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IOrderRepository _orderRepository; // 预留: 若未来需要直接更新订单
         private readonly ITradingPairRepository _tradingPairRepository;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IAssetService _assetService; // 替换领域接口
-    private readonly IRedisCache? _redis;
-        private readonly ILogger<TradeService> _logger;
-        private readonly IMarketMakerRegistry _marketMakerRegistry; // 新增
-        private readonly IDtoMappingService _mapping; // 新增映射
+    private readonly IAssetService _assetService;
+    private readonly ILogger<TradeService> _logger;
+    private readonly IMarketMakerRegistry _marketMakerRegistry;
+    private readonly IDtoMappingService _mapping;
 
         public TradeService(
             ITradeRepository tradeRepository,
@@ -35,8 +34,7 @@ namespace CryptoSpot.Infrastructure.Services
             IAssetService assetService,
             ILogger<TradeService> logger,
             IMarketMakerRegistry marketMakerRegistry,
-            IDtoMappingService mapping, // 注入映射
-            IRedisCache? redis = null)
+            IDtoMappingService mapping)
         {
             _tradeRepository = tradeRepository;
             _orderRepository = orderRepository;
@@ -46,74 +44,11 @@ namespace CryptoSpot.Infrastructure.Services
             _logger = logger;
             _marketMakerRegistry = marketMakerRegistry;
             _mapping = mapping;
-            _redis = redis;
         }
 
         public async Task<Trade> ExecuteTradeRawAsync(Order buyOrder, Order sellOrder, decimal price, decimal quantity)
         {
-            if (_redis != null)
-            {
-                try
-                {
-                    var tradeIdLong = await _redis.StringIncrementAsync("global:trade_id");
-                    var tradeId = (int)tradeIdLong;
-                    var executedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-                    var trade = new Trade
-                    {
-                        Id = tradeId,
-                        BuyOrderId = buyOrder.Id,
-                        SellOrderId = sellOrder.Id,
-                        BuyerId = buyOrder.UserId ?? 0,
-                        SellerId = sellOrder.UserId ?? 0,
-                        TradingPairId = buyOrder.TradingPairId,
-                        Price = price,
-                        Quantity = quantity,
-                        Fee = CalculateFee(price, quantity),
-                        FeeAsset = "USDT",
-                        ExecutedAt = executedAt,
-                        CreatedAt = executedAt,
-                        UpdatedAt = executedAt
-                    };
-
-                    // 获取 symbol（用于 trades:{symbol} 列表），若无法获取则使用默认
-                    var tradingPair = await _tradingPairRepository.GetByIdAsync(buyOrder.TradingPairId);
-                    var symbol = tradingPair?.Symbol ?? "BTCUSDT";
-
-                    var key = $"trade:{trade.Id}";
-                    await _redis.HMSetAsync(key,
-                        "id", trade.Id.ToString(),
-                        "tradingPairId", trade.TradingPairId.ToString(),
-                        "buyOrderId", trade.BuyOrderId.ToString(),
-                        "sellOrderId", trade.SellOrderId.ToString(),
-                        "price", trade.Price.ToString("F8"),
-                        "quantity", trade.Quantity.ToString("F8"),
-                        "buyerId", trade.BuyerId.ToString(),
-                        "sellerId", trade.SellerId.ToString(),
-                        "executedAt", trade.ExecutedAt.ToString());
-
-                    await _redis.ListLeftPushAsync($"trades:{symbol}", trade.Id.ToString());
-                    await _redis.LTrimAsync($"trades:{symbol}", 0, 999);
-
-                    var json = JsonSerializer.Serialize(new
-                    {
-                        tradeId = trade.Id,
-                        operation = "CREATE",
-                        timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                    });
-                    await _redis.ListLeftPushAsync("sync_queue:trades", json);
-
-                    _logger.LogInformation("[Redis] Trade persisted to cache: TradeId={TradeId} {Price}x{Quantity}", trade.Id, price, quantity);
-                    return trade;
-                }
-                catch (Exception rex)
-                {
-                    _logger.LogWarning(rex, "Redis write for trade failed, falling back to DB");
-                    // fallthrough to DB
-                }
-            }
-
-            // Fallback: persist to MySQL (original behavior)
+            // Persist to MySQL
             try
             {
                 return await _unitOfWork.ExecuteInTransactionAsync(async () =>
@@ -139,41 +74,6 @@ namespace CryptoSpot.Infrastructure.Services
                     var createdTrade = await _tradeRepository.AddAsync(dbTrade);
                     await _unitOfWork.SaveChangesAsync();
                     _logger.LogInformation("交易执行成功 (DB): {TradeId}, 价格: {Price}, 数量: {Quantity}", dbTrade.TradeId, price, quantity);
-                    // 尝试把 DB 写入的记录回写到 Redis 以保持缓存一致性（best-effort）
-                    try
-                    {
-                        if (_redis != null)
-                        {
-                            var tradingPair = await _tradingPairRepository.GetByIdAsync(createdTrade.TradingPairId);
-                            var symbol = tradingPair?.Symbol ?? "BTCUSDT";
-                            var key = $"trade:{createdTrade.Id}";
-                            await _redis.HMSetAsync(key,
-                                "id", createdTrade.Id.ToString(),
-                                "tradingPairId", createdTrade.TradingPairId.ToString(),
-                                "buyOrderId", createdTrade.BuyOrderId.ToString(),
-                                "sellOrderId", createdTrade.SellOrderId.ToString(),
-                                "price", createdTrade.Price.ToString("F8"),
-                                "quantity", createdTrade.Quantity.ToString("F8"),
-                                "buyerId", createdTrade.BuyerId.ToString(),
-                                "sellerId", createdTrade.SellerId.ToString(),
-                                "executedAt", createdTrade.ExecutedAt.ToString());
-
-                            await _redis.ListLeftPushAsync($"trades:{symbol}", createdTrade.Id.ToString());
-                            await _redis.LTrimAsync($"trades:{symbol}", 0, 999);
-
-                            var json = JsonSerializer.Serialize(new
-                            {
-                                tradeId = createdTrade.Id,
-                                operation = "CREATE",
-                                timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                            });
-                            await _redis.ListLeftPushAsync("sync_queue:trades", json);
-                        }
-                    }
-                    catch (Exception rex)
-                    {
-                        _logger.LogWarning(rex, "Failed to seed Redis after DB trade insert: TradeId={TradeId}", createdTrade.Id);
-                    }
 
                     return createdTrade;
                 });

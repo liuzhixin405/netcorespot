@@ -29,17 +29,7 @@ namespace CryptoSpot.Infrastructure.Extensions
                     "database",
                     tags: new[] { "db", "sql", "ready" });
 
-            // 添加 Redis 健康检查
-            healthChecksBuilder
-                .AddCheck<RedisHealthCheck>(
-                    "redis",
-                    tags: new[] { "cache", "redis", "ready" });
-
-            // 添加撮合引擎健康检查
-            healthChecksBuilder
-                .AddCheck<MatchEngineHealthCheck>(
-                    "match_engine",
-                    tags: new[] { "match_engine", "ready" });
+            // Redis and MatchEngine health checks removed (Redis dependency removed)
 
             return services;
         }

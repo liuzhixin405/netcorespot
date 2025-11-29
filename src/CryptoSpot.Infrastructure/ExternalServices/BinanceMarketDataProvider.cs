@@ -356,7 +356,6 @@ namespace CryptoSpot.Infrastructure.ExternalServices
 
                 using var scope = _serviceScopeFactory.CreateScope();
                 var klineDataRepository = scope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
-                var cacheService = scope.ServiceProvider.GetService<CryptoSpot.Infrastructure.Services.RedisCacheService>();
 
                 var tasks = new List<Task>();
                 foreach (var kvp in _klineCache)
@@ -375,26 +374,8 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                         Volume = klineData.Volume
                     };
 
-                    if (cacheService != null)
-                    {
-                        tasks.Add(Task.Run(async () =>
-                        {
-                            try
-                            {
-                                await cacheService.UpdateKLineDataAsync(klineData.Symbol, klineData.TimeFrame, entity);
-                                await cacheService.MarkKLineDirtyAsync(klineData.Symbol, klineData.TimeFrame);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "Failed to cache KLine data for {Symbol} {Interval}, falling back to DB", klineData.Symbol, klineData.TimeFrame);
-                                await klineDataRepository.UpsertKLineDataAsync(entity);
-                            }
-                        }));
-                    }
-                    else
-                    {
-                        tasks.Add(klineDataRepository.UpsertKLineDataAsync(entity));
-                    }
+                    // Redis cache removed - save directly to database
+                    tasks.Add(klineDataRepository.UpsertKLineDataAsync(entity));
                 }
 
                 await Task.WhenAll(tasks);
