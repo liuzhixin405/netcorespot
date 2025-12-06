@@ -11,12 +11,12 @@ namespace CryptoSpot.Application.Abstractions.Services.Auth
         Task<ApiResponseDto<AuthResultDto?>> RegisterAsync(RegisterRequest request);
 
         // 用户信息
-        Task<ApiResponseDto<UserDto?>> GetCurrentUserAsync(int userId);
+        Task<ApiResponseDto<UserDto?>> GetCurrentUserAsync(long userId);
 
         // Token校验
         Task<ApiResponseDto<bool>> ValidateTokenAsync(string token);
 
         // 登出
-        Task<ApiResponseDto<bool>> LogoutAsync(int userId);
+        Task<ApiResponseDto<bool>> LogoutAsync(long userId);
     }
 }

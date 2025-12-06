@@ -9,8 +9,8 @@ namespace CryptoSpot.Application.Abstractions.Repositories
         Task<User?> ValidateCredentialsAsync(string username, string password);
         Task<bool> UsernameExistsAsync(string username);
         Task<bool> EmailExistsAsync(string email);
-        Task<bool> UpdateLastLoginAsync(int userId);
-        Task<UserStatistics> GetUserStatisticsAsync(int userId);
+        Task<bool> UpdateLastLoginAsync(long userId);
+        Task<UserStatistics> GetUserStatisticsAsync(long userId);
     }
 
     public class UserStatistics

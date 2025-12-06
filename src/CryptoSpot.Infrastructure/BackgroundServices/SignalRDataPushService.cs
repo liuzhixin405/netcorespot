@@ -9,7 +9,7 @@ using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.Users;
 using CryptoSpot.Application.Mapping;
 
-namespace CryptoSpot.Infrastructure.BgServices
+namespace CryptoSpot.Infrastructure.BackgroundServices
 {
     public class SignalRDataPushService : IRealTimeDataPushService
     {

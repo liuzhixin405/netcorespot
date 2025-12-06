@@ -1,28 +1,29 @@
 using CryptoSpot.Application.Common.Interfaces;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Security.Cryptography;
-using System.Text;
 
 namespace CryptoSpot.Infrastructure.Identity
 {
     /// <summary>
-    /// 密码哈希服务实现（使用 BCrypt 或 PBKDF2）
+    /// 密码哈希服务实现（使用 PBKDF2 + SHA256）
     /// </summary>
     public class PasswordHasher : IPasswordHasher
     {
         private const int SaltSize = 16;
-        private const int HashSize = 20;
-        private const int Iterations = 10000;
+        private const int HashSize = 32;
+        private const int Iterations = 100000;
 
         public string Hash(string password)
         {
             // 生成盐
-            byte[] salt;
-            RandomNumberGenerator.Create().GetBytes(salt = new byte[SaltSize]);
+            byte[] salt = RandomNumberGenerator.GetBytes(SaltSize);
 
-            // 生成哈希
-            var pbkdf2 = new Rfc2898DeriveBytes(password, salt, Iterations);
-            byte[] hash = pbkdf2.GetBytes(HashSize);
+            // 使用 SHA256 生成哈希
+            byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
+                password,
+                salt,
+                Iterations,
+                HashAlgorithmName.SHA256,
+                HashSize);
 
             // 组合盐和哈希
             byte[] hashBytes = new byte[SaltSize + HashSize];
@@ -38,27 +39,31 @@ namespace CryptoSpot.Infrastructure.Identity
             {
                 // 提取盐和哈希
                 byte[] hashBytes = Convert.FromBase64String(hash);
+                
+                // 检查长度是否有效
+                if (hashBytes.Length < SaltSize)
+                    return false;
+                
                 byte[] salt = new byte[SaltSize];
                 Array.Copy(hashBytes, 0, salt, 0, SaltSize);
 
                 // 计算输入密码的哈希
-                var pbkdf2 = new Rfc2898DeriveBytes(password, salt, Iterations);
-                byte[] passwordHash = pbkdf2.GetBytes(HashSize);
+                int storedHashSize = hashBytes.Length - SaltSize;
+                byte[] passwordHash = Rfc2898DeriveBytes.Pbkdf2(
+                    password,
+                    salt,
+                    Iterations,
+                    HashAlgorithmName.SHA256,
+                    storedHashSize);
 
-                // 比较
-                for (int i = 0; i < HashSize; i++)
-                {
-                    if (hashBytes[i + SaltSize] != passwordHash[i])
-                        return false;
-                }
-
-                return true;
+                // 使用固定时间比较防止时序攻击
+                return CryptographicOperations.FixedTimeEquals(
+                    hashBytes.AsSpan(SaltSize),
+                    passwordHash);
             }
-            catch (Exception ex)
+            catch
             {
-                {
-                    throw new Exception($"{nameof(PasswordHasher)}{nameof(Verify)}:{ex.Message}");
-                }
+                return false;
             }
         }
     }

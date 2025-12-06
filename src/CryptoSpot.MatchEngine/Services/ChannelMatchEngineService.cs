@@ -8,7 +8,7 @@ using CryptoSpot.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
-namespace CryptoSpot.MatchEngine;
+namespace CryptoSpot.MatchEngine.Services;
 
 /// <summary>
 /// 纯内存撮合引擎 - 基于 Channel，无 Redis 依赖
@@ -18,7 +18,6 @@ public class ChannelMatchEngineService : IMatchEngineService
     private readonly ILogger<ChannelMatchEngineService> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IMatchingAlgorithm _matchingAlgorithm;
-    private readonly IMatchEngineMetrics _metrics;
     private readonly ITradingPairParser _pairParser;
     
     // 每个交易对一个订单簿和 Channel
@@ -40,7 +39,6 @@ public class ChannelMatchEngineService : IMatchEngineService
         ILogger<ChannelMatchEngineService> logger,
         IServiceProvider serviceProvider,
         IMatchingAlgorithm matchingAlgorithm,
-        IMatchEngineMetrics metrics,
         ITradingPairParser pairParser,
         InMemoryAssetStore assetStore)
     {
@@ -48,7 +46,6 @@ public class ChannelMatchEngineService : IMatchEngineService
         _serviceProvider = serviceProvider;
         _assetStore = assetStore;
         _matchingAlgorithm = matchingAlgorithm;
-        _metrics = metrics;
         _pairParser = pairParser;
     }
 
@@ -163,8 +160,6 @@ public class ChannelMatchEngineService : IMatchEngineService
         // 执行撮合
         foreach (var matchSlice in _matchingAlgorithm.Match(orderBook, taker))
         {
-            _metrics.ObserveMatchAttempt(symbol, matchSlice.Quantity, matchSlice.Price);
-
             // 执行资产结算
             var settlementSuccess = await SettleTradeAsync(matchSlice, symbol);
             if (!settlementSuccess)
@@ -231,16 +226,11 @@ public class ChannelMatchEngineService : IMatchEngineService
             await _assetStore.UnfreezeAssetAsync(sellerId, baseCurrency, quantity);
             await _assetStore.AddAvailableBalanceAsync(sellerId, quoteCurrency, tradeAmount);
 
-            var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
-            _metrics.ObserveSettlement(symbol, true, duration);
-
             return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Settlement failed for {Symbol}", symbol);
-            var duration = (long)(DateTime.UtcNow - startTime).TotalMilliseconds;
-            _metrics.ObserveSettlement(symbol, false, duration);
             return false;
         }
     }

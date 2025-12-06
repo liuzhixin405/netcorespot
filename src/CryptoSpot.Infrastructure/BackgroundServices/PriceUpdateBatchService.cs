@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace CryptoSpot.Infrastructure.BgServices;
+namespace CryptoSpot.Infrastructure.BackgroundServices;
 
 /// <summary>
 /// 批量处理价格更新，避免高频并发数据库操作
@@ -165,7 +165,7 @@ public class PriceUpdateBatchService : BackgroundService
         // 完成写入，等待所有待处理数据完成
         _channel.Writer.Complete();
 
-        _logger.LogInformation("⏳ 等待剩余 {Count} 个价格更新请求完成...", _channel.Reader.Count);
+        _logger.LogInformation("⏳ 等待剩余价格更新请求完成...");
 
         await base.StopAsync(cancellationToken);
     }

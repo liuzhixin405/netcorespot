@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace CryptoSpot.Infrastructure.BgService
+namespace CryptoSpot.Infrastructure.BackgroundServices
 {
     /// <summary>
     /// 自动交易后台服务 - 纯粹的后台服务，只负责生命周期管理

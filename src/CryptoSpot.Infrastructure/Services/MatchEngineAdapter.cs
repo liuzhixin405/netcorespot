@@ -58,27 +58,27 @@ public class MatchEngineAdapter : IOrderMatchingEngine
         }
     }
 
-    public async Task<List<TradeDto>> MatchOrdersAsync(string symbol)
+    public Task<List<TradeDto>> MatchOrdersAsync(string symbol)
     {
         // Best-effort: reuse existing Redis-based manual matching logic by delegating to RedisOrderRepository + (no-op) matching.
         // For now we return empty list; specialized manual-match behavior can be implemented if needed.
         _logger.LogInformation("MatchOrdersAsync called for {Symbol} - adapter defers to match engine (no-op manual match)", symbol);
-        return new List<TradeDto>();
+        return Task.FromResult(new List<TradeDto>());
     }
 
-    public async Task<OrderBookDepthDto> GetOrderBookDepthAsync(string symbol, int depth = 20)
+    public Task<OrderBookDepthDto> GetOrderBookDepthAsync(string symbol, int depth = 20)
     {
         // Order book depth is now managed by ChannelMatchEngineService
         // Return empty depth for now - can be enhanced later to query from match engine
         _logger.LogInformation("GetOrderBookDepthAsync called for {Symbol} - returning empty depth", symbol);
         
-        return new OrderBookDepthDto 
+        return Task.FromResult(new OrderBookDepthDto 
         { 
             Symbol = symbol, 
             Bids = new List<OrderBookLevelDto>(), 
             Asks = new List<OrderBookLevelDto>(), 
             Timestamp = DateTime.UtcNow 
-        };
+        });
     }
 
     public async Task<bool> CancelOrderAsync(long orderId, long userId = 0)

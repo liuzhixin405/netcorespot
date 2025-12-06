@@ -39,7 +39,7 @@ public class UserRepository : BaseRepository<User>, IUserRepository
         return await context.Set<User>().AnyAsync(u => u.Email == email);
     }
 
-    public async Task<bool> UpdateLastLoginAsync(int userId)
+    public async Task<bool> UpdateLastLoginAsync(long userId)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var user = await context.Set<User>().FindAsync(userId);
@@ -51,5 +51,5 @@ public class UserRepository : BaseRepository<User>, IUserRepository
         return true;
     }
 
-    public Task<UserStatistics> GetUserStatisticsAsync(int userId) => Task.FromResult(new UserStatistics());
+    public Task<UserStatistics> GetUserStatisticsAsync(long userId) => Task.FromResult(new UserStatistics());
 }

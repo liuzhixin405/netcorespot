@@ -1,13 +1,21 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
 namespace CryptoSpot.Application.DTOs.Auth
 {
     public class LoginRequest
     {
-        [Required]
-        public string Username { get; set; } = string.Empty;
+        [JsonPropertyName("username")]
+        public string? Username { get; set; }
+        
+        [JsonPropertyName("emailOrUsername")]
+        public string? EmailOrUsername { get; set; }
+        
+        [JsonIgnore]
+        public string LoginIdentifier => !string.IsNullOrEmpty(EmailOrUsername) ? EmailOrUsername : Username ?? string.Empty;
         
         [Required]
+        [JsonPropertyName("password")]
         public string Password { get; set; } = string.Empty;
     }
 
