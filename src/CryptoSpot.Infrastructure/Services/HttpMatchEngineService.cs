@@ -64,4 +64,25 @@ public class HttpMatchEngineService : IMatchEngineService
             throw;
         }
     }
+
+    public async Task<Application.DTOs.Trading.OrderBookDepthDto?> GetOrderBookAsync(string symbol, int depth = 20)
+    {
+        try
+        {
+            var orderBook = await _httpClient.GetOrderBookAsync(symbol, depth);
+            
+            if (orderBook != null)
+            {
+                _logger.LogDebug("Retrieved order book from MatchEngine: {Symbol}, Bids={BidCount}, Asks={AskCount}", 
+                    symbol, orderBook.Bids?.Count ?? 0, orderBook.Asks?.Count ?? 0);
+            }
+            
+            return orderBook;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get order book from MatchEngine: Symbol={Symbol}", symbol);
+            return null;
+        }
+    }
 }

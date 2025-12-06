@@ -34,9 +34,9 @@ export class SignalRClient {
     // 并发调用等待同一个 promise
     if (this.connectPromise) return this.connectPromise;
 
-    // 如果在“正在连接”阶段返回 false，会导致上层直接抛错；改为统一 promise 等待
+    // 如果在"正在连接"阶段返回 false，会导致上层直接抛错；改为统一 promise 等待
     this.isConnecting = true;
-    const signalRUrl = process.env.REACT_APP_SIGNALR_URL || 'https://localhost:5001/tradingHub';
+    const signalRUrl = process.env.REACT_APP_SIGNALR_URL || 'http://localhost:5000/tradingHub';
     const startTime = Date.now();
 
     this.connectPromise = new Promise<boolean>(async (resolve) => {

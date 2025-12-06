@@ -8,7 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="..\CryptoSpot.Application\CryptoSpot.Application.csproj" />
     <ProjectReference Include="..\CryptoSpot.Infrastructure\CryptoSpot.Infrastructure.csproj" />
-    <ProjectReference Include="..\CryptoSpot.Persistence\CryptoSpot.Persistence.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />

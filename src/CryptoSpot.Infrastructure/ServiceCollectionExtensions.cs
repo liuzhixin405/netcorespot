@@ -1,6 +1,7 @@
 ﻿using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.Auth;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.Common.Interfaces;
@@ -92,6 +93,9 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<DataInitializationService>();
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));
             services.AddSingleton<IMarketMakerRegistry, MarketMakerRegistry>();
+            
+            // 自动交易服务
+            services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
 
             // 撮合引擎服务
             services.AddScoped<IMatchEngineService, HttpMatchEngineService>();
@@ -116,8 +120,16 @@ namespace CryptoSpot.Infrastructure
         /// </summary>
         public static IServiceCollection AddBackgroundServices(this IServiceCollection services)
         {
+            // 价格更新服务
             services.AddSingleton<PriceUpdateBatchService>();
             services.AddHostedService(sp => sp.GetRequiredService<PriceUpdateBatchService>());
+            
+            // SignalR 数据推送服务（不是后台服务，是普通服务）
+            services.AddSingleton<IRealTimeDataPushService, SignalRDataPushService>();
+            
+            // 自动交易服务（做市商）
+            services.AddHostedService<AutoTradingService>();
+            
             return services;
         }
 

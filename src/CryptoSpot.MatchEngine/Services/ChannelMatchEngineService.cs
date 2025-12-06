@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.MatchEngine.Core;
 using CryptoSpot.MatchEngine.Services;
 using CryptoSpot.Persistence.Data;
@@ -12,8 +11,9 @@ namespace CryptoSpot.MatchEngine.Services;
 
 /// <summary>
 /// 纯内存撮合引擎 - 基于 Channel，无 Redis 依赖
+/// 注意：此类在 MatchEngine 内部使用，不实现 Application 层的 IMatchEngineService 接口
 /// </summary>
-public class ChannelMatchEngineService : IMatchEngineService
+public class ChannelMatchEngineService
 {
     private readonly ILogger<ChannelMatchEngineService> _logger;
     private readonly IServiceProvider _serviceProvider;

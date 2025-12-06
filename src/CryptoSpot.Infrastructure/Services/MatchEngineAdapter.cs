@@ -66,19 +66,35 @@ public class MatchEngineAdapter : IOrderMatchingEngine
         return Task.FromResult(new List<TradeDto>());
     }
 
-    public Task<OrderBookDepthDto> GetOrderBookDepthAsync(string symbol, int depth = 20)
+    public async Task<OrderBookDepthDto> GetOrderBookDepthAsync(string symbol, int depth = 20)
     {
-        // Order book depth is now managed by ChannelMatchEngineService
-        // Return empty depth for now - can be enhanced later to query from match engine
-        _logger.LogInformation("GetOrderBookDepthAsync called for {Symbol} - returning empty depth", symbol);
+        try
+        {
+            // 从 MatchEngine 服务获取订单簿数据
+            var orderBook = await _matchEngine.GetOrderBookAsync(symbol, depth);
+            
+            if (orderBook != null)
+            {
+                _logger.LogDebug("Retrieved order book for {Symbol}: Bids={BidCount}, Asks={AskCount}", 
+                    symbol, orderBook.Bids?.Count ?? 0, orderBook.Asks?.Count ?? 0);
+                return orderBook;
+            }
+            
+            _logger.LogWarning("No order book data returned from MatchEngine for {Symbol}", symbol);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get order book from MatchEngine for {Symbol}", symbol);
+        }
         
-        return Task.FromResult(new OrderBookDepthDto 
+        // 返回空订单簿作为后备
+        return new OrderBookDepthDto 
         { 
             Symbol = symbol, 
             Bids = new List<OrderBookLevelDto>(), 
             Asks = new List<OrderBookLevelDto>(), 
             Timestamp = DateTime.UtcNow 
-        });
+        };
     }
 
     public async Task<bool> CancelOrderAsync(long orderId, long userId = 0)

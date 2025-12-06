@@ -152,6 +152,52 @@ public class HttpMatchEngineClient
     }
 
     /// <summary>
+    /// 获取订单簿深度
+    /// </summary>
+    public async Task<Application.DTOs.Trading.OrderBookDepthDto?> GetOrderBookAsync(string symbol, int depth = 20)
+    {
+        try
+        {
+            var response = await _httpClient.GetAsync($"/api/match/orderbook/{symbol}?depth={depth}");
+            response.EnsureSuccessStatusCode();
+
+            var responseContent = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<MatchEngineOrderBookResponse>(responseContent, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (result?.Success == true && result.Data != null)
+            {
+                return new Application.DTOs.Trading.OrderBookDepthDto
+                {
+                    Symbol = symbol,
+                    Bids = result.Data.Bids?.Select(b => new Application.DTOs.Trading.OrderBookLevelDto
+                    {
+                        Price = b.Price,
+                        Quantity = b.Amount,
+                        Total = b.Total
+                    }).ToList() ?? new List<Application.DTOs.Trading.OrderBookLevelDto>(),
+                    Asks = result.Data.Asks?.Select(a => new Application.DTOs.Trading.OrderBookLevelDto
+                    {
+                        Price = a.Price,
+                        Quantity = a.Amount,
+                        Total = a.Total
+                    }).ToList() ?? new List<Application.DTOs.Trading.OrderBookLevelDto>(),
+                    Timestamp = DateTime.UtcNow
+                };
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "获取订单簿失败: Symbol={Symbol}", symbol);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 健康检查
     /// </summary>
     public async Task<bool> HealthCheckAsync()
@@ -239,4 +285,23 @@ public class AssetBalance
     public string Asset { get; set; } = string.Empty;
     public decimal Available { get; set; }
     public decimal Frozen { get; set; }
+}
+
+public class MatchEngineOrderBookResponse
+{
+    public bool Success { get; set; }
+    public OrderBookData? Data { get; set; }
+}
+
+public class OrderBookData
+{
+    public List<OrderBookLevel>? Bids { get; set; }
+    public List<OrderBookLevel>? Asks { get; set; }
+}
+
+public class OrderBookLevel
+{
+    public decimal Price { get; set; }
+    public decimal Amount { get; set; }
+    public decimal Total { get; set; }
 }
