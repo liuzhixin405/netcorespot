@@ -278,15 +278,14 @@ API 关闭:
 ### 优化方案
 1. **连接池**: HttpClient 使用连接池复用 TCP 连接
 2. **批量操作**: 提供批量下单 API 减少往返次数
-3. **gRPC 升级**: 如果性能成为瓶颈，可以升级为 gRPC (参考 MATCH_ENGINE_GRPC_MIGRATION.md)
 
 ## 下一步行动
 
 1. ✅ 设计完成 - HTTP API 接口
 2. ✅ 实现完成 - Controller 和 HTTP 客户端
-3. ⏳ 待修复 - InMemoryMatchEngineService 编译错误
-4. ⏳ 待实现 - 修改 TradingService 使用 HttpMatchEngineClient
-5. ⏳ 待删除 - 清理旧的 Channel 相关代码
+3. ✅ 修复完成 - InMemoryMatchEngineService 编译错误
+4. ✅ 实现完成 - 修改 TradingService 使用 HttpMatchEngineClient
+5. ✅ 删除完成 - 清理旧的 Channel 相关代码
 6. ⏳ 待测试 - 启动两个服务测试完整流程
 
 ## 测试清单
