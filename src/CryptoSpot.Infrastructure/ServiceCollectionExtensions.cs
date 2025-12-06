@@ -90,6 +90,7 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<ITradeService, TradeService>();
             services.AddScoped<ITradingService, TradingService>();
             services.AddScoped<IAssetService, AssetService>();
+            services.AddScoped<IPriceDataService, PriceDataService>();
             services.AddScoped<DataInitializationService>();
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));
             services.AddSingleton<IMarketMakerRegistry, MarketMakerRegistry>();
@@ -126,6 +127,9 @@ namespace CryptoSpot.Infrastructure
             
             // SignalR 数据推送服务（不是后台服务，是普通服务）
             services.AddSingleton<IRealTimeDataPushService, SignalRDataPushService>();
+            
+            // 市场数据流服务（OKX WebSocket -> SignalR 推送）
+            services.AddHostedService<MarketDataStreamService>();
             
             // 自动交易服务（做市商）
             services.AddHostedService<AutoTradingService>();
