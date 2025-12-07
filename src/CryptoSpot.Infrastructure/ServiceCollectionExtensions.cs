@@ -95,8 +95,8 @@ namespace CryptoSpot.Infrastructure
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));
             services.AddSingleton<IMarketMakerRegistry, MarketMakerRegistry>();
             
-            // 自动交易服务
-            services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
+            // 自动交易服务：使用单例，因为内部自己通过 IServiceScopeFactory 创建短生命周期 scope
+            services.AddSingleton<IAutoTradingService, AutoTradingLogicService>();
 
             // 撮合引擎服务
             services.AddScoped<IMatchEngineService, HttpMatchEngineService>();

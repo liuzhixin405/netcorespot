@@ -58,10 +58,7 @@ builder.Services.AddHttpClient<HttpMatchEngineClient>((sp, client) =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
-// ==================== 实时数据服务 ====================
-builder.Services.AddScoped<IRealTimeDataPushService, SignalRDataPushService>();
-builder.Services.AddSingleton<IMarketDataStreamProvider, OkxMarketDataStreamProvider>();
-builder.Services.AddScoped<IAutoTradingService, AutoTradingLogicService>();
+// 实时数据服务与市场数据流由 Infrastructure 层统一注册
 
 // Binance 市场数据提供者（带代理支持）
 builder.Services.AddHttpClient<BinanceMarketDataProvider>((sp, client) =>
