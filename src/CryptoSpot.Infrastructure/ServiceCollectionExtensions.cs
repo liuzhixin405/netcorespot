@@ -9,6 +9,7 @@ using CryptoSpot.Domain.Entities;
 using CryptoSpot.Infrastructure.Identity;
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.Infrastructure.BackgroundServices;
+using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Persistence.Data;
 using CryptoSpot.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -127,6 +128,9 @@ namespace CryptoSpot.Infrastructure
             
             // SignalR 数据推送服务（不是后台服务，是普通服务）
             services.AddSingleton<IRealTimeDataPushService, SignalRDataPushService>();
+            
+            // 市场数据流提供者（OKX WebSocket）
+            services.AddSingleton<IMarketDataStreamProvider, OkxMarketDataStreamProvider>();
             
             // 市场数据流服务（OKX WebSocket -> SignalR 推送）
             services.AddHostedService<MarketDataStreamService>();
