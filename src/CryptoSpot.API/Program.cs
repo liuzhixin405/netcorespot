@@ -49,15 +49,6 @@ builder.Services.AddMemoryCache();
 // 数据库协调器
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 
-// 撮合引擎 HTTP 客户端
-builder.Services.AddHttpClient<HttpMatchEngineClient>((sp, client) =>
-{
-    var config = sp.GetRequiredService<IConfiguration>();
-    var matchEngineUrl = config["MatchEngine:BaseUrl"] ?? "http://localhost:5001";
-    client.BaseAddress = new Uri(matchEngineUrl);
-    client.Timeout = TimeSpan.FromSeconds(30);
-});
-
 // 实时数据服务与市场数据流由 Infrastructure 层统一注册
 
 // Binance 市场数据提供者（带代理支持）

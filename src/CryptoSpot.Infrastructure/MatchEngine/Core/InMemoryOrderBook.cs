@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 
-namespace CryptoSpot.MatchEngine.Core
+namespace CryptoSpot.Infrastructure.MatchEngine.Core
 {
     /// <summary>
     /// 与旧 InMemoryMatchEngineService 内部类逻辑等价的抽离版本，便于后续独立测试与替换。
@@ -13,7 +13,7 @@ namespace CryptoSpot.MatchEngine.Core
         public string Symbol { get; }
         private readonly SortedDictionary<decimal, Queue<Order>> _bids = new(new DescComparer());
         private readonly SortedDictionary<decimal, Queue<Order>> _asks = new();
-        private readonly SemaphoreSlim _lock = new(1,1);
+        private readonly SemaphoreSlim _lock = new(1, 1);
         public object SyncRoot => _lock; // 暴露锁对象以兼容现有 per-symbol 串行逻辑
 
         public InMemoryOrderBook(string symbol)
@@ -61,8 +61,10 @@ namespace CryptoSpot.MatchEngine.Core
             {
                 var list = q.ToList();
                 list.RemoveAll(o => o.Id == order.Id);
-                if (list.Count == 0) dict.Remove(price);
-                else dict[price] = new Queue<Order>(list);
+                if (list.Count == 0)
+                    dict.Remove(price);
+                else
+                    dict[price] = new Queue<Order>(list);
             }
         }
 

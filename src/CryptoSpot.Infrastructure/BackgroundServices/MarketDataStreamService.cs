@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
@@ -238,25 +240,18 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
 
         private async Task SubscribeDefaultSymbolsAsync(CancellationToken ct)
         {
-            foreach (var symbol in DefaultSymbols)
+            var symbols = await GetSubscribedSymbolsAsync(ct);
+
+            foreach (var symbol in symbols)
             {
                 try
                 {
-                    // 订阅 Ticker
                     await _streamProvider.SubscribeTickerAsync(symbol, ct);
-
-                    // 订阅 OrderBook (深度5)
                     await _streamProvider.SubscribeOrderBookAsync(symbol, 5, ct);
-
-                    // 订阅 Trades
                     await _streamProvider.SubscribeTradesAsync(symbol, ct);
-
-                    // 订阅 1分钟 K线
                     await _streamProvider.SubscribeKLineAsync(symbol, "1m", ct);
 
                     _logger.LogDebug("已订阅 {Symbol} 的行情数据", symbol);
-
-                    // 避免订阅过快
                     await Task.Delay(100, ct);
                 }
                 catch (Exception ex)
@@ -265,7 +260,33 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                 }
             }
 
-            _logger.LogInformation("✅ 已订阅 {Count} 个交易对的行情数据", DefaultSymbols.Length);
+            _logger.LogInformation("✅ 已订阅 {Count} 个交易对的行情数据", symbols.Count);
+        }
+
+        private async Task<IReadOnlyList<string>> GetSubscribedSymbolsAsync(CancellationToken ct)
+        {
+            try
+            {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var tradingPairRepo = scope.ServiceProvider.GetRequiredService<ITradingPairRepository>();
+                var activePairs = await tradingPairRepo.GetActiveTradingPairsAsync();
+                var symbols = activePairs
+                    .Select(tp => tp.Symbol?.Trim())
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .Select(s => s!.ToUpperInvariant())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (symbols.Count > 0)
+                {
+                    return symbols;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "获取活动交易对失败，使用默认配置");
+            }
+
+            return DefaultSymbols;
         }
 
         public override async Task StopAsync(CancellationToken cancellationToken)

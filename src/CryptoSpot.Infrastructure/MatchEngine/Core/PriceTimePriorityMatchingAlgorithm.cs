@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using CryptoSpot.Domain.Entities;
 
-namespace CryptoSpot.MatchEngine.Core
+namespace CryptoSpot.Infrastructure.MatchEngine.Core
 {
     /// <summary>
     /// 价格优先 + 同价位 FIFO（依赖 IOrderBook 的内部队列顺序）。

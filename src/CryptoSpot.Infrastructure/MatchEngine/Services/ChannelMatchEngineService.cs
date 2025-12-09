@@ -1,38 +1,39 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using CryptoSpot.Application.Abstractions.Services.Trading;
+using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Domain.Entities;
-using CryptoSpot.MatchEngine.Core;
-using CryptoSpot.MatchEngine.Services;
-using CryptoSpot.Persistence.Data;
+using CryptoSpot.Infrastructure.MatchEngine.Core;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Persistence.Data;
 
-namespace CryptoSpot.MatchEngine.Services;
+namespace CryptoSpot.Infrastructure.MatchEngine.Services;
 
 /// <summary>
-/// 纯内存撮合引擎 - 基于 Channel，无 Redis 依赖
-/// 注意：此类在 MatchEngine 内部使用，不实现 Application 层的 IMatchEngineService 接口
+/// 纯内存撮合引擎服务 - 基于 Channel，无 Redis 依赖
+/// 实现了 Application 层的 IMatchEngineService 接口，供基础交易服务消费
 /// </summary>
-public class ChannelMatchEngineService
+public class ChannelMatchEngineService : IMatchEngineService, IDisposable
 {
     private readonly ILogger<ChannelMatchEngineService> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IMatchingAlgorithm _matchingAlgorithm;
     private readonly ITradingPairParser _pairParser;
-    
+
     // 每个交易对一个订单簿和 Channel
     private readonly ConcurrentDictionary<string, IOrderBook> _orderBooks = new();
     private readonly ConcurrentDictionary<string, Channel<OrderRequest>> _orderChannels = new();
     private readonly ConcurrentDictionary<string, Task> _processingTasks = new();
-    
+
     // 内存资产存储
     private readonly InMemoryAssetStore _assetStore;
-    
-    // 订单和交易存储
-    private readonly ConcurrentDictionary<long, Order> _orders = new();
+
+    // 交易记录缓存（用于后续公共处理）
     private readonly ConcurrentDictionary<long, Trade> _trades = new();
     private long _nextTradeId = 1;
-    
+
     private readonly CancellationTokenSource _cts = new();
 
     public ChannelMatchEngineService(
@@ -54,25 +55,25 @@ public class ChannelMatchEngineService
     /// </summary>
     public void InitializeSymbol(string symbol)
     {
-        if (_orderBooks.ContainsKey(symbol))
+        var normalizedSymbol = NormalizeSymbol(symbol);
+
+        if (!_orderBooks.TryAdd(normalizedSymbol, new InMemoryOrderBook(normalizedSymbol)))
         {
-            _logger.LogWarning("Symbol {Symbol} already initialized", symbol);
+            _logger.LogDebug("Symbol {Symbol} already initialized", normalizedSymbol);
             return;
         }
 
-        _orderBooks[symbol] = new InMemoryOrderBook(symbol);
-        
         var channel = Channel.CreateBounded<OrderRequest>(new BoundedChannelOptions(10000)
         {
             FullMode = BoundedChannelFullMode.Wait
         });
-        _orderChannels[symbol] = channel;
+        _orderChannels[normalizedSymbol] = channel;
 
         // 为每个交易对启动处理任务
-        var task = Task.Run(() => ProcessOrdersAsync(symbol, _cts.Token));
-        _processingTasks[symbol] = task;
+        var task = Task.Run(() => ProcessOrdersAsync(normalizedSymbol, _cts.Token));
+        _processingTasks[normalizedSymbol] = task;
 
-        _logger.LogInformation("Initialized matching engine for symbol: {Symbol}", symbol);
+        _logger.LogInformation("Initialized matching engine for symbol: {Symbol}", normalizedSymbol);
     }
 
     /// <summary>
@@ -81,17 +82,18 @@ public class ChannelMatchEngineService
     public async Task<Order> PlaceOrderAsync(Order order, string symbol)
     {
         ValidateOrderInput(order, symbol);
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        GetOrCreateOrderBook(normalizedSymbol);
 
-        // 确保交易对已初始化
-        if (!_orderChannels.TryGetValue(symbol, out var channel))
+        if (!_orderChannels.TryGetValue(normalizedSymbol, out var channel))
         {
-            throw new InvalidOperationException($"Trading pair {symbol} not initialized");
+            throw new InvalidOperationException($"Trading pair {normalizedSymbol} not initialized");
         }
 
         // 冻结资产
-        var (currency, amount) = _pairParser.GetFreezeAmount(order, symbol);
+        var (currency, amount) = _pairParser.GetFreezeAmount(order, normalizedSymbol);
         var userId = order.UserId!.Value;
-        
+
         if (!await _assetStore.FreezeAssetAsync(userId, currency, amount))
         {
             throw new InvalidOperationException($"余额不足：需要 {amount} {currency}");
@@ -101,15 +103,34 @@ public class ChannelMatchEngineService
         order.Status = OrderStatus.Active;
         order.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        
-        // 存储订单
-        _orders[order.Id] = order;
 
         // 提交到 Channel
-        var request = new OrderRequest { Order = order, Symbol = symbol };
+        var request = new OrderRequest { Order = order, Symbol = normalizedSymbol };
         await channel.Writer.WriteAsync(request, _cts.Token);
 
         return order;
+    }
+
+    public Task<OrderBookDepthDto?> GetOrderBookAsync(string symbol, int depth = 20)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            return Task.FromResult<OrderBookDepthDto?>(null);
+        }
+
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        var orderBook = GetOrCreateOrderBook(normalizedSymbol);
+        var sanitizedDepth = Math.Max(1, depth);
+
+        var depthData = new OrderBookDepthDto
+        {
+            Symbol = normalizedSymbol,
+            Timestamp = DateTime.UtcNow,
+            Bids = BuildOrderBookLevels(orderBook.GetDepth(OrderSide.Buy, sanitizedDepth)),
+            Asks = BuildOrderBookLevels(orderBook.GetDepth(OrderSide.Sell, sanitizedDepth))
+        };
+
+        return Task.FromResult<OrderBookDepthDto?>(depthData);
     }
 
     /// <summary>
@@ -201,8 +222,6 @@ public class ChannelMatchEngineService
     /// </summary>
     private async Task<bool> SettleTradeAsync(MatchSlice slice, string symbol)
     {
-        var startTime = DateTime.UtcNow;
-        
         try
         {
             var maker = slice.Maker;
@@ -213,16 +232,12 @@ public class ChannelMatchEngineService
 
             var (baseCurrency, quoteCurrency) = _pairParser.ParseSymbol(symbol);
 
-            // 买方：减少 quote 冻结，增加 base 可用
-            // 卖方：减少 base 冻结，增加 quote 可用
             var buyerId = taker.Side == OrderSide.Buy ? taker.UserId!.Value : maker.UserId!.Value;
             var sellerId = taker.Side == OrderSide.Buy ? maker.UserId!.Value : taker.UserId!.Value;
 
-            // 买方结算
             await _assetStore.UnfreezeAssetAsync(buyerId, quoteCurrency, tradeAmount);
             await _assetStore.AddAvailableBalanceAsync(buyerId, baseCurrency, quantity);
 
-            // 卖方结算
             await _assetStore.UnfreezeAssetAsync(sellerId, baseCurrency, quantity);
             await _assetStore.AddAvailableBalanceAsync(sellerId, quoteCurrency, tradeAmount);
 
@@ -271,7 +286,7 @@ public class ChannelMatchEngineService
         {
             order.Status = OrderStatus.PartiallyFilled;
         }
-        
+
         order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
     }
 
@@ -307,7 +322,6 @@ public class ChannelMatchEngineService
             using var scope = _serviceProvider.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-            // 更新或创建订单
             var existingOrder = await dbContext.Orders.FindAsync(order.Id);
             if (existingOrder == null)
             {
@@ -320,7 +334,6 @@ public class ChannelMatchEngineService
                 existingOrder.UpdatedAt = order.UpdatedAt;
             }
 
-            // 保存交易记录
             foreach (var trade in trades)
             {
                 dbContext.Trades.Add(trade);
@@ -335,6 +348,44 @@ public class ChannelMatchEngineService
         }
     }
 
+    private IOrderBook GetOrCreateOrderBook(string symbol)
+    {
+        if (!_orderBooks.TryGetValue(symbol, out var orderBook))
+        {
+            InitializeSymbol(symbol);
+            orderBook = _orderBooks[symbol];
+        }
+
+        return orderBook;
+    }
+
+    private static string NormalizeSymbol(string symbol)
+    {
+        if (string.IsNullOrWhiteSpace(symbol))
+        {
+            throw new ArgumentException("Symbol cannot be empty", nameof(symbol));
+        }
+
+        return symbol.Trim().ToUpperInvariant();
+    }
+
+    private static List<OrderBookLevelDto> BuildOrderBookLevels(IReadOnlyList<(decimal price, decimal quantity)> depthData)
+    {
+        var result = new List<OrderBookLevelDto>(depthData.Count);
+        foreach (var (price, quantity) in depthData)
+        {
+            result.Add(new OrderBookLevelDto
+            {
+                Price = price,
+                Quantity = quantity,
+                Total = price * quantity,
+                OrderCount = 0
+            });
+        }
+
+        return result;
+    }
+
     private static void ValidateOrderInput(Order order, string symbol)
     {
         if (order == null) throw new ArgumentNullException(nameof(order));
@@ -345,14 +396,14 @@ public class ChannelMatchEngineService
     public void Dispose()
     {
         _cts.Cancel();
-        
+
         foreach (var channel in _orderChannels.Values)
         {
             channel.Writer.Complete();
         }
 
         Task.WhenAll(_processingTasks.Values).Wait(TimeSpan.FromSeconds(5));
-        
+
         _cts.Dispose();
     }
 

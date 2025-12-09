@@ -1,7 +1,7 @@
 using CryptoSpot.Domain.Entities;
 using System.Collections.Generic;
 
-namespace CryptoSpot.MatchEngine.Core
+namespace CryptoSpot.Infrastructure.MatchEngine.Core
 {
     /// <summary>
     /// OrderBook 抽象：隐藏内部数据结构便于后续替换实现（内存 / Redis / Hybrid）。

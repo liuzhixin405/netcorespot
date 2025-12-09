@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using CryptoSpot.Domain.Entities;
 
-namespace CryptoSpot.MatchEngine.Core
+namespace CryptoSpot.Infrastructure.MatchEngine.Core
 {
     public record MatchSlice(Order Maker, Order Taker, decimal Price, decimal Quantity);
 

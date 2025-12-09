@@ -8,10 +8,12 @@ using CryptoSpot.Application.Common.Interfaces;
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Infrastructure.Identity;
 using CryptoSpot.Infrastructure.Services;
+using CryptoSpot.Infrastructure.MatchEngine.Services;
 using CryptoSpot.Infrastructure.BackgroundServices;
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Persistence.Data;
 using CryptoSpot.Persistence.Repositories;
+using CryptoSpot.Infrastructure.MatchEngine.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -100,7 +102,10 @@ namespace CryptoSpot.Infrastructure
             services.AddSingleton<IAutoTradingService, AutoTradingLogicService>();
 
             // 撮合引擎服务
-            services.AddScoped<IMatchEngineService, HttpMatchEngineService>();
+            services.AddSingleton<InMemoryAssetStore>();
+            services.AddSingleton<ITradingPairParser, TradingPairParserService>();
+            services.AddSingleton<IMatchingAlgorithm, PriceTimePriorityMatchingAlgorithm>();
+            services.AddSingleton<IMatchEngineService, ChannelMatchEngineService>();
             services.AddScoped<IOrderMatchingEngine, MatchEngineAdapter>();
             
             return services;
