@@ -1,34 +1,67 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { KLineData } from '../types';
 import { useKLineData } from './useKLineData';
 import { useSignalRKLineData } from './useSignalRKLineData';
 import { KLineCalculator } from '../services/klineCalculator';
 
-// 合并历史数据和实时数据的辅助函数
-const mergeHistoricalAndRealtimeData = (
-  historicalData: KLineData[], 
-  realtimeData: KLineData[], 
-  limit: number
-): KLineData[] => {
-  // 合并数据并去重
-  const allData = [...historicalData, ...realtimeData];
-  const uniqueData = allData.reduce((acc, current) => {
-    const existingIndex = acc.findIndex(item => item.timestamp === current.timestamp);
-    if (existingIndex >= 0) {
-      // 如果时间戳相同，使用实时数据（更新现有数据）
-      acc[existingIndex] = current;
-    } else {
-      // 添加新数据
-      acc.push(current);
+const getIntervalMs = (timeframe: string): number => {
+  switch (timeframe) {
+    case '1m':
+      return 60 * 1000;
+    case '5m':
+      return 5 * 60 * 1000;
+    case '15m':
+      return 15 * 60 * 1000;
+    case '1h':
+      return 60 * 60 * 1000;
+    case '4h':
+      return 4 * 60 * 60 * 1000;
+    case '1d':
+      return 24 * 60 * 60 * 1000;
+    case '1w':
+      return 7 * 24 * 60 * 60 * 1000;
+    default:
+      return 60 * 1000;
+  }
+};
+
+const trimToLatestContinuousSegment = (data: KLineData[], timeframe: string): KLineData[] => {
+  if (data.length <= 2) return data;
+
+  const maxGap = getIntervalMs(timeframe) * 3;
+  let startIndex = 0;
+
+  for (let index = data.length - 1; index > 0; index -= 1) {
+    const gap = data[index].timestamp - data[index - 1].timestamp;
+    if (gap > maxGap) {
+      startIndex = index;
+      break;
     }
-    return acc;
+  }
+
+  return data.slice(startIndex);
+};
+
+const mergeHistoricalAndRealtimeData = (
+  historicalData: KLineData[],
+  realtimeData: KLineData[],
+  limit: number,
+  timeframe: string
+): KLineData[] => {
+  const allData = [...historicalData, ...realtimeData];
+  const uniqueData = allData.reduce((accumulator, current) => {
+    const existingIndex = accumulator.findIndex(item => item.timestamp === current.timestamp);
+    if (existingIndex >= 0) {
+      accumulator[existingIndex] = current;
+    } else {
+      accumulator.push(current);
+    }
+    return accumulator;
   }, [] as KLineData[]);
 
-  // 按时间排序（从左到右）
   const sortedData = uniqueData.sort((a, b) => a.timestamp - b.timestamp);
-  
-  // 限制数据量，保留最新的数据
-  return sortedData.slice(-limit);
+  const continuousData = trimToLatestContinuousSegment(sortedData, timeframe);
+  return continuousData.slice(-limit);
 };
 
 interface UseKLineWithRealTimeOptions {
@@ -48,143 +81,101 @@ interface UseKLineWithRealTimeReturn {
   reconnect: () => void;
 }
 
-/**
- * K线数据Hook - 结合API获取历史数据和SignalR实时更新
- */
 export const useKLineWithRealTime = ({
   symbol,
   timeframe,
-  limit = 100
+  limit = 100,
 }: UseKLineWithRealTimeOptions): UseKLineWithRealTimeReturn => {
-  
-  // 使用API获取历史数据
   const {
     klineData: historicalData,
-    latestKLine,
     loading: apiLoading,
     error: apiError,
     refresh: apiRefresh,
     loadMore: apiLoadMore,
-    updateKLineData: updateHistoricalData
   } = useKLineData({
     symbol,
     interval: timeframe,
     limit,
-    autoRefresh: false // 不使用自动刷新，通过SignalR更新
+    autoRefresh: false,
   });
 
-  // 使用SignalR获取实时更新（只订阅1分钟数据）
   const {
     data: realtimeMinuteData,
     loading: signalRLoading,
     error: signalRError,
     isConnected,
     lastUpdate,
-    reconnect: signalRReconnect
+    reconnect: signalRReconnect,
   } = useSignalRKLineData(symbol, timeframe, limit);
 
   const [combinedData, setCombinedData] = useState<KLineData[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // 当 symbol 或 timeframe 发生变化时，强制重置初始化状态并重新加载历史数据
   useEffect(() => {
     if (!symbol || !timeframe) return;
-    
-    // ✅ 完全重置状态
     setIsInitialized(false);
     setCombinedData([]);
-    
-    // 立即触发历史刷新
     apiRefresh();
   }, [symbol, timeframe, apiRefresh]);
 
-  // 初始化：加载历史数据（仅在 isInitialized=false 且收到新的 historicalData 时执行）
   useEffect(() => {
-    if (!isInitialized) {
-      if (historicalData.length > 0) {
-        // ✅ 有历史数据，使用历史数据初始化
-        const sortedHistoricalData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp);
-        setCombinedData(sortedHistoricalData.slice(-limit));
-        setIsInitialized(true);
-      } else if (!apiLoading && (apiError || historicalData.length === 0)) {
-        // ✅ 历史数据加载失败或为空，等待1秒后强制初始化（可以使用实时数据）
-        const timer = setTimeout(() => {
-          setIsInitialized(true);
-        }, 1000);
-        return () => clearTimeout(timer);
-      }
+    if (isInitialized) return;
+
+    if (historicalData.length > 0) {
+      const sortedHistoricalData = [...historicalData].sort((a, b) => a.timestamp - b.timestamp);
+      setCombinedData(trimToLatestContinuousSegment(sortedHistoricalData, timeframe).slice(-limit));
+      setIsInitialized(true);
+      return;
     }
-  }, [historicalData, isInitialized, limit, apiLoading, apiError]);
 
-  // 处理实时分钟数据更新 - 即使未初始化也可以显示实时数据
+    if (!apiLoading && (apiError || historicalData.length === 0)) {
+      const timer = setTimeout(() => setIsInitialized(true), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [historicalData, isInitialized, limit, apiLoading, apiError, timeframe]);
+
   useEffect(() => {
-    // ✅ 添加 symbol 依赖，确保切换时重新评估
-    if (realtimeMinuteData.length > 0) {
-      setCombinedData(prevData => {
-        // ✅ 如果未初始化且没有历史数据，直接使用实时数据
-        if (!isInitialized && prevData.length === 0) {
-          if (timeframe === '1m') {
-            return realtimeMinuteData.slice(-limit);
-          } else {
-            const calculatedData = KLineCalculator.calculateKLineFromMinutes(realtimeMinuteData, timeframe);
-            return calculatedData.slice(-limit);
-          }
-        }
-        
-        // 获取最新的实时分钟数据
-        const latestMinuteData = realtimeMinuteData[realtimeMinuteData.length - 1];
-        if (!latestMinuteData) return prevData;
+    if (realtimeMinuteData.length === 0) return;
 
+    setCombinedData(previousData => {
+      if (!isInitialized && previousData.length === 0) {
         if (timeframe === '1m') {
-          // 1分钟数据：合并历史数据和实时数据
-          return mergeHistoricalAndRealtimeData(prevData, [latestMinuteData], limit);
-        } else {
-          // 其他时间框架：需要从分钟数据计算
-          const calculatedData = KLineCalculator.calculateKLineFromMinutes(
-            realtimeMinuteData, 
-            timeframe
-          );
-          
-          if (calculatedData.length > 0) {
-            const latestCalculatedData = calculatedData[calculatedData.length - 1];
-            return mergeHistoricalAndRealtimeData(prevData, [latestCalculatedData], limit);
-          }
-          
-          return prevData;
+          return trimToLatestContinuousSegment(realtimeMinuteData.slice(-limit), timeframe);
         }
-      });
-    }
-  }, [realtimeMinuteData, isInitialized, symbol, timeframe, limit]);
 
-  // 实时更新单个K线数据（用于增量更新）
-  const handleRealTimeKLineUpdate = useCallback((klineData: KLineData, isNewKLine: boolean) => {
+        const calculatedData = KLineCalculator.calculateKLineFromMinutes(realtimeMinuteData, timeframe);
+        return trimToLatestContinuousSegment(calculatedData.slice(-limit), timeframe);
+      }
 
-    setCombinedData(prevData => {
-      // 使用统一的合并逻辑
-      return mergeHistoricalAndRealtimeData(prevData, [klineData], limit);
+      const latestMinuteData = realtimeMinuteData[realtimeMinuteData.length - 1];
+      if (!latestMinuteData) return previousData;
+
+      if (timeframe === '1m') {
+        return mergeHistoricalAndRealtimeData(previousData, [latestMinuteData], limit, timeframe);
+      }
+
+      const calculatedData = KLineCalculator.calculateKLineFromMinutes(realtimeMinuteData, timeframe);
+      if (calculatedData.length === 0) return previousData;
+
+      const latestCalculatedData = calculatedData[calculatedData.length - 1];
+      return mergeHistoricalAndRealtimeData(previousData, [latestCalculatedData], limit, timeframe);
     });
-  }, [symbol, timeframe, limit]);
+  }, [realtimeMinuteData, isInitialized, timeframe, limit]);
 
-  // 手动刷新
   const refresh = useCallback(async () => {
     setIsInitialized(false);
     await apiRefresh();
   }, [apiRefresh]);
 
-  // 加载更多历史数据
   const loadMore = useCallback(async (startTime?: number, endTime?: number) => {
     await apiLoadMore(startTime, endTime);
   }, [apiLoadMore]);
 
-  // ✅ 优化加载状态：如果有任何数据就不应该显示加载中
   const loading = useMemo(() => {
-    // 如果已经有数据（历史或实时），就不显示加载中
     if (combinedData.length > 0) return false;
-    // 如果正在加载且没有数据，显示加载中
     return apiLoading || signalRLoading;
   }, [combinedData.length, apiLoading, signalRLoading]);
-  
-  // 计算错误状态
+
   const error = apiError || signalRError;
 
   return {
@@ -195,7 +186,7 @@ export const useKLineWithRealTime = ({
     lastUpdate,
     refresh,
     loadMore,
-    reconnect: signalRReconnect
+    reconnect: signalRReconnect,
   };
 };
 

@@ -1,247 +1,237 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import styled from 'styled-components';
+import { Layers, Wifi, WifiOff } from 'lucide-react';
 import { useSignalRPriceData } from '../../hooks/useSignalRPriceData';
 import { useSignalROrderBook, OrderBookLevel } from '../../hooks/useSignalROrderBook';
 import { useSignalRTicker } from '../../hooks/useSignalRTicker';
 
 const Container = styled.div`
   height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #161b22;
+  background: #111823;
 `;
 
 const Header = styled.div`
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid #30363d;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(87, 100, 122, 0.34);
+`;
+
+const Title = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: #f0f6fc;
-  font-size: 0.8rem;
-  background: #21262d;
+  font-size: 13px;
+  font-weight: 800;
+`;
+
+const Status = styled.div<{ connected: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: ${({ connected }) => (connected ? '#3fb950' : '#8b949e')};
 `;
 
 const HeaderRow = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 0.5rem;
-  font-size: 0.75rem;
-  color: #7d8590;
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  grid-template-columns: 1.1fr 0.95fr 1fr;
+  gap: 8px;
+  padding: 6px 10px;
+  color: #6e7681;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(87, 100, 122, 0.24);
 `;
 
 const Content = styled.div`
   flex: 1;
-  overflow-y: auto;
-  /* 防止内容抖动 */
-  min-height: 300px;
-  /* 硬件加速优化渲染性能 */
-  transform: translateZ(0);
-  will-change: contents;
-`;
-
-const PriceRow = styled.div<{ isBuy?: boolean; isCurrent?: boolean }>`
+  min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 0.5rem;
-  padding: 0.25rem 1rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: background-color 0.1s ease;
-  position: relative;
-  /* 防止重新布局 */
-  contain: layout style;
-  
-  &:hover {
-    background: rgba(255, 255, 255, 0.05);
-  }
-  
-  ${props => props.isCurrent && `
-    background: rgba(255, 255, 255, 0.08);
-    border-left: 2px solid ${props.isBuy ? '#3fb950' : '#f85149'};
-  `}
+  grid-template-rows: 1fr auto 1fr;
+  overflow: hidden;
 `;
 
-const PriceCell = styled.div<{ isBuy?: boolean }>`
-  color: ${props => props.isBuy ? '#3fb950' : '#f85149'};
-  font-weight: 500;
+const BookSide = styled.div`
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+`;
+
+const PriceRow = styled.div<{ side: 'buy' | 'sell' }>`
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.1fr 0.95fr 1fr;
+  gap: 8px;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+
+  &:hover {
+    background: rgba(88, 166, 255, 0.08);
+  }
+`;
+
+const DepthBar = styled.div<{ side: 'buy' | 'sell'; percentage: number }>`
+  position: absolute;
+  inset: 2px 0 2px auto;
+  width: ${({ percentage }) => percentage}%;
+  border-radius: 5px 0 0 5px;
+  background: ${({ side }) =>
+    side === 'buy'
+      ? 'linear-gradient(90deg, rgba(63, 185, 80, 0.02), rgba(63, 185, 80, 0.2))'
+      : 'linear-gradient(90deg, rgba(248, 81, 73, 0.02), rgba(248, 81, 73, 0.2))'};
+`;
+
+const PriceCell = styled.div<{ side: 'buy' | 'sell' }>`
+  position: relative;
+  z-index: 1;
+  color: ${({ side }) => (side === 'buy' ? '#3fb950' : '#f85149')};
+  font-weight: 800;
 `;
 
 const AmountCell = styled.div`
-  color: #f0f6fc;
-  text-align: center;
-`;
-
-const TotalCell = styled.div`
-  color: #7d8590;
+  position: relative;
+  z-index: 1;
+  color: #d0d7de;
   text-align: right;
 `;
 
-const DepthBar = styled.div<{ isBuy?: boolean; percentage: number }>`
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  ${props => props.isBuy ? 'right' : 'left'}: 0;
-  width: ${props => props.percentage}%;
-  background: ${props => props.isBuy 
-    ? 'rgba(63, 185, 80, 0.1)' 
-    : 'rgba(248, 81, 73, 0.1)'};
-  z-index: -1;
-  /* 优化渲染性能 */
-  transform: translateZ(0);
-  transition: width 0.2s ease-out;
+const TotalCell = styled.div`
+  position: relative;
+  z-index: 1;
+  color: #8b949e;
+  text-align: right;
 `;
 
-const CurrentPrice = styled.div`
-  padding: 0.5rem 1rem;
-  border-top: 1px solid #30363d;
-  border-bottom: 1px solid #30363d;
-  background: #21262d;
-  font-size: 1rem;
+const CurrentPrice = styled.div<{ positive: boolean }>`
+  display: grid;
+  gap: 3px;
+  place-items: center;
+  padding: 8px 10px;
+  border-block: 1px solid rgba(87, 100, 122, 0.34);
+  background:
+    linear-gradient(90deg, rgba(248, 81, 73, 0.08), transparent 35%, transparent 65%, rgba(63, 185, 80, 0.08)),
+    #0d131d;
+`;
+
+const PriceValue = styled.div<{ positive: boolean }>`
+  color: ${({ positive }) => (positive ? '#3fb950' : '#f85149')};
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+`;
+
+const SpreadValue = styled.div`
+  color: #8b949e;
+  font-size: 11px;
   font-weight: 700;
-  color: #f0f6fc;
-  text-align: center;
-  position: relative;
-  
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 2px;
-    height: 100%;
-    background: linear-gradient(to bottom, #3fb950, #f85149);
-  }
 `;
 
 const EmptyState = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: center;
   height: 100%;
-  color: #7d8590;
-  font-size: 0.8rem;
+  display: grid;
+  place-items: center;
+  color: #8b949e;
+  font-size: 12px;
+  text-align: center;
+  padding: 20px;
 `;
 
 interface OrderBookProps {
   symbol: string;
 }
 
+const formatPrice = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatQty = (value: number) => value >= 1 ? value.toFixed(4) : value.toFixed(8);
+
 const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
-  // 使用SignalR实时价格数据
-  const { priceData, isConnected: priceConnected, error: priceError } = useSignalRPriceData([symbol]);
-  // 使用SignalR实时订单簿数据
-  const { orderBookData, loading, error: orderBookError, isConnected: orderBookConnected, reconnect } = useSignalROrderBook(symbol);
-  // 使用SignalR实时成交价数据
-  const { tickerData, isConnected: tickerConnected } = useSignalRTicker(symbol);
-  
-  const currentPriceData = priceData[symbol];
-  const basePrice = currentPriceData?.price || 0;
-  
-  // 使用useMemo缓存订单数据，避免不必要的重新渲染
+  const { priceData } = useSignalRPriceData([symbol]);
+  const { orderBookData, loading, error, isConnected } = useSignalROrderBook(symbol);
+  const { tickerData } = useSignalRTicker(symbol);
+
   const { buyOrders, sellOrders } = useMemo(() => {
-    if (!orderBookData) {
-      return { buyOrders: [], sellOrders: [] };
-    }
-    
+    if (!orderBookData) return { buyOrders: [], sellOrders: [] };
     return {
-      buyOrders: (orderBookData.bids || []).slice(0, 5),
-      sellOrders: (orderBookData.asks || []).slice(0, 5)
+      buyOrders: (orderBookData.bids || []).slice(0, 16),
+      sellOrders: (orderBookData.asks || []).slice(0, 16),
     };
   }, [orderBookData]);
 
-  // 获取实时成交价，优先使用ticker数据，然后是价格数据，最后是订单簿中间价
   const currentPrice = useMemo(() => {
-    // 1. 优先使用实时成交价
-    if (tickerData?.lastPrice && tickerData.lastPrice > 0) {
-      return tickerData.lastPrice;
-    }
-    
-    // 2. 使用中间价
-    if (tickerData?.midPrice && tickerData.midPrice > 0) {
-      return tickerData.midPrice;
-    }
-    
-    // 3. 使用价格数据
-    if (basePrice > 0) {
-      return basePrice;
-    }
-    
-    // 4. 从订单簿计算中间价
-    if (buyOrders.length > 0 && sellOrders.length > 0) {
-      return (buyOrders[0].price + sellOrders[0].price) / 2;
-    }
-    
-    // 5. 使用买一或卖一价格
-    if (buyOrders.length > 0) return buyOrders[0].price;
-    if (sellOrders.length > 0) return sellOrders[0].price;
-    
-    return 0;
-  }, [tickerData, basePrice, buyOrders, sellOrders]);
+    const basePrice = priceData[symbol]?.price || 0;
+    if (tickerData?.lastPrice && tickerData.lastPrice > 0) return tickerData.lastPrice;
+    if (tickerData?.midPrice && tickerData.midPrice > 0) return tickerData.midPrice;
+    if (basePrice > 0) return basePrice;
+    if (buyOrders.length > 0 && sellOrders.length > 0) return (buyOrders[0].price + sellOrders[0].price) / 2;
+    return buyOrders[0]?.price || sellOrders[0]?.price || 0;
+  }, [buyOrders, priceData, sellOrders, symbol, tickerData]);
 
-  // 显示状态管理 - 只有在真正有数据时才显示
-  const hasValidData = orderBookData && (buyOrders.length > 0 || sellOrders.length > 0);
-  
+  const spread = sellOrders[0] && buyOrders[0] ? sellOrders[0].price - buyOrders[0].price : 0;
+  const maxTotal = Math.max(
+    ...buyOrders.map(order => order.total),
+    ...sellOrders.map(order => order.total),
+    1
+  );
+  const hasData = buyOrders.length > 0 || sellOrders.length > 0;
+  const positive = true;
+
+  const renderRows = (orders: OrderBookLevel[], side: 'buy' | 'sell') => {
+    const ordered = side === 'sell' ? [...orders].reverse() : orders;
+    return ordered.map(order => (
+      <PriceRow key={`${side}-${order.price}`} side={side}>
+        <DepthBar side={side} percentage={Math.min(100, order.total / maxTotal * 100)} />
+        <PriceCell side={side}>{formatPrice(order.price)}</PriceCell>
+        <AmountCell>{formatQty(order.amount)}</AmountCell>
+        <TotalCell>{formatQty(order.total)}</TotalCell>
+      </PriceRow>
+    ));
+  };
 
   return (
     <Container>
       <Header>
-        <HeaderRow>
-          <div>价格(USDT)</div>
-          <div>数量</div>
-          <div>累计</div>
-        </HeaderRow>
+        <Title>
+          <Layers size={16} />
+          盘口深度
+        </Title>
+        <Status connected={isConnected}>
+          {isConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
+          {isConnected ? '实时' : '等待'}
+        </Status>
       </Header>
-      
+
+      <HeaderRow>
+        <div>价格(USDT)</div>
+        <div style={{ textAlign: 'right' }}>数量</div>
+        <div style={{ textAlign: 'right' }}>累计</div>
+      </HeaderRow>
+
       <Content>
-        {/* 显示订单簿数据 - 只有在有有效数据时才渲染 */}
-        {hasValidData ? (
+        {hasData ? (
           <>
-            {/* 卖单（从高到低） */}
-            {sellOrders.slice().reverse().map((order: OrderBookLevel, index: number) => {
-              const maxSellTotal = Math.max(...sellOrders.map(o => o.total), 1);
-              return (
-                <PriceRow key={`sell-${order.price}`} isBuy={false}>
-                  <DepthBar isBuy={false} percentage={Math.min((order.total / maxSellTotal) * 100, 100)} />
-                  <PriceCell isBuy={false}>{order.price.toFixed(2)}</PriceCell>
-                  <AmountCell>{order.amount.toFixed(4)}</AmountCell>
-                  <TotalCell>{order.total.toFixed(4)}</TotalCell>
-                </PriceRow>
-              );
-            })}
-            
-            {/* 显示当前价格 - 在买卖订单之间 */}
-            <CurrentPrice>
-              {currentPrice > 0 ? currentPrice.toFixed(2) : '--'}
+            <BookSide>{renderRows(sellOrders, 'sell')}</BookSide>
+            <CurrentPrice positive={positive}>
+              <PriceValue positive={positive}>{currentPrice > 0 ? formatPrice(currentPrice) : '--'}</PriceValue>
+              <SpreadValue>Spread {spread > 0 ? formatPrice(spread) : '--'}</SpreadValue>
             </CurrentPrice>
-            
-            {/* 买单（从高到低） */}
-            {buyOrders.map((order: OrderBookLevel, index: number) => {
-              const maxBuyTotal = Math.max(...buyOrders.map(o => o.total), 1);
-              return (
-                <PriceRow key={`buy-${order.price}`} isBuy={true}>
-                  <DepthBar isBuy={true} percentage={Math.min((order.total / maxBuyTotal) * 100, 100)} />
-                  <PriceCell isBuy={true}>{order.price.toFixed(2)}</PriceCell>
-                  <AmountCell>{order.amount.toFixed(4)}</AmountCell>
-                  <TotalCell>{order.total.toFixed(4)}</TotalCell>
-                </PriceRow>
-              );
-            })}
+            <BookSide>{renderRows(buyOrders, 'buy')}</BookSide>
           </>
         ) : (
-          /* 空状态 - 静默等待数据加载 */
           <EmptyState>
-            {loading ? (
-              <div style={{ color: '#7d8590', fontSize: '0.8rem' }}>
-                加载订单簿...
-              </div>
-            ) : (
-              <div style={{ opacity: 0.6, fontSize: '0.8rem' }}>
-                {orderBookError ? '连接失败' : '等待数据...'}
-              </div>
-            )}
+            {loading ? '正在加载盘口数据...' : error ? '盘口连接失败' : '等待盘口数据...'}
           </EmptyState>
         )}
       </Content>

@@ -1,11 +1,10 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Trading from './pages/Trading';
-import Navbar from './components/Navbar';
 
 const AppContainer = styled.div`
   height: 100vh;
@@ -54,7 +53,6 @@ function App() {
 
   return (
     <AppContainer>
-      {user && <Navbar />}
       <MainContent>
         <Routes>
           <Route 

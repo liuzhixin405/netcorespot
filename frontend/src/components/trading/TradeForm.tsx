@@ -1,239 +1,367 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
+import toast from 'react-hot-toast';
+import { LogIn, RefreshCcw } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { tradingService } from '../../services/tradingService';
+import { Asset } from '../../types';
 
 const Container = styled.div`
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: #161b22;
   min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #111823;
 `;
 
-const TabHeader = styled.div`
+const Header = styled.div`
+  padding: 8px;
+  border-bottom: 1px solid rgba(87, 100, 122, 0.38);
+`;
+
+const TitleRow = styled.div`
   display: flex;
-  border-bottom: 1px solid #30363d;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
 `;
 
-const Tab = styled.button<{ active: boolean }>`
-  flex: 1;
-  padding: 0.5rem;
-  background: ${props => props.active ? '#f0f6fc' : 'transparent'};
-  color: ${props => props.active ? '#0d1117' : '#7d8590'};
-  border: none;
+const Title = styled.div`
+  font-size: 13px;
+  font-weight: 700;
+  color: #f0f6fc;
+`;
+
+const IconButton = styled.button`
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(87, 100, 122, 0.48);
+  border-radius: 6px;
+  background: #0d131d;
+  color: #8b949e;
   cursor: pointer;
-  font-size: 0.8rem;
-  font-weight: 600;
-  transition: all 0.2s;
-  
+
   &:hover {
-    background: ${props => props.active ? '#f0f6fc' : 'rgba(255, 255, 255, 0.05)'};
-    color: ${props => props.active ? '#0d1117' : '#f0f6fc'};
+    color: #f0f6fc;
+    border-color: #58a6ff;
   }
 `;
 
-const FormContent = styled.div`
-  flex: 1;
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+const Segmented = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: #0b111a;
+  border: 1px solid rgba(87, 100, 122, 0.38);
+`;
+
+const SegmentButton = styled.button<{ active: boolean; tone?: 'buy' | 'sell' }>`
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  color: ${({ active }) => (active ? '#ffffff' : '#8b949e')};
+  background: ${({ active, tone }) => {
+    if (!active) return 'transparent';
+    return tone === 'sell' ? '#da3633' : '#238636';
+  }};
+  font-weight: 700;
+  cursor: pointer;
+`;
+
+const Form = styled.form`
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+`;
+
+const ScrollBody = styled.div`
   min-height: 0;
   overflow-y: auto;
-`;
-
-const FormGroup = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 7px;
+  padding: 8px 8px 6px;
 `;
 
-const Label = styled.label`
-  font-size: 0.8rem;
-  color: #7d8590;
-  font-weight: 500;
+const Field = styled.label`
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+`;
+
+const FieldHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: #8b949e;
+`;
+
+const Balance = styled.span`
+  color: #c9d1d9;
+  white-space: nowrap;
+`;
+
+const InputShell = styled.div`
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid rgba(87, 100, 122, 0.5);
+  border-radius: 7px;
+  background: #0b111a;
+  overflow: hidden;
+
+  &:focus-within {
+    border-color: #58a6ff;
+    box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.14);
+  }
 `;
 
 const Input = styled.input`
-  padding: 0.75rem;
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-radius: 6px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: 8px 10px;
+  background: transparent;
   color: #f0f6fc;
-  font-size: 0.9rem;
-  
-  &:focus {
-    outline: none;
-    border-color: #f0f6fc;
-  }
-  
+  font-size: 12px;
+
   &::placeholder {
-    color: #7d8590;
+    color: #6e7681;
   }
 `;
 
-const Select = styled.select`
-  padding: 0.75rem;
-  background: #0d1117;
-  border: 1px solid #30363d;
-  border-radius: 6px;
-  color: #f0f6fc;
-  font-size: 0.9rem;
-  cursor: pointer;
-  
-  &:focus {
-    outline: none;
-    border-color: #f0f6fc;
-  }
-  
-  option {
-    background: #0d1117;
-    color: #f0f6fc;
-  }
-`;
-
-const PriceRow = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 80px;
-  gap: 0.5rem;
-  align-items: end;
+const Suffix = styled.span`
+  padding-right: 12px;
+  color: #8b949e;
+  font-size: 11px;
+  font-weight: 700;
 `;
 
 const PercentButtons = styled.div`
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.25rem;
+  gap: 5px;
 `;
 
 const PercentButton = styled.button`
-  padding: 0.5rem;
-  background: #21262d;
-  border: 1px solid #30363d;
-  border-radius: 4px;
-  color: #7d8590;
-  font-size: 0.75rem;
+  height: 28px;
+  border: 1px solid rgba(87, 100, 122, 0.42);
+  border-radius: 6px;
+  color: #8b949e;
+  background: #0d131d;
+  font-size: 11px;
   cursor: pointer;
-  transition: all 0.2s;
-  
+
   &:hover {
-    background: #30363d;
     color: #f0f6fc;
+    border-color: #58a6ff;
   }
 `;
 
-const TradeButton = styled.button<{ isBuy: boolean }>`
-  padding: 0.75rem;
-  background: ${props => props.isBuy ? '#3fb950' : '#f85149'};
-  border: none;
-  border-radius: 6px;
-  color: white;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  margin-top: auto;
-  flex-shrink: 0;
-  
-  &:hover {
-    background: ${props => props.isBuy ? '#2ea043' : '#da3633'};
+const Summary = styled.div`
+  display: grid;
+  gap: 5px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  background: rgba(13, 19, 29, 0.9);
+  border: 1px solid rgba(87, 100, 122, 0.28);
+`;
+
+const SummaryRow = styled.div`
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11px;
+  color: #8b949e;
+
+  strong {
+    color: #f0f6fc;
+    font-weight: 700;
+    text-align: right;
   }
-  
+`;
+
+const Footer = styled.div`
+  padding: 6px 8px 8px;
+  border-top: 1px solid rgba(87, 100, 122, 0.24);
+  background: linear-gradient(180deg, rgba(17, 24, 35, 0.92), rgba(17, 24, 35, 1));
+`;
+
+const SubmitButton = styled.button<{ isBuy: boolean }>`
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: 7px;
+  color: #ffffff;
+  background: ${({ isBuy }) => (isBuy ? '#238636' : '#da3633')};
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+
+  &:hover {
+    filter: brightness(1.08);
+  }
+
   &:disabled {
-    background: #7d8590;
+    background: #30363d;
+    color: #8b949e;
     cursor: not-allowed;
   }
 `;
 
 const LoginPrompt = styled.div`
+  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  color: #7d8590;
+  gap: 12px;
+  padding: 24px;
   text-align: center;
-  padding: 2rem;
+  color: #8b949e;
 `;
 
 const LoginButton = styled.button`
-  margin-top: 1rem;
-  padding: 0.75rem 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 7px;
+  color: #ffffff;
   background: #238636;
-  border: none;
-  border-radius: 6px;
-  color: white;
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: background-color 0.2s;
-  
-  &:hover {
-    background: #2ea043;
-  }
 `;
 
 interface TradeFormProps {
   symbol: string;
 }
 
+const splitSymbol = (symbol: string) => {
+  if (symbol.endsWith('USDT')) return { base: symbol.slice(0, -4), quote: 'USDT' };
+  return { base: symbol.slice(0, 3), quote: symbol.slice(3) || 'USDT' };
+};
+
+const toNumber = (value: string) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatBalance = (value?: number) => {
+  if (value === undefined) return '--';
+  return value >= 1 ? value.toFixed(4) : value.toFixed(8);
+};
+
 const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'buy' | 'sell'>('buy');
+  const [side, setSide] = useState<'buy' | 'sell'>('buy');
+  const [orderType, setOrderType] = useState<'limit' | 'market'>('limit');
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
-  const [orderType, setOrderType] = useState<'limit' | 'market'>('limit');
+  const [assets, setAssets] = useState<Asset[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user) return;
-    if (orderType === 'limit' && !price) return;
-    if (!amount) return;
+  const { base, quote } = useMemo(() => splitSymbol(symbol), [symbol]);
+  const baseAsset = assets.find(asset => asset.symbol === base);
+  const quoteAsset = assets.find(asset => asset.symbol === quote);
+  const numericPrice = toNumber(price);
+  const numericAmount = toNumber(amount);
+  const estimatedTotal = orderType === 'limit' ? numericAmount * numericPrice : 0;
+  const fee = estimatedTotal * 0.001;
 
-    setIsLoading(true);
+  const refreshAssets = useCallback(async () => {
+    if (!user) return;
     try {
-  // send enum values in camelCase to match backend JsonStringEnumConverter expectations
-  const sideEnum = activeTab === 'buy' ? 'buy' : 'sell';
-  const typeEnum = orderType === 'limit' ? 'limit' : 'market';
-      const payload = {
-        symbol,
-        side: sideEnum,
-        type: typeEnum,
-        quantity: parseFloat(amount),
-        price: orderType === 'limit' ? parseFloat(price) : undefined,
-      } as any;
-      const res = await tradingService.submitOrder(payload);
-      if (!res.success) {
-        console.error('下单失败', res.error);
-        // 将后端返回的错误信息展示给用户，便于定位问题
-        alert(`下单失败: ${res.error}`);
-      } else {
-        setAmount('');
-        if (orderType === 'limit') setPrice('');
-      }
-    } catch (err: any) {
-      console.error('提交订单异常', err);
-      alert('提交订单异常: ' + (err?.message || JSON.stringify(err)));
-    } finally {
-      setIsLoading(false);
+      setAssets(await tradingService.getUserAssets());
+    } catch (err) {
+      console.error('Failed to load assets:', err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    setAmount('');
+    setPrice('');
+  }, [symbol]);
+
+  useEffect(() => {
+    refreshAssets();
+  }, [refreshAssets]);
+
+  const handlePercentClick = (percent: number) => {
+    if (side === 'sell') {
+      const availableBase = baseAsset?.available ?? 0;
+      setAmount((availableBase * percent / 100).toFixed(8));
+      return;
+    }
+
+    if (orderType === 'limit' && numericPrice > 0) {
+      const availableQuote = quoteAsset?.available ?? 0;
+      setAmount((availableQuote * percent / 100 / numericPrice).toFixed(8));
     }
   };
 
-  const handlePercentClick = (percent: number) => {
-    // Mock available balance calculation
-    const availableBalance = activeTab === 'buy' ? 1000 : 0.1; // Mock USDT balance or BTC balance
-    const calculatedAmount = (availableBalance * percent / 100).toString();
-    setAmount(calculatedAmount);
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!user) return;
+
+    if (numericAmount <= 0) {
+      toast.error('请输入有效数量');
+      return;
+    }
+
+    if (orderType === 'limit' && numericPrice <= 0) {
+      toast.error('限价单需要填写有效价格');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const result = await tradingService.submitOrder({
+        symbol,
+        side,
+        type: orderType,
+        quantity: numericAmount,
+        price: orderType === 'limit' ? numericPrice : undefined,
+      });
+
+      if (!result.success) {
+        toast.error(result.error || '下单失败');
+        return;
+      }
+
+      toast.success('订单已提交');
+      setAmount('');
+      if (orderType === 'limit') setPrice('');
+      await refreshAssets();
+    } catch (err: any) {
+      toast.error(err?.message || '提交订单异常');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (!user) {
     return (
       <Container>
         <LoginPrompt>
-          <h3>请先登录</h3>
-          <p>登录后即可开始交易</p>
-          <LoginButton onClick={() => window.location.href = '/login'}>
+          <LogIn size={28} />
+          <div>
+            <strong style={{ color: '#f0f6fc' }}>登录后开始现货交易</strong>
+            <div style={{ marginTop: 6 }}>查看余额、提交委托并跟踪成交。</div>
+          </div>
+          <LoginButton onClick={() => { window.location.href = '/login'; }}>
+            <LogIn size={16} />
             立即登录
           </LoginButton>
         </LoginPrompt>
@@ -241,74 +369,108 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
     );
   }
 
+  const canSubmit = numericAmount > 0 && (orderType === 'market' || numericPrice > 0);
+  const availableBalance = side === 'buy' ? formatBalance(quoteAsset?.available) : formatBalance(baseAsset?.available);
+  const availableUnit = side === 'buy' ? quote : base;
+
   return (
     <Container>
-      <TabHeader>
-        <Tab 
-          active={activeTab === 'buy'} 
-          onClick={() => setActiveTab('buy')}
-        >
-          买入
-        </Tab>
-        <Tab 
-          active={activeTab === 'sell'} 
-          onClick={() => setActiveTab('sell')}
-        >
-          卖出
-        </Tab>
-      </TabHeader>
-      
-      <FormContent>
-        <FormGroup>
-          <Label>订单类型</Label>
-          <Select value={orderType} onChange={(e) => setOrderType(e.target.value as 'limit' | 'market')}>
-            <option value="limit">限价单</option>
-            <option value="market">市价单</option>
-          </Select>
-        </FormGroup>
+      <Header>
+        <TitleRow>
+          <Title>现货下单</Title>
+          <IconButton type="button" onClick={refreshAssets} title="刷新余额">
+            <RefreshCcw size={15} />
+          </IconButton>
+        </TitleRow>
+        <Segmented>
+          <SegmentButton active={side === 'buy'} tone="buy" type="button" onClick={() => setSide('buy')}>
+            买入
+          </SegmentButton>
+          <SegmentButton active={side === 'sell'} tone="sell" type="button" onClick={() => setSide('sell')}>
+            卖出
+          </SegmentButton>
+        </Segmented>
+      </Header>
 
-        {orderType === 'limit' && (
-          <FormGroup>
-            <Label>价格 (USDT)</Label>
-            <Input
-              type="number"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              placeholder="输入价格"
-              step="0.01"
-            />
-          </FormGroup>
-        )}
+      <Form onSubmit={handleSubmit}>
+        <ScrollBody>
+          <Segmented>
+            <SegmentButton active={orderType === 'limit'} type="button" onClick={() => setOrderType('limit')}>
+              限价
+            </SegmentButton>
+            <SegmentButton active={orderType === 'market'} type="button" onClick={() => setOrderType('market')}>
+              市价
+            </SegmentButton>
+          </Segmented>
 
-        <FormGroup>
-          <Label>数量 ({symbol.replace('USDT', '')})</Label>
-          <Input
-            type="number"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="输入数量"
-            step="0.00001"
-          />
-        </FormGroup>
+          {orderType === 'limit' && (
+            <Field>
+              <FieldHeader>
+                <span>价格</span>
+                <Balance>{quote}</Balance>
+              </FieldHeader>
+              <InputShell>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={price}
+                  onChange={(event) => setPrice(event.target.value)}
+                  placeholder="输入委托价格"
+                />
+                <Suffix>{quote}</Suffix>
+              </InputShell>
+            </Field>
+          )}
 
-        <FormGroup>
-          <Label>快捷设置</Label>
+          <Field>
+            <FieldHeader>
+              <span>数量</span>
+              <Balance>可用 {availableBalance} {availableUnit}</Balance>
+            </FieldHeader>
+            <InputShell>
+              <Input
+                type="number"
+                min="0"
+                step="0.00000001"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder={`输入 ${base} 数量`}
+              />
+              <Suffix>{base}</Suffix>
+            </InputShell>
+          </Field>
+
           <PercentButtons>
-            <PercentButton onClick={() => handlePercentClick(25)}>25%</PercentButton>
-            <PercentButton onClick={() => handlePercentClick(50)}>50%</PercentButton>
-            <PercentButton onClick={() => handlePercentClick(75)}>75%</PercentButton>
-            <PercentButton onClick={() => handlePercentClick(100)}>100%</PercentButton>
+            {[25, 50, 75, 100].map(percent => (
+              <PercentButton key={percent} type="button" onClick={() => handlePercentClick(percent)}>
+                {percent}%
+              </PercentButton>
+            ))}
           </PercentButtons>
-        </FormGroup>
 
-        <TradeButton 
-          isBuy={activeTab === 'buy'}
-          onClick={handleSubmit}
-          disabled={isLoading || !amount || (orderType === 'limit' && !price)}
-        >
-          {isLoading ? '提交中...' : `${activeTab === 'buy' ? '买入' : '卖出'} ${symbol.replace('USDT', '')}`}
-        </TradeButton>
-      </FormContent>
+          <Summary>
+            <SummaryRow>
+              <span>预计成交额</span>
+              <strong>{orderType === 'limit' ? `${estimatedTotal.toFixed(4)} ${quote}` : '按最优价格成交'}</strong>
+            </SummaryRow>
+            <SummaryRow>
+              <span>预估手续费</span>
+              <strong>{orderType === 'limit' ? `${fee.toFixed(4)} ${quote}` : '--'}</strong>
+            </SummaryRow>
+            <SummaryRow>
+              <span>冻结资产</span>
+              <strong>{side === 'buy' ? quote : base}</strong>
+            </SummaryRow>
+          </Summary>
+        </ScrollBody>
+
+        <Footer>
+          <SubmitButton isBuy={side === 'buy'} disabled={isLoading || !canSubmit}>
+            {isLoading ? '提交中...' : `${side === 'buy' ? '买入' : '卖出'} ${base}`}
+          </SubmitButton>
+        </Footer>
+      </Form>
     </Container>
   );
 };

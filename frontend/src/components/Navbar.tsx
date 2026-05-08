@@ -2,75 +2,83 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import styled from 'styled-components';
-import { LogOut, User, BarChart3, TrendingUp } from 'lucide-react';
+import { BarChart3, LogOut, User } from 'lucide-react';
 
 const NavbarContainer = styled.nav`
-  height: 80px;
-  background: rgba(26, 26, 26, 0.95);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid #333;
-  display: flex;
+  height: 44px;
+  background: rgba(18, 22, 28, 0.96);
+  border-bottom: 1px solid rgba(87, 100, 122, 0.28);
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 2rem;
+  gap: 12px;
+  padding: 0 12px;
   flex-shrink: 0;
 `;
 
-const Logo = styled.div`
-  font-size: 1.5rem;
-  font-weight: bold;
+const LeftGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+`;
+
+const Logo = styled(Link)`
   color: #00d4ff;
-`;
-
-const Navigation = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 2rem;
-`;
-
-const NavLink = styled(Link)<{ $active?: boolean }>`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: ${props => props.$active ? '#00d4ff' : '#ccc'};
   text-decoration: none;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  transition: all 0.2s;
-
-  &:hover {
-    color: #00d4ff;
-    background: rgba(0, 212, 255, 0.1);
-  }
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 `;
 
-const UserSection = styled.div`
+const SectionTag = styled(Link)<{ $active?: boolean }>`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 800;
+  color: ${props => props.$active ? '#00d4ff' : '#8b949e'};
+  background: ${props => props.$active ? 'rgba(0, 212, 255, 0.08)' : 'transparent'};
+  border: 1px solid ${props => props.$active ? 'rgba(0, 212, 255, 0.18)' : 'transparent'};
+`;
+
+const RightGroup = styled.div`
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 10px;
+  min-width: 0;
 `;
 
 const UserInfo = styled.div`
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  color: #ccc;
+  gap: 6px;
+  color: #c9d1d9;
+  font-size: 12px;
+  white-space: nowrap;
 `;
 
 const LogoutButton = styled.button`
-  background: #ff4444;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
+  height: 28px;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  transition: background-color 0.2s;
+  gap: 6px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: #ff4d4f;
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
 
   &:hover {
-    background: #ff6666;
+    background: #ff5e61;
   }
 `;
 
@@ -80,28 +88,24 @@ const Navbar: React.FC = () => {
 
   return (
     <NavbarContainer>
-      <Logo>CryptoSpot</Logo>
-      
-      <Navigation>
-        <NavLink 
-          to="/trading" 
-          $active={location.pathname === '/trading'}
-        >
-          <BarChart3 size={16} />
+      <LeftGroup>
+        <Logo to="/trading">CryptoSpot</Logo>
+        <SectionTag to="/trading" $active={location.pathname === '/trading'}>
+          <BarChart3 size={14} />
           交易
-        </NavLink>
-      </Navigation>
-      
-      <UserSection>
+        </SectionTag>
+      </LeftGroup>
+
+      <RightGroup>
         <UserInfo>
-          <User size={20} />
+          <User size={14} />
           {user?.username}
         </UserInfo>
         <LogoutButton onClick={logout}>
-          <LogOut size={16} />
+          <LogOut size={14} />
           Logout
         </LogoutButton>
-      </UserSection>
+      </RightGroup>
     </NavbarContainer>
   );
 };

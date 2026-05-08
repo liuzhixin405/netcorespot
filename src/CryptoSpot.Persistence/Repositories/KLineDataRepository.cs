@@ -43,6 +43,22 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
             .OrderBy(k => k.OpenTime).ToListAsync();
     }
 
+    public async Task<IEnumerable<KLineData>> GetKLineDataByTimeRangeAsync(long tradingPairId, string interval, DateTime startTime, DateTime endTime, int limit)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var startMs = ((DateTimeOffset)startTime).ToUnixTimeMilliseconds();
+        var endMs = ((DateTimeOffset)endTime).ToUnixTimeMilliseconds();
+
+        var sanitizedLimit = Math.Max(1, limit);
+        var latest = await context.Set<KLineData>()
+            .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval && k.OpenTime >= startMs && k.CloseTime <= endMs)
+            .OrderByDescending(k => k.OpenTime)
+            .Take(sanitizedLimit)
+            .ToListAsync();
+
+        return latest.OrderBy(k => k.OpenTime);
+    }
+
     public async Task<KLineData?> GetLatestKLineDataAsync(long tradingPairId, string interval)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();

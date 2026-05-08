@@ -6,6 +6,7 @@ namespace CryptoSpot.Application.Abstractions.Repositories
     {
         Task<IEnumerable<KLineData>> GetKLineDataByTradingPairIdAsync(long tradingPairId, string interval, int limit = 100);
         Task<IEnumerable<KLineData>> GetKLineDataByTimeRangeAsync(long tradingPairId, string interval, DateTime startTime, DateTime endTime);
+        Task<IEnumerable<KLineData>> GetKLineDataByTimeRangeAsync(long tradingPairId, string interval, DateTime startTime, DateTime endTime, int limit);
         Task<KLineData?> GetLatestKLineDataAsync(long tradingPairId, string interval);
         Task<int> SaveKLineDataBatchAsync(IEnumerable<KLineData> klineData);
         Task<bool> UpsertKLineDataAsync(KLineData klineData);

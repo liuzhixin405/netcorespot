@@ -70,7 +70,7 @@ public class KLineDataService : IKLineDataService
 
             var startDateTime = startTime.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(startTime.Value).DateTime : DateTime.UtcNow.AddDays(-7);
             var endDateTime = endTime.HasValue ? DateTimeOffset.FromUnixTimeMilliseconds(endTime.Value).DateTime : DateTime.UtcNow;
-            var data = await _repository.GetKLineDataByTimeRangeAsync(tradingPairId.Value, interval, startDateTime, endDateTime);
+            var data = await _repository.GetKLineDataByTimeRangeAsync(tradingPairId.Value, interval, startDateTime, endDateTime, limit);
             var dtos = _mapping.MapToDto(data, symbol).ToList();
             return ApiResponseDto<IEnumerable<KLineDataDto>>.CreateSuccess(dtos);
         }

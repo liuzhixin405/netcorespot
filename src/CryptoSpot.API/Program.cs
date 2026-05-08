@@ -30,6 +30,8 @@ builder.Services.AddControllers()
         o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         o.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
         o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+        o.JsonSerializerOptions.Converters.Add(new LongToStringJsonConverter());
+        o.JsonSerializerOptions.Converters.Add(new NullableLongToStringJsonConverter());
         o.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
     });
 
@@ -147,3 +149,50 @@ app.MapCryptoSpotHealthChecks();
 await app.Services.InitDbContext();
 await app.PerformStartupHealthChecks(builder.Configuration);
 await app.RunAsync();
+
+public sealed class LongToStringJsonConverter : JsonConverter<long>
+{
+    public override long Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.String when long.TryParse(reader.GetString(), out var value) => value,
+            JsonTokenType.Number => reader.GetInt64(),
+            _ => throw new JsonException("Expected a long value.")
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, long value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value.ToString());
+    }
+}
+
+public sealed class NullableLongToStringJsonConverter : JsonConverter<long?>
+{
+    public override long? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.Null)
+        {
+            return null;
+        }
+
+        return reader.TokenType switch
+        {
+            JsonTokenType.String when long.TryParse(reader.GetString(), out var value) => value,
+            JsonTokenType.Number => reader.GetInt64(),
+            _ => throw new JsonException("Expected a nullable long value.")
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, long? value, JsonSerializerOptions options)
+    {
+        if (value.HasValue)
+        {
+            writer.WriteStringValue(value.Value.ToString());
+            return;
+        }
+
+        writer.WriteNullValue();
+    }
+}

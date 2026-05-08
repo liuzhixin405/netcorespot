@@ -1,349 +1,293 @@
 import React from 'react';
 import styled from 'styled-components';
-import { ChevronDown } from 'lucide-react';
+import { BarChart3, ChevronDown, CircleDollarSign, LogOut, RadioTower, User } from 'lucide-react';
 import { useMergedTickerData } from '../../hooks/useMergedTickerData';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Header = styled.div`
-  height: 56px;
-  background: #161b22;
-  display: flex;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: center;
-  /* 由 space-between 改为靠左排列，避免两侧被强制拉伸形成大空白 */
-  justify-content: flex-start;
-  padding: 0 0.75rem;
-  position: relative;
-  gap: 0.75rem;
+  padding: 0 10px;
+  background:
+    linear-gradient(90deg, rgba(56, 139, 253, 0.1), transparent 48%),
+    rgba(17, 24, 35, 0.96);
 `;
 
-const SymbolInfo = styled.div`
+const Left = styled.div`
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0.5rem; /* 原1rem => 0.5rem 压缩 */
-  min-width: 0;
+  gap: 8px;
+  overflow: hidden;
+`;
+
+const Brand = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #00d4ff;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+`;
+
+const PageTag = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 212, 255, 0.16);
+  background: rgba(0, 212, 255, 0.08);
+  color: #7ee7ff;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+`;
+
+const IconBox = styled.div`
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: #f0b90b;
+  background: rgba(240, 185, 11, 0.12);
+  border: 1px solid rgba(240, 185, 11, 0.22);
+  flex-shrink: 0;
 `;
 
 const SymbolSelector = styled.div`
   position: relative;
+  width: 144px;
+  flex-shrink: 0;
 `;
 
 const SymbolDropdown = styled.select`
-  font-size: 1.25rem;
-  font-weight: 600;
-  background: transparent;
-  border: none;
-  outline: none;
-  cursor: pointer;
+  width: 100%;
+  height: 30px;
   appearance: none;
-  padding-right: 1.5rem;
+  border: 1px solid rgba(87, 100, 122, 0.42);
+  border-radius: 7px;
+  outline: none;
+  padding: 0 28px 0 10px;
   color: #f0f6fc;
-  
+  background: #0b111a;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+
+  &:focus {
+    border-color: #58a6ff;
+  }
+
   option {
-    background: #161b22;
+    background: #0b111a;
     color: #f0f6fc;
-    padding: 0.5rem;
   }
 `;
 
 const DropdownIcon = styled.div`
   position: absolute;
-  right: 0;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  color: #7d8590;
+  color: #8b949e;
   pointer-events: none;
-  z-index: 2;
 `;
 
-const PriceInfo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem; /* 原2rem => 0.5rem */
+const PriceBlock = styled.div<{ positive: boolean }>`
+  display: grid;
+  gap: 1px;
+  min-width: 112px;
+  color: ${({ positive }) => (positive ? '#3fb950' : '#f85149')};
+  flex-shrink: 0;
 `;
 
-const PriceItem = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+const Price = styled.div`
+  font-size: 17px;
+  line-height: 1;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
 `;
 
-const Price = styled.div<{ isPositive: boolean }>`
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: ${props => props.isPositive ? '#3fb950' : '#f85149'};
-  display: flex;
-  align-items: center;
-  /* ✅ 添加平滑颜色过渡 */
-  transition: color 0.3s ease;
+const PriceSub = styled.div`
+  color: #8b949e;
+  font-size: 9px;
+  font-weight: 700;
 `;
 
-const PriceLabel = styled.div`
-  font-size: 0.8rem;
-  color: #7d8590;
-  font-weight: 400;
-`;
+const Stats = styled.div`
+  display: grid;
+  grid-template-columns: repeat(5, minmax(74px, 1fr));
+  gap: 5px;
+  min-width: 0;
 
-const StatsGrid = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem 0.9rem; /* 更紧凑 */
-  margin-left: 1.2rem; /* 与价格区分隔的固定间距 */
-  align-items: flex-start;
-  /* 允许在较窄宽度换行，但不再强制限制百分比宽度 */
-  @media (max-width: 1400px) { gap: 0.5rem 0.8rem; }
-  @media (max-width: 1200px) { margin-left: 0.9rem; }
-  @media (max-width: 1000px) {
-    margin-left: 0.6rem;
-    gap: 0.45rem 0.7rem;
+  @media (max-width: 1260px) {
+    grid-template-columns: repeat(4, minmax(70px, 1fr));
   }
 `;
 
 const StatItem = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-width: 70px;
-`;
-
-const StatValue = styled.div<{ color?: string }>`
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: ${props => props.color || '#f0f6fc'};
-  /* ✅ 添加平滑过渡效果 */
-  transition: color 0.3s ease;
-  
-  /* ✅ 数值更新时的闪烁动画 */
-  @keyframes flash {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
-  }
-  
-  &.updating {
-    animation: flash 0.3s ease;
-  }
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(13, 19, 29, 0.68);
+  border: 1px solid rgba(87, 100, 122, 0.24);
 `;
 
 const StatLabel = styled.div`
-  font-size: 0.7rem;
-  color: #7d8590;
-  margin-top: 0.25rem;
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: #6e7681;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
 `;
 
-// ✅ 拆分为独立的记忆化组件，避免整体重渲染
-const Change24hStat = React.memo<{ lastPrice?: number; change24h?: number; hasPriceFrame: boolean }>(
-  ({ lastPrice, change24h, hasPriceFrame }) => {
-    const [isUpdating, setIsUpdating] = React.useState(false);
-    const prevValueRef = React.useRef(change24h);
-    
-    React.useEffect(() => {
-      if (prevValueRef.current !== change24h && change24h !== undefined) {
-        setIsUpdating(true);
-        const timer = setTimeout(() => setIsUpdating(false), 300);
-        prevValueRef.current = change24h;
-        return () => clearTimeout(timer);
-      }
-    }, [change24h]);
-    
-    const isPositive = (change24h ?? 0) >= 0;
-    const changePercent24h = (change24h ?? 0) * 100;
-    const pct = isFinite(changePercent24h) ? changePercent24h : 0;
-    
-    return (
-      <StatItem>
-        <StatValue 
-          color={isPositive ? '#3fb950' : '#f85149'}
-          className={isUpdating ? 'updating' : ''}
-        >
-          {lastPrice && lastPrice > 0 && change24h !== undefined
-            ? `${isPositive ? '+' : ''}${pct.toFixed(2)}%`
-            : (hasPriceFrame ? '0.00%' : '--')}
-        </StatValue>
-        <StatLabel>24h</StatLabel>
-      </StatItem>
-    );
+const StatValue = styled.div<{ tone?: 'up' | 'down' }>`
+  margin-top: 2px;
+  color: ${({ tone }) => (tone === 'up' ? '#3fb950' : tone === 'down' ? '#f85149' : '#d0d7de')};
+  font-size: 10px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const Right = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+`;
+
+const UserInfo = styled.div`
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #c9d1d9;
+  font-size: 11px;
+  white-space: nowrap;
+`;
+
+const LogoutButton = styled.button`
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 6px;
+  background: #ff4d4f;
+  color: white;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+
+  &:hover {
+    background: #ff6264;
   }
-);
-
-const High24hStat = React.memo<{ high24h?: number }>(({ high24h }) => {
-  const [isUpdating, setIsUpdating] = React.useState(false);
-  const prevValueRef = React.useRef(high24h);
-  
-  React.useEffect(() => {
-    if (prevValueRef.current !== high24h && high24h !== undefined) {
-      setIsUpdating(true);
-      const timer = setTimeout(() => setIsUpdating(false), 300);
-      prevValueRef.current = high24h;
-      return () => clearTimeout(timer);
-    }
-  }, [high24h]);
-  
-  return (
-    <StatItem>
-      <StatValue 
-        title={high24h !== undefined ? String(high24h) : ''}
-        className={isUpdating ? 'updating' : ''}
-      >
-        {high24h !== undefined ? high24h.toFixed(high24h > 10 ? 0 : 4) : '--'}
-      </StatValue>
-      <StatLabel>24h高</StatLabel>
-    </StatItem>
-  );
-});
-
-const Low24hStat = React.memo<{ low24h?: number }>(({ low24h }) => {
-  const [isUpdating, setIsUpdating] = React.useState(false);
-  const prevValueRef = React.useRef(low24h);
-  
-  React.useEffect(() => {
-    if (prevValueRef.current !== low24h && low24h !== undefined) {
-      setIsUpdating(true);
-      const timer = setTimeout(() => setIsUpdating(false), 300);
-      prevValueRef.current = low24h;
-      return () => clearTimeout(timer);
-    }
-  }, [low24h]);
-  
-  return (
-    <StatItem>
-      <StatValue 
-        title={low24h !== undefined ? String(low24h) : ''}
-        className={isUpdating ? 'updating' : ''}
-      >
-        {low24h !== undefined ? low24h.toFixed(low24h > 10 ? 0 : 4) : '--'}
-      </StatValue>
-      <StatLabel>24h低</StatLabel>
-    </StatItem>
-  );
-});
-
-const Volume24hStat = React.memo<{ volume24h?: number }>(({ volume24h }) => {
-  const [isUpdating, setIsUpdating] = React.useState(false);
-  const prevValueRef = React.useRef(volume24h);
-  
-  React.useEffect(() => {
-    if (prevValueRef.current !== volume24h && volume24h !== undefined) {
-      setIsUpdating(true);
-      const timer = setTimeout(() => setIsUpdating(false), 300);
-      prevValueRef.current = volume24h;
-      return () => clearTimeout(timer);
-    }
-  }, [volume24h]);
-  
-  return (
-    <StatItem>
-      <StatValue 
-        title={volume24h !== undefined ? String(volume24h) : ''}
-        className={isUpdating ? 'updating' : ''}
-      >
-        {volume24h !== undefined 
-          ? (volume24h >= 1 ? volume24h.toFixed(0) : volume24h.toFixed(2)) 
-          : '--'}
-      </StatValue>
-      <StatLabel>24h量</StatLabel>
-    </StatItem>
-  );
-});
-
-// ✅ 价格信息独立组件，带更新动画
-const PriceDisplay = React.memo<{ lastPrice?: number; isPositive: boolean; isConnected: boolean }>(
-  ({ lastPrice, isPositive, isConnected }) => {
-    const [isUpdating, setIsUpdating] = React.useState(false);
-    const prevPriceRef = React.useRef(lastPrice);
-    
-    React.useEffect(() => {
-      if (prevPriceRef.current !== lastPrice && lastPrice && lastPrice > 0) {
-        setIsUpdating(true);
-        const timer = setTimeout(() => setIsUpdating(false), 300);
-        prevPriceRef.current = lastPrice;
-        return () => clearTimeout(timer);
-      }
-    }, [lastPrice]);
-    
-    return (
-      <PriceInfo>
-        <PriceItem>
-          <Price 
-            isPositive={isPositive}
-            style={{ opacity: isUpdating ? 0.6 : 1, transition: 'opacity 0.3s ease' }}
-          >
-            {lastPrice && lastPrice > 0 ? lastPrice.toLocaleString() : '--'}
-            {isConnected && <span style={{ fontSize: '0.6rem', color: '#00b35f', marginLeft: 4 }}>●</span>}
-          </Price>
-          <PriceLabel>
-            {lastPrice && lastPrice > 0 ? `¥${(lastPrice * 7.1).toLocaleString()}` : '¥--'}
-          </PriceLabel>
-        </PriceItem>
-      </PriceInfo>
-    );
-  }
-);
+`;
 
 interface TradingHeaderProps {
   symbol: string;
   onSymbolChange: (symbol: string) => void;
 }
 
-const TradingHeader: React.FC<TradingHeaderProps> = ({ 
-  symbol, 
-  onSymbolChange
-}) => {
-  // 使用SignalR实时价格数据 (只订阅当前选中符号, 不再订阅全部以减少无关推送)
-  const availableSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
-  const { data: merged, isConnected } = useMergedTickerData(symbol);
-  
-  // ✅ 使用 useMemo 优化计算，避免每次都重新计算
-  const currentData = React.useMemo(() => 
-    merged || { symbol, lastPrice: 0, change24h: 0, volume24h: 0, high24h: 0, low24h: 0, timestamp: 0 },
-    [merged, symbol]
-  );
+const availableSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
 
-  const hasPriceFrame = React.useMemo(() => 
-    currentData.change24h !== undefined || currentData.volume24h !== undefined || currentData.high24h !== undefined,
-    [currentData.change24h, currentData.volume24h, currentData.high24h]
-  );
-  
-  const isPositive = React.useMemo(() => 
-    (currentData.change24h ?? 0) >= 0,
-    [currentData.change24h]
-  );
+const formatNumber = (value?: number, digits = 2) => {
+  if (value === undefined || !Number.isFinite(value)) return '--';
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+};
+
+const formatCompact = (value?: number) => {
+  if (value === undefined || !Number.isFinite(value)) return '--';
+  return Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(value);
+};
+
+const TradingHeader: React.FC<TradingHeaderProps> = ({ symbol, onSymbolChange }) => {
+  const { data, isConnected } = useMergedTickerData(symbol);
+  const { user, logout } = useAuth();
+  const lastPrice = data?.lastPrice || data?.midPrice;
+  const changePercent = (data?.change24h ?? 0) * 100;
+  const positive = changePercent >= 0;
 
   return (
     <Header>
-      <SymbolInfo>
+      <Left>
+        <Brand>CryptoSpot</Brand>
+        <PageTag>
+          <BarChart3 size={12} />
+          交易
+        </PageTag>
+        <IconBox>
+          <CircleDollarSign size={16} />
+        </IconBox>
         <SymbolSelector>
-          <SymbolDropdown 
-            value={symbol} 
-            onChange={(e) => onSymbolChange(e.target.value)}
-          >
-            {availableSymbols.map(sym => (
-              <option key={sym} value={sym}>{sym}</option>
+          <SymbolDropdown value={symbol} onChange={(event) => onSymbolChange(event.target.value)}>
+            {availableSymbols.map(item => (
+              <option key={item} value={item}>{item}</option>
             ))}
           </SymbolDropdown>
           <DropdownIcon>
-            <ChevronDown size={16} />
+            <ChevronDown size={14} />
           </DropdownIcon>
         </SymbolSelector>
-        {/* ✅ 使用独立的价格组件 */}
-        <PriceDisplay 
-          lastPrice={currentData.lastPrice} 
-          isPositive={isPositive} 
-          isConnected={isConnected}
-        />
-      </SymbolInfo>
+        <PriceBlock positive={positive}>
+          <Price>{formatNumber(lastPrice, lastPrice && lastPrice < 10 ? 4 : 2)}</Price>
+          <PriceSub>CNY {lastPrice ? formatNumber(lastPrice * 7.1, 2) : '--'}</PriceSub>
+        </PriceBlock>
+        <Stats>
+          <StatItem>
+            <StatLabel>24h 涨跌</StatLabel>
+            <StatValue tone={positive ? 'up' : 'down'}>
+              {data?.change24h !== undefined ? `${positive ? '+' : ''}${changePercent.toFixed(2)}%` : '--'}
+            </StatValue>
+          </StatItem>
+          <StatItem>
+            <StatLabel>24h 高</StatLabel>
+            <StatValue>{formatNumber(data?.high24h, data?.high24h && data.high24h < 10 ? 4 : 2)}</StatValue>
+          </StatItem>
+          <StatItem>
+            <StatLabel>24h 低</StatLabel>
+            <StatValue>{formatNumber(data?.low24h, data?.low24h && data.low24h < 10 ? 4 : 2)}</StatValue>
+          </StatItem>
+          <StatItem>
+            <StatLabel>24h 量</StatLabel>
+            <StatValue>{formatCompact(data?.volume24h)}</StatValue>
+          </StatItem>
+          <StatItem>
+            <StatLabel>连接</StatLabel>
+            <StatValue tone={isConnected ? 'up' : undefined}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <RadioTower size={10} />
+                {isConnected ? '实时' : '等待'}
+              </span>
+            </StatValue>
+          </StatItem>
+        </Stats>
+      </Left>
 
-      <StatsGrid>
-        {/* ✅ 使用独立的记忆化组件，每个字段独立更新 */}
-        <Change24hStat 
-          lastPrice={currentData.lastPrice} 
-          change24h={currentData.change24h} 
-          hasPriceFrame={hasPriceFrame}
-        />
-        <High24hStat high24h={currentData.high24h} />
-        <Low24hStat low24h={currentData.low24h} />
-        <Volume24hStat volume24h={currentData.volume24h} />
-      </StatsGrid>
+      <Right>
+        <UserInfo>
+          <User size={13} />
+          {user?.username}
+        </UserInfo>
+        <LogoutButton onClick={logout}>
+          <LogOut size={13} />
+          Logout
+        </LogoutButton>
+      </Right>
     </Header>
   );
 };

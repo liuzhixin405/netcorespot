@@ -10,24 +10,23 @@ const Container = styled.div`
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #161b22;
-  border: 1px solid #30363d;
+  background: #111823;
 `;
 
 const TabHeader = styled.div`
   display: flex;
-  border-bottom: 1px solid #30363d;
-  background: #21262d;
+  border-bottom: 1px solid rgba(87, 100, 122, 0.34);
+  background: rgba(13, 19, 29, 0.72);
 `;
 
 const Tab = styled.button<{ active: boolean }>`
   flex: 1;
-  padding: 0.5rem;
+  padding: 0.28rem 0.3rem;
   background: ${props => props.active ? '#f0f6fc' : 'transparent'};
   color: ${props => props.active ? '#0d1117' : '#7d8590'};
   border: none;
   cursor: pointer;
-  font-size: 0.75rem;
+  font-size: 0.66rem;
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -43,7 +42,7 @@ const Tab = styled.button<{ active: boolean }>`
 
 const TabContent = styled.div`
   flex: 1;
-  padding: 0.75rem;
+  padding: 0.38rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -96,17 +95,17 @@ const DataTable = styled.div`
   flex-direction: column;
   background: #0d1117;
   border-radius: 6px;
-  border: 1px solid #30363d;
+  border: 1px solid rgba(87, 100, 122, 0.34);
   overflow: hidden;
 `;
 
 const TableHeader = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1fr;
-  padding: 0.75rem;
-  background: #21262d;
-  border-bottom: 1px solid #30363d;
-  font-size: 0.7rem;
+  padding: 0.36rem 0.5rem;
+  background: rgba(17, 24, 35, 0.9);
+  border-bottom: 1px solid rgba(87, 100, 122, 0.24);
+  font-size: 0.6rem;
   font-weight: 600;
   color: #7d8590;
   text-transform: uppercase;
@@ -121,9 +120,9 @@ const TableBody = styled.div`
 const TableRow = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr 1fr 1fr;
-  padding: 0.75rem;
+  padding: 0.32rem 0.5rem;
   border-bottom: 1px solid #21262d;
-  font-size: 0.8rem;
+  font-size: 0.68rem;
   transition: background-color 0.2s;
   
   &:hover {

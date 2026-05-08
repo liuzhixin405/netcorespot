@@ -123,7 +123,7 @@ namespace CryptoSpot.API.Controllers
         }
 
         [HttpGet("orders/{orderId}")]
-        public async Task<ActionResult<ApiResponseDto<OrderDto?>>> GetOrder(int orderId)
+        public async Task<ActionResult<ApiResponseDto<OrderDto?>>> GetOrder(long orderId)
         {
             var userId = GetCurrentUserId();
             var result = await _tradingService.GetOrderAsync(userId, orderId);
@@ -160,7 +160,7 @@ namespace CryptoSpot.API.Controllers
         }
 
         [HttpDelete("orders/{orderId}")]
-        public async Task<ActionResult<ApiResponseDto<bool>>> CancelOrder(int orderId)
+        public async Task<ActionResult<ApiResponseDto<bool>>> CancelOrder(long orderId)
         {
             var userId = GetCurrentUserId();
             var result = await _tradingService.CancelOrderAsync(userId, orderId);
@@ -193,7 +193,7 @@ namespace CryptoSpot.API.Controllers
         }
 
         [HttpGet("orders/{orderId}/trades")]
-        public async Task<ActionResult<ApiResponseDto<IEnumerable<TradeDto>>>> GetOrderTrades(int orderId)
+        public async Task<ActionResult<ApiResponseDto<IEnumerable<TradeDto>>>> GetOrderTrades(long orderId)
         {
             var userId = GetCurrentUserId();
             var result = await _tradingService.GetOrderTradesAsync(userId, orderId);
