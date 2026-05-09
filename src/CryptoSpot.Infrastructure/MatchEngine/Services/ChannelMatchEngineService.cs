@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Domain.Entities;
@@ -15,12 +16,13 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Services;
 /// 纯内存撮合引擎服务 - 基于 Channel，无 Redis 依赖
 /// 实现了 Application 层的 IMatchEngineService 接口，供基础交易服务消费
 /// </summary>
-public class ChannelMatchEngineService : IMatchEngineService, IDisposable
+public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
 {
     private readonly ILogger<ChannelMatchEngineService> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IMatchingAlgorithm _matchingAlgorithm;
     private readonly ITradingPairParser _pairParser;
+    private readonly IRealTimeDataPushService _pushService;
 
     // 每个交易对一个订单簿和 Channel
     private readonly ConcurrentDictionary<string, IOrderBook> _orderBooks = new();
@@ -33,21 +35,26 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
     // 交易记录缓存（用于后续公共处理）
     private readonly ConcurrentDictionary<long, Trade> _trades = new();
     private long _nextTradeId = 1;
+    private long _lastTradeCleanupTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    private const long TradeCleanupIntervalMs = 300_000; // 5 minutes
+    private const long TradeRetentionMs = 3_600_000; // 1 hour
 
     private readonly CancellationTokenSource _cts = new();
 
     public ChannelMatchEngineService(
         ILogger<ChannelMatchEngineService> logger,
-        IServiceProvider serviceProvider,
+        IServiceScopeFactory scopeFactory,
         IMatchingAlgorithm matchingAlgorithm,
         ITradingPairParser pairParser,
-        InMemoryAssetStore assetStore)
+        InMemoryAssetStore assetStore,
+        IRealTimeDataPushService pushService)
     {
         _logger = logger;
-        _serviceProvider = serviceProvider;
+        _scopeFactory = scopeFactory;
         _assetStore = assetStore;
         _matchingAlgorithm = matchingAlgorithm;
         _pairParser = pairParser;
+        _pushService = pushService;
     }
 
     /// <summary>
@@ -70,7 +77,21 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
         _orderChannels[normalizedSymbol] = channel;
 
         // 为每个交易对启动处理任务
-        var task = Task.Run(() => ProcessOrdersAsync(normalizedSymbol, _cts.Token));
+        var task = Task.Run(async () =>
+        {
+            try
+            {
+                await ProcessOrdersAsync(normalizedSymbol, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Match engine channel for {Symbol} cancelled", normalizedSymbol);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Match engine channel for {Symbol} faulted", normalizedSymbol);
+            }
+        });
         _processingTasks[normalizedSymbol] = task;
 
         _logger.LogInformation("Initialized matching engine for symbol: {Symbol}", normalizedSymbol);
@@ -196,6 +217,9 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
             trades.Add(trade);
             _trades[trade.Id] = trade;
 
+            // 定期清理过期交易记录
+            TryCleanupOldTrades();
+
             // 更新订单状态
             UpdateOrderStatus(matchSlice.Maker);
             UpdateOrderStatus(taker);
@@ -213,8 +237,8 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
             await PublishOrderPlacedEventsAsync(symbol, taker);
         }
 
-        // 持久化到数据库（异步，不阻塞撮合）
-        _ = Task.Run(async () => await PersistToDatabaseAsync(taker, trades, symbol), ct);
+        // 持久化到数据库
+        await PersistToDatabaseAsync(taker, trades, symbol);
     }
 
     /// <summary>
@@ -278,6 +302,8 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
     /// </summary>
     private static void UpdateOrderStatus(Order order)
     {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
         if (order.FilledQuantity >= order.Quantity)
         {
             order.Status = OrderStatus.Filled;
@@ -287,11 +313,11 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
             order.Status = OrderStatus.PartiallyFilled;
         }
 
-        order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        order.UpdatedAt = now;
     }
 
     /// <summary>
-    /// 发布交易事件
+    /// 发布交易事件和 ticker 数据
     /// </summary>
     private async Task PublishTradeEventsAsync(
         string symbol,
@@ -300,7 +326,21 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
         Order taker)
     {
         _logger.LogInformation("Trade executed: Symbol={Symbol}, TradeId={TradeId}", symbol, trade.Id);
-        await Task.CompletedTask;
+
+        // 推送 ticker 数据 (最新成交价、买卖一档、中间价)
+        var orderBook = _orderBooks.GetValueOrDefault(symbol);
+        var bids = orderBook?.GetDepth(OrderSide.Buy, 1);
+        var asks = orderBook?.GetDepth(OrderSide.Sell, 1);
+        var bestBid = bids is { Count: > 0 } ? bids[0].price : (decimal?)null;
+        var bestAsk = asks is { Count: > 0 } ? asks[0].price : (decimal?)null;
+        var midPrice = bestBid.HasValue && bestAsk.HasValue
+            ? (bestBid.Value + bestAsk.Value) / 2m
+            : (decimal?)null;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        await _pushService.PushLastTradeAndMidPriceAsync(
+            symbol, trade.Price, trade.Quantity,
+            bestBid, bestAsk, midPrice, now);
     }
 
     /// <summary>
@@ -319,7 +359,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
+            using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             var existingOrder = await dbContext.Orders.FindAsync(order.Id);
@@ -393,7 +433,30 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
         if (order.UserId == null) throw new InvalidOperationException("订单缺少用户ID");
     }
 
-    public void Dispose()
+    private void TryCleanupOldTrades()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (now - _lastTradeCleanupTimestamp < TradeCleanupIntervalMs)
+            return;
+
+        _lastTradeCleanupTimestamp = now;
+        var cutoff = now - TradeRetentionMs;
+        var removed = 0;
+
+        foreach (var key in _trades.Keys)
+        {
+            if (_trades.TryGetValue(key, out var trade) && trade.ExecutedAt < cutoff)
+            {
+                if (_trades.TryRemove(key, out _))
+                    removed++;
+            }
+        }
+
+        if (removed > 0)
+            _logger.LogDebug("Cleaned up {Count} expired trades from memory cache", removed);
+    }
+
+    public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
 
@@ -402,7 +465,14 @@ public class ChannelMatchEngineService : IMatchEngineService, IDisposable
             channel.Writer.Complete();
         }
 
-        Task.WhenAll(_processingTasks.Values).Wait(TimeSpan.FromSeconds(5));
+        try
+        {
+            await Task.WhenAll(_processingTasks.Values).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("Match engine processing tasks did not complete within timeout");
+        }
 
         _cts.Dispose();
     }

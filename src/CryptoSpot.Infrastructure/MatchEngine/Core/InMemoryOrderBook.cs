@@ -5,21 +5,19 @@ using System.Threading;
 
 namespace CryptoSpot.Infrastructure.MatchEngine.Core
 {
-    /// <summary>
-    /// 与旧 InMemoryMatchEngineService 内部类逻辑等价的抽离版本，便于后续独立测试与替换。
-    /// </summary>
     public class InMemoryOrderBook : IOrderBook
     {
         public string Symbol { get; }
         private readonly SortedDictionary<decimal, Queue<Order>> _bids = new(new DescComparer());
         private readonly SortedDictionary<decimal, Queue<Order>> _asks = new();
-        private readonly SemaphoreSlim _lock = new(1, 1);
-        public object SyncRoot => _lock; // 暴露锁对象以兼容现有 per-symbol 串行逻辑
+        private readonly object _syncRoot = new();
 
         public InMemoryOrderBook(string symbol)
         {
             Symbol = symbol;
         }
+
+        object IOrderBook.SyncRoot => _syncRoot;
 
         public void Add(Order order)
         {
@@ -72,12 +70,22 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Core
         {
             var dict = side == OrderSide.Buy ? _bids : _asks;
             var result = new List<(decimal price, decimal quantity)>(depth);
-            foreach (var kv in dict.Take(depth))
+            // Snapshot keys first to avoid enumeration modification during concurrent access
+            decimal[] keys;
+            lock (dict)
             {
-                var total = kv.Value.Where(o => o.FilledQuantity < o.Quantity)
-                                     .Sum(o => (o.Quantity - o.FilledQuantity));
-                if (total > 0)
-                    result.Add((kv.Key, total));
+                keys = dict.Keys.Take(depth).ToArray();
+            }
+            foreach (var key in keys)
+            {
+                lock (dict)
+                {
+                    if (!dict.TryGetValue(key, out var q)) continue;
+                    var total = q.Where(o => o.FilledQuantity < o.Quantity)
+                                 .Sum(o => (o.Quantity - o.FilledQuantity));
+                    if (total > 0)
+                        result.Add((key, total));
+                }
             }
             return result;
         }

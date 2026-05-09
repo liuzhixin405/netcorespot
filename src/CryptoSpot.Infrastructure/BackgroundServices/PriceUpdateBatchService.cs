@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -24,12 +25,16 @@ public class PriceUpdateBatchService : BackgroundService
         decimal High24h,
         decimal Low24h);
 
+    private readonly IRealTimeDataPushService _pushService;
+
     public PriceUpdateBatchService(
         ILogger<PriceUpdateBatchService> logger,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        IRealTimeDataPushService pushService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
+        _pushService = pushService;
         
         // 无界队列，单读多写
         _channel = Channel.CreateUnbounded<PriceUpdateRequest>(new UnboundedChannelOptions
@@ -133,6 +138,7 @@ public class PriceUpdateBatchService : BackgroundService
 
             // 批量更新
             var successCount = 0;
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             foreach (var update in latestUpdates)
             {
                 try
@@ -145,6 +151,10 @@ public class PriceUpdateBatchService : BackgroundService
                         update.High24h,
                         update.Low24h);
                     successCount++;
+
+                    // 推送 ticker（外部行情）
+                    await _pushService.PushLastTradeAndMidPriceAsync(
+                        update.Symbol, update.Price, null, null, null, null, now);
                 }
                 catch (Exception ex)
                 {

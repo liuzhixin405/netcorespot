@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using CryptoSpot.Application.Common.Interfaces;
 using CryptoSpot.Application.Common.Models;
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.DTOs.Common;
@@ -11,9 +12,6 @@ using System.Text.Json;
 
 namespace CryptoSpot.API.Controllers
 {
-    /// <summary>
-    /// 交易控制器
-    /// </summary>
     [ApiController]
     [Route("api/trading")]
     [Authorize]
@@ -21,24 +19,16 @@ namespace CryptoSpot.API.Controllers
     {
         private readonly ILogger<TradingController> _logger;
         private readonly ITradingService _tradingService;
+        private readonly ICurrentUserService _currentUser;
 
         public TradingController(
             ILogger<TradingController> logger,
-            ITradingService tradingService)
+            ITradingService tradingService,
+            ICurrentUserService currentUser)
         {
             _logger = logger;
             _tradingService = tradingService;
-        }
-
-        // 辅助方法：获取当前用户ID
-        private long GetCurrentUserId()
-        {
-            var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
-            if (userIdClaim == null || !long.TryParse(userIdClaim.Value, out var userId))
-            {
-                throw new UnauthorizedAccessException("无效的用户认证信息");
-            }
-            return userId;
+            _currentUser = currentUser;
         }
 
         // 交易对相关
@@ -92,7 +82,7 @@ namespace CryptoSpot.API.Controllers
         [HttpGet("assets")]
         public async Task<ActionResult<ApiResponseDto<IEnumerable<AssetDto>>>> GetUserAssets()
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.GetUserAssetsAsync(userId);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -100,7 +90,7 @@ namespace CryptoSpot.API.Controllers
         [HttpGet("assets/summary")]
         public async Task<ActionResult<ApiResponseDto<AssetSummaryDto>>> GetUserAssetSummary()
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.GetUserAssetSummaryAsync(userId);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -109,7 +99,7 @@ namespace CryptoSpot.API.Controllers
         [HttpGet("orders")]
         public async Task<ActionResult<ApiResponseDto<IEnumerable<OrderDto>>>> GetUserOrders([FromQuery] string? symbol = null)
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.GetUserOrdersAsync(userId, symbol);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -117,7 +107,7 @@ namespace CryptoSpot.API.Controllers
         [HttpGet("orders/open")]
         public async Task<ActionResult<ApiResponseDto<IEnumerable<OrderDto>>>> GetOpenOrders([FromQuery] string? symbol = null)
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.GetOpenOrdersAsync(userId, symbol);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -125,7 +115,7 @@ namespace CryptoSpot.API.Controllers
         [HttpGet("orders/{orderId}")]
         public async Task<ActionResult<ApiResponseDto<OrderDto?>>> GetOrder(long orderId)
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.GetOrderAsync(userId, orderId);
             return result.Success ? Ok(result) : NotFound(result);
         }
@@ -154,7 +144,7 @@ namespace CryptoSpot.API.Controllers
                 }
                 return BadRequest(apiResp);
             }
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.SubmitOrderAsync(userId, request);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -162,7 +152,7 @@ namespace CryptoSpot.API.Controllers
         [HttpDelete("orders/{orderId}")]
         public async Task<ActionResult<ApiResponseDto<bool>>> CancelOrder(long orderId)
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.CancelOrderAsync(userId, orderId);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -170,7 +160,7 @@ namespace CryptoSpot.API.Controllers
         [HttpDelete("orders/batch")]
         public async Task<ActionResult<ApiResponseDto<BatchCancelOrdersResultDto>>> CancelAllOrders([FromBody] BatchCancelOrdersRequestDto? request = null)
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.CancelAllOrdersAsync(userId, request);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -178,7 +168,7 @@ namespace CryptoSpot.API.Controllers
         [HttpPost("orders/test")]
         public async Task<ActionResult<ApiResponseDto<TestOrderResultDto>>> TestOrder([FromBody] CreateOrderRequestDto request)
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.TestOrderAsync(userId, request);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -187,7 +177,7 @@ namespace CryptoSpot.API.Controllers
         [HttpGet("trades")]
         public async Task<ActionResult<ApiResponseDto<IEnumerable<TradeDto>>>> GetUserTrades([FromQuery] string? symbol = null)
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.GetUserTradesAsync(userId, symbol);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -195,7 +185,7 @@ namespace CryptoSpot.API.Controllers
         [HttpGet("orders/{orderId}/trades")]
         public async Task<ActionResult<ApiResponseDto<IEnumerable<TradeDto>>>> GetOrderTrades(long orderId)
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.GetOrderTradesAsync(userId, orderId);
             return result.Success ? Ok(result) : BadRequest(result);
         }
@@ -203,7 +193,7 @@ namespace CryptoSpot.API.Controllers
         [HttpGet("trades/statistics")]
         public async Task<ActionResult<ApiResponseDto<TradeStatisticsDto>>> GetUserTradeStatistics()
         {
-            var userId = GetCurrentUserId();
+            var userId = _currentUser.UserId;
             var result = await _tradingService.GetUserTradeStatisticsAsync(userId);
             return result.Success ? Ok(result) : BadRequest(result);
         }

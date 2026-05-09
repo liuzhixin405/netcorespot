@@ -7,14 +7,18 @@ using CryptoSpot.Infrastructure;
 using CryptoSpot.Infrastructure.BackgroundServices;
 using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Infrastructure.Extensions;
+using CryptoSpot.Infrastructure.Identity;
 using CryptoSpot.Infrastructure.Services;
 using CryptoSpot.API.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -51,9 +55,12 @@ builder.Services.AddMemoryCache();
 // 数据库协调器
 builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
 
+// 强类型配置绑定
+builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSettings"));
+
 // 实时数据服务与市场数据流由 Infrastructure 层统一注册
 
-// Binance 市场数据提供者（带代理支持）
+// Binance 市场数据提供者（带代理支持 + Resilience）
 builder.Services.AddHttpClient<BinanceMarketDataProvider>((sp, client) =>
 {
     var config = sp.GetRequiredService<IConfiguration>();
@@ -80,11 +87,26 @@ builder.Services.AddHttpClient<BinanceMarketDataProvider>((sp, client) =>
         }
     }
     return handler;
+}).AddStandardResilienceHandler();
+
+// ==================== 速率限制 ====================
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddFixedWindowLimiter("auth", config =>
+    {
+        config.PermitLimit = 5;
+        config.Window = TimeSpan.FromMinutes(1);
+        config.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        config.QueueLimit = 0;
+    });
 });
 
 // ==================== 认证与授权 ====================
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
-var secretKey = jwtSettings["SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
+var secretKey = jwtSettings["SecretKey"]
+    ?? throw new InvalidOperationException(
+        "JWT SecretKey is not configured. Set 'JwtSettings:SecretKey' in configuration.");
 var issuer = jwtSettings["Issuer"] ?? "CryptoSpot";
 var audience = jwtSettings["Audience"] ?? "CryptoSpotUsers";
 
@@ -138,6 +160,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors("AllowReactApp");
 app.UseRouting();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

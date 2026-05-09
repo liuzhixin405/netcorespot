@@ -119,6 +119,7 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<ICurrentUserService, CurrentUserService>();
             services.AddScoped<ITokenService, JwtTokenService>();
             services.AddScoped<IPasswordHasher, PasswordHasher>();
+            services.AddSingleton(TimeProvider.System);
             return services;
         }
 
@@ -157,8 +158,8 @@ namespace CryptoSpot.Infrastructure
             {
                 try
                 {
-                    context.Database.EnsureCreated();
-                    Console.WriteLine("Database schema created/verified successfully");
+                    context.Database.Migrate();
+                    Console.WriteLine("Database migration completed successfully");
 
                     var userCount = await context.Users.CountAsync();
                     Console.WriteLine($"Current user count: {userCount}");
@@ -166,6 +167,7 @@ namespace CryptoSpot.Infrastructure
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Database setup failed: {ex.Message}");
+                    throw;
                 }
             }
 

@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import toast from 'react-hot-toast';
 import { LogIn, RefreshCcw } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSignalRTicker } from '../../hooks/useSignalRTicker';
 import { tradingService } from '../../services/tradingService';
 import { Asset } from '../../types';
 
@@ -271,14 +272,29 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
   const [amount, setAmount] = useState('');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [restPrice, setRestPrice] = useState(0);
+
+  const { tickerData } = useSignalRTicker(symbol);
+  const tickerPrice = tickerData?.lastPrice ?? 0;
+  const marketPrice = tickerPrice > 0 ? tickerPrice : restPrice;
 
   const { base, quote } = useMemo(() => splitSymbol(symbol), [symbol]);
   const baseAsset = assets.find(asset => asset.symbol === base);
   const quoteAsset = assets.find(asset => asset.symbol === quote);
   const numericPrice = toNumber(price);
   const numericAmount = toNumber(amount);
-  const estimatedTotal = orderType === 'limit' ? numericAmount * numericPrice : 0;
+  const effectivePrice = orderType === 'limit' && numericPrice > 0 ? numericPrice : marketPrice;
+  const estimatedTotal = numericAmount * effectivePrice;
   const fee = estimatedTotal * 0.001;
+
+  // REST API 兜底获取当前价
+  useEffect(() => {
+    let cancelled = false;
+    tradingService.getTradingPair(symbol).then(pair => {
+      if (!cancelled && pair?.price) setRestPrice(pair.price);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [symbol]);
 
   const refreshAssets = useCallback(async () => {
     if (!user) return;
@@ -299,16 +315,29 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
   }, [refreshAssets]);
 
   const handlePercentClick = (percent: number) => {
+    const pct = percent / 100;
+
     if (side === 'sell') {
       const availableBase = baseAsset?.available ?? 0;
-      setAmount((availableBase * percent / 100).toFixed(8));
+      if (availableBase <= 0) return;
+      setAmount((availableBase * pct).toFixed(8));
       return;
     }
 
-    if (orderType === 'limit' && numericPrice > 0) {
-      const availableQuote = quoteAsset?.available ?? 0;
-      setAmount((availableQuote * percent / 100 / numericPrice).toFixed(8));
+    // 买入：用限价单价格（已填写）或市价
+    const priceForCalc = orderType === 'limit' && numericPrice > 0 ? numericPrice : marketPrice;
+    if (priceForCalc <= 0) {
+      toast.error('请先填写价格，或等待市价加载');
+      return;
     }
+
+    const availableQuote = quoteAsset?.available ?? 0;
+    if (availableQuote <= 0) {
+      toast.error(`${quote} 余额不足`);
+      return;
+    }
+
+    setAmount((availableQuote * pct / priceForCalc).toFixed(8));
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -451,12 +480,16 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
 
           <Summary>
             <SummaryRow>
+              <span>参考价格</span>
+              <strong>{effectivePrice > 0 ? `${effectivePrice.toFixed(4)} ${quote}` : '加载中...'}</strong>
+            </SummaryRow>
+            <SummaryRow>
               <span>预计成交额</span>
-              <strong>{orderType === 'limit' ? `${estimatedTotal.toFixed(4)} ${quote}` : '按最优价格成交'}</strong>
+              <strong>{numericAmount > 0 ? `${estimatedTotal.toFixed(4)} ${quote}` : '--'}</strong>
             </SummaryRow>
             <SummaryRow>
               <span>预估手续费</span>
-              <strong>{orderType === 'limit' ? `${fee.toFixed(4)} ${quote}` : '--'}</strong>
+              <strong>{numericAmount > 0 ? `${fee.toFixed(4)} ${quote}` : '--'}</strong>
             </SummaryRow>
             <SummaryRow>
               <span>冻结资产</span>

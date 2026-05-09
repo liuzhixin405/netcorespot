@@ -70,6 +70,15 @@ namespace CryptoSpot.API.Middleware
                     };
                     break;
 
+                case UnauthorizedAccessException unauthorizedAccessEx:
+                    statusCode = HttpStatusCode.Unauthorized;
+                    error = new
+                    {
+                        type = "unauthorized",
+                        message = unauthorizedAccessEx.Message
+                    };
+                    break;
+
                 case BusinessException businessEx:
                     statusCode = HttpStatusCode.BadRequest;
                     error = new

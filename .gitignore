@@ -713,3 +713,5 @@ TestResults/
 *.backup
 *.old
 *~
+CODE_ANALYSIS_REPORT.md
+/.claude

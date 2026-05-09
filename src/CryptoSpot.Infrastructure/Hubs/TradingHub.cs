@@ -1,12 +1,14 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using CryptoSpot.Domain.Entities;
 using Microsoft.Extensions.Logging;
 using CryptoSpot.Application.Abstractions.Services.Trading;
-using CryptoSpot.Application.Abstractions.Repositories;   // 使用仓储接口
-using CryptoSpot.Application.Abstractions.Services.MarketData;   // 交易对服务
+using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
 
 namespace CryptoSpot.Infrastructure.Hubs
-{    public class TradingHub : Hub
+{
+    public class TradingHub : Hub
     {
         private readonly IKLineDataRepository _klineDataRepository;
         private readonly ITradingPairService _tradingPairService;
@@ -62,12 +64,13 @@ namespace CryptoSpot.Infrastructure.Hubs
                 {
                     _logger.LogDebug("No existing KLine found for initial push {Symbol} {Interval}", symbol, interval);
                 }
-                _logger.LogDebug($"Client {Context.ConnectionId} subscribed to {symbol} {interval} K-line real-time updates");
+                _logger.LogDebug("Client {ConnectionId} subscribed to {Symbol} {Interval} K-line real-time updates", Context.ConnectionId, symbol, interval);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to subscribe K-line data for {symbol} {interval}");
+                _logger.LogError(ex, "Failed to subscribe K-line data for {Symbol} {Interval}", symbol, interval);
                 await Clients.Caller.SendAsync("Error", $"Failed to subscribe to {symbol} {interval}");
+                    return;
             }
         }
 
@@ -156,18 +159,19 @@ namespace CryptoSpot.Infrastructure.Hubs
                 }
                 else
                 {
-                    _logger.LogWarning($"No order book data found for {symbol}");
+                    _logger.LogWarning("No order book data found for {Symbol}", symbol);
                 }
                 
                 // 通知客户端订阅成功
                 await Clients.Caller.SendAsync("OrderBookSubscribed", symbol);
                 
-                _logger.LogDebug($"Client {Context.ConnectionId} subscribed to {symbol} order book");
+                _logger.LogDebug("Client {ConnectionId} subscribed to {Symbol} order book", Context.ConnectionId, symbol);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"Failed to subscribe order book for {symbol}");
+                _logger.LogError(ex, "Failed to subscribe order book for {Symbol}", symbol);
                 await Clients.Caller.SendAsync("Error", $"Failed to subscribe to {symbol} order book");
+                return;
             }
         }
 
@@ -212,16 +216,22 @@ namespace CryptoSpot.Infrastructure.Hubs
             await Clients.Caller.SendAsync("TradesUnsubscribed", symbol);
         }
 
-        public async Task SubscribeUserData(int userId)
+        [Authorize]
+        public async Task SubscribeUserData()
         {
+            var userId = Context.UserIdentifier
+                ?? throw new UnauthorizedAccessException("未认证的用户");
             var userGroup = $"user_{userId}";
             await Groups.AddToGroupAsync(Context.ConnectionId, userGroup);
             _logger.LogInformation("[TradingHub] Client {ConnectionId} subscribed user data: UserId={UserId}", Context.ConnectionId, userId);
             await Clients.Caller.SendAsync("UserDataSubscribed", userId);
         }
 
-        public async Task UnsubscribeUserData(int userId)
+        [Authorize]
+        public async Task UnsubscribeUserData()
         {
+            var userId = Context.UserIdentifier
+                ?? throw new UnauthorizedAccessException("未认证的用户");
             var userGroup = $"user_{userId}";
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, userGroup);
             _logger.LogInformation("[TradingHub] Client {ConnectionId} unsubscribed user data: UserId={UserId}", Context.ConnectionId, userId);

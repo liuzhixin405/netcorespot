@@ -21,7 +21,9 @@ namespace CryptoSpot.Infrastructure.Identity
             get
             {
                 var userIdClaim = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier);
-                return userIdClaim != null && long.TryParse(userIdClaim.Value, out var userId) ? userId : 0;
+                if (userIdClaim == null || !long.TryParse(userIdClaim.Value, out var userId))
+                    throw new UnauthorizedAccessException("无效的用户认证信息");
+                return userId;
             }
         }
 

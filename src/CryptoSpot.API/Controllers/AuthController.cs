@@ -1,27 +1,28 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using CryptoSpot.Application.Abstractions.Services.Auth;
+using CryptoSpot.Application.Common.Interfaces;
 using CryptoSpot.Application.DTOs.Auth;
 using CryptoSpot.Application.DTOs.Users;
-using System.Security.Claims;
 
 namespace CryptoSpot.API.Controllers
 {
-    /// <summary>
-    /// 认证控制器
-    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
+        private readonly ICurrentUserService _currentUser;
         private readonly ILogger<AuthController> _logger;
 
         public AuthController(
             IAuthService authService,
+            ICurrentUserService currentUser,
             ILogger<AuthController> logger)
         {
             _authService = authService;
+            _currentUser = currentUser;
             _logger = logger;
         }
 
@@ -30,6 +31,7 @@ namespace CryptoSpot.API.Controllers
         /// </summary>
         [HttpPost("register")]
         [AllowAnonymous]
+        [EnableRateLimiting("auth")]
         [ProducesResponseType(200)]
         [ProducesResponseType(400)]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
@@ -54,6 +56,7 @@ namespace CryptoSpot.API.Controllers
         /// </summary>
         [HttpPost("login")]
         [AllowAnonymous]
+        [EnableRateLimiting("auth")]
         [ProducesResponseType(200)]
         [ProducesResponseType(400)]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
@@ -83,13 +86,7 @@ namespace CryptoSpot.API.Controllers
         [ProducesResponseType(404)]
         public async Task<IActionResult> GetCurrentUser()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim == null || !long.TryParse(userIdClaim.Value, out var userId))
-            {
-                return Unauthorized(new { error = "无效的认证信息" });
-            }
-
-            var result = await _authService.GetCurrentUserAsync(userId);
+            var result = await _authService.GetCurrentUserAsync(_currentUser.UserId);
             
             if (!result.Success)
             {
@@ -107,10 +104,9 @@ namespace CryptoSpot.API.Controllers
         [ProducesResponseType(200)]
         public async Task<IActionResult> Logout()
         {
-            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier);
-            if (userIdClaim != null && long.TryParse(userIdClaim.Value, out var userId))
+            if (_currentUser.IsAuthenticated)
             {
-                await _authService.LogoutAsync(userId);
+                await _authService.LogoutAsync(_currentUser.UserId);
             }
 
             return Ok(new { success = true, message = "登出成功" });

@@ -1,5 +1,5 @@
 using CryptoSpot.Application.Common.Interfaces;
-using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -7,28 +7,24 @@ using System.Text;
 
 namespace CryptoSpot.Infrastructure.Identity
 {
-    /// <summary>
-    /// JWT Token 服务实现
-    /// </summary>
     public class JwtTokenService : ITokenService
     {
-        private readonly string _secretKey;
-        private readonly string _issuer;
-        private readonly string _audience;
-        private readonly int _expirationDays;
+        private readonly JwtSettings _settings;
+        private readonly TimeProvider _timeProvider;
 
-        public JwtTokenService(IConfiguration configuration)
+        public JwtTokenService(IOptions<JwtSettings> options, TimeProvider timeProvider)
         {
-            var jwtSettings = configuration.GetSection("JwtSettings");
-            _secretKey = jwtSettings["SecretKey"] ?? "YourSuperSecretKeyThatIsAtLeast32CharactersLong!";
-            _issuer = jwtSettings["Issuer"] ?? "CryptoSpot";
-            _audience = jwtSettings["Audience"] ?? "CryptoSpotUsers";
-            _expirationDays = int.TryParse(jwtSettings["ExpirationDays"], out var days) ? days : 7;
+            _settings = options.Value;
+            _timeProvider = timeProvider;
+
+            if (string.IsNullOrEmpty(_settings.SecretKey))
+                throw new InvalidOperationException(
+                    "JWT SecretKey is not configured. Set 'JwtSettings:SecretKey' in configuration.");
         }
 
         public string GenerateToken(long userId, string username)
         {
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_secretKey));
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_settings.SecretKey));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var claims = new[]
@@ -39,10 +35,10 @@ namespace CryptoSpot.Infrastructure.Identity
             };
 
             var token = new JwtSecurityToken(
-                issuer: _issuer,
-                audience: _audience,
+                issuer: _settings.Issuer,
+                audience: _settings.Audience,
                 claims: claims,
-                expires: DateTime.UtcNow.AddDays(_expirationDays),
+                expires: _timeProvider.GetUtcNow().AddDays(_settings.ExpiryInDays).UtcDateTime,
                 signingCredentials: credentials
             );
 
@@ -54,7 +50,7 @@ namespace CryptoSpot.Infrastructure.Identity
             try
             {
                 var tokenHandler = new JwtSecurityTokenHandler();
-                var key = Encoding.UTF8.GetBytes(_secretKey);
+                var key = Encoding.UTF8.GetBytes(_settings.SecretKey);
 
                 var validationParameters = new TokenValidationParameters
                 {
@@ -62,13 +58,13 @@ namespace CryptoSpot.Infrastructure.Identity
                     ValidateAudience = true,
                     ValidateLifetime = true,
                     ValidateIssuerSigningKey = true,
-                    ValidIssuer = _issuer,
-                    ValidAudience = _audience,
+                    ValidIssuer = _settings.Issuer,
+                    ValidAudience = _settings.Audience,
                     IssuerSigningKey = new SymmetricSecurityKey(key)
                 };
 
                 var principal = tokenHandler.ValidateToken(token, validationParameters, out _);
-                
+
                 var userIdClaim = principal.FindFirst(ClaimTypes.NameIdentifier);
                 var usernameClaim = principal.FindFirst(ClaimTypes.Name);
 

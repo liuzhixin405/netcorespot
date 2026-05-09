@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 import TradingHeader from '../components/trading/TradingHeader';
 import { ProfessionalKLineChart } from '../components/trading/ProfessionalKLineChart';
@@ -21,44 +21,60 @@ const TradingContainer = styled.div`
 
 const MainContent = styled.div`
   height: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 8px;
+  display: flex;
+  gap: 0;
   padding: 8px;
   min-height: 0;
-
-  @media (max-width: 1180px) {
-    grid-template-columns: minmax(0, 1fr) 292px;
-  }
-
-  @media (max-width: 920px) {
-    overflow-y: auto;
-    grid-template-columns: 1fr;
-    grid-auto-rows: auto;
-  }
 `;
 
 const LeftPanel = styled.div`
-  display: grid;
-  grid-template-rows: 44px minmax(420px, 1fr) 156px;
-  gap: 8px;
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   min-height: 0;
+`;
+
+const RightPanel = styled.div<{ width: number }>`
+  width: ${({ width }) => width}px;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex-shrink: 0;
 
   @media (max-width: 920px) {
-    grid-template-rows: 72px 460px 220px;
+    width: 100% !important;
+    min-width: 0;
   }
 `;
 
-const RightPanel = styled.div`
-  display: grid;
-  grid-template-rows: minmax(246px, 0.88fr) minmax(150px, 0.52fr) minmax(400px, 1.3fr);
-  gap: 8px;
-  min-width: 0;
-  min-height: 0;
+const ResizeHandle = styled.div<{ isHorizontal: boolean; isDragging: boolean }>`
+  flex-shrink: 0;
+  background: ${({ isDragging }) => (isDragging ? 'rgba(88, 166, 255, 0.4)' : 'transparent')};
+  transition: background 0.15s;
+  cursor: ${({ isHorizontal }) => (isHorizontal ? 'col-resize' : 'row-resize')};
+  z-index: 10;
+  position: relative;
+  ${({ isHorizontal }) =>
+    isHorizontal
+      ? 'width: 6px; margin: 0 -1px;'
+      : 'height: 6px; margin: -1px 0;'}
 
-  @media (max-width: 920px) {
-    grid-template-rows: 380px 260px 420px;
+  &:hover {
+    background: rgba(88, 166, 255, 0.25);
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    ${({ isHorizontal }) =>
+      isHorizontal
+        ? 'top: 50%; left: 50%; transform: translate(-50%, -50%); width: 2px; height: 32px; border-radius: 1px;'
+        : 'top: 50%; left: 50%; transform: translate(-50%, -50%); height: 2px; width: 32px; border-radius: 1px;'}
+    background: rgba(139, 148, 158, 0.5);
   }
 `;
 
@@ -74,8 +90,109 @@ const Panel = styled.section`
 `;
 
 const HeaderPanel = styled(Panel)`
+  min-height: 44px;
+  flex-shrink: 0;
   border-color: rgba(56, 139, 253, 0.28);
 `;
+
+const ChartPanel = styled(Panel)`
+  flex: 1;
+`;
+
+const AccountPanel = styled(Panel)<{ height: number }>`
+  height: ${({ height }) => height}px;
+  min-height: 140px;
+  flex-shrink: 0;
+`;
+
+const ResizableSection = styled.div<{ height: number }>`
+  height: ${({ height }) => height}px;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+
+  @media (max-width: 920px) {
+    height: auto !important;
+    min-height: 220px;
+  }
+`;
+
+const OrderBookSection = styled.div`
+  flex: 0.88;
+  min-height: 180px;
+  display: flex;
+  flex-direction: column;
+`;
+
+const TradesSection = styled.div`
+  flex: 0.52;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+`;
+
+const TradeFormSection = styled.div`
+  flex: 1.3;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+`;
+
+const useResizeHandle = (
+  initialSize: number,
+  minSize: number,
+  maxSize: number,
+) => {
+  const [size, setSize] = useState(initialSize);
+  const [isDragging, setIsDragging] = useState(false);
+  const startRef = useRef({ pos: 0, size: 0 });
+
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+      startRef.current = { pos: e.clientX, size };
+    },
+    [size],
+  );
+
+  const onMouseDownY = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsDragging(true);
+      startRef.current = { pos: e.clientY, size };
+    },
+    [size],
+  );
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const onMove = (e: MouseEvent) => {
+      const delta = e.clientX - startRef.current.pos;
+      const changed = startRef.current.size + delta;
+      setSize(Math.max(minSize, Math.min(maxSize, changed)));
+    };
+
+    const onUp = () => setIsDragging(false);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, [isDragging, minSize, maxSize]);
+
+  return { size, isDragging, onMouseDown, onMouseDownY };
+};
+
+const RIGHT_PANEL_MIN = 280;
+const RIGHT_PANEL_MAX = 520;
+const RIGHT_PANEL_DEFAULT = 360;
+
+const ACCOUNT_MIN = 140;
+const ACCOUNT_MAX = 400;
+const ACCOUNT_DEFAULT = 220;
 
 const Trading: React.FC = () => {
   const [selectedSymbol, setSelectedSymbol] = useState(() => {
@@ -92,6 +209,9 @@ const Trading: React.FC = () => {
   });
   const [timeframe, setTimeframe] = useState('1m');
   const { user, isAuthenticated } = useAuth();
+
+  const rightPanel = useResizeHandle(RIGHT_PANEL_DEFAULT, RIGHT_PANEL_MIN, RIGHT_PANEL_MAX);
+  const accountPanel = useResizeHandle(ACCOUNT_DEFAULT, ACCOUNT_MIN, ACCOUNT_MAX);
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
@@ -116,7 +236,7 @@ const Trading: React.FC = () => {
         connection = signalRClient.getConnection();
         if (!connection) return;
 
-        await connection.invoke('SubscribeUserData', user.id);
+        await connection.invoke('SubscribeUserData');
         connection.on('UserTradeUpdate', handleUserTrade);
         connection.on('OrderUpdate', handleOrderUpdate);
         connection.on('AssetUpdate', handleAssetUpdate);
@@ -129,7 +249,7 @@ const Trading: React.FC = () => {
 
     return () => {
       if (!connection) return;
-      connection.invoke('UnsubscribeUserData', user.id).catch((err: any) => {
+      connection.invoke('UnsubscribeUserData').catch((err: any) => {
         console.error('[Trading] Failed to unsubscribe user stream:', err);
       });
       connection.off('UserTradeUpdate', handleUserTrade);
@@ -157,28 +277,37 @@ const Trading: React.FC = () => {
           <HeaderPanel>
             <TradingHeader symbol={selectedSymbol} onSymbolChange={handleSymbolChange} />
           </HeaderPanel>
-          <Panel>
+          <ChartPanel>
             <ProfessionalKLineChart
               symbol={selectedSymbol}
               timeframe={timeframe}
               onTimeframeChange={setTimeframe}
             />
-          </Panel>
-          <Panel>
+          </ChartPanel>
+          <ResizeHandle isHorizontal={false} isDragging={accountPanel.isDragging} onMouseDown={accountPanel.onMouseDownY} />
+          <AccountPanel height={accountPanel.size}>
             <AccountTabs />
-          </Panel>
+          </AccountPanel>
         </LeftPanel>
 
-        <RightPanel>
-          <Panel>
-            <OrderBook symbol={selectedSymbol} />
-          </Panel>
-          <Panel>
-            <RecentTrades symbol={selectedSymbol} />
-          </Panel>
-          <Panel>
-            <TradeForm symbol={selectedSymbol} />
-          </Panel>
+        <ResizeHandle isHorizontal={true} isDragging={rightPanel.isDragging} onMouseDown={rightPanel.onMouseDown} />
+
+        <RightPanel width={rightPanel.size}>
+          <OrderBookSection>
+            <Panel style={{ height: '100%' }}>
+              <OrderBook symbol={selectedSymbol} />
+            </Panel>
+          </OrderBookSection>
+          <TradesSection>
+            <Panel style={{ height: '100%' }}>
+              <RecentTrades symbol={selectedSymbol} />
+            </Panel>
+          </TradesSection>
+          <TradeFormSection>
+            <Panel style={{ height: '100%' }}>
+              <TradeForm symbol={selectedSymbol} />
+            </Panel>
+          </TradeFormSection>
         </RightPanel>
       </MainContent>
     </TradingContainer>

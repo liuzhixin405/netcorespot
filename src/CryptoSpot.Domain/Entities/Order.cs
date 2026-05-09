@@ -86,5 +86,41 @@ namespace CryptoSpot.Domain.Entities
 
         [NotMapped]
         public decimal TotalValue => (Type == OrderType.Limit && Price.HasValue) ? Quantity * Price.Value : 0;
+
+        public void Fill(decimal quantity, decimal price, long timestamp)
+        {
+            if (Status is OrderStatus.Cancelled or OrderStatus.Rejected)
+                throw new InvalidOperationException($"Cannot fill a {Status.ToString().ToLowerInvariant()} order {Id}");
+
+            if (quantity <= 0)
+                throw new ArgumentException("Fill quantity must be positive", nameof(quantity));
+
+            AveragePrice = FilledQuantity > 0
+                ? (AveragePrice * FilledQuantity + price * quantity) / (FilledQuantity + quantity)
+                : price;
+
+            FilledQuantity += quantity;
+
+            if (FilledQuantity >= Quantity)
+            {
+                FilledQuantity = Quantity;
+                Status = OrderStatus.Filled;
+            }
+            else
+            {
+                Status = OrderStatus.PartiallyFilled;
+            }
+
+            UpdatedAt = timestamp;
+        }
+
+        public void Cancel(long timestamp)
+        {
+            if (Status is OrderStatus.Filled or OrderStatus.Cancelled)
+                throw new InvalidOperationException($"Cannot cancel a {Status.ToString().ToLowerInvariant()} order {Id}");
+
+            Status = OrderStatus.Cancelled;
+            UpdatedAt = timestamp;
+        }
     }
 }
