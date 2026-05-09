@@ -88,9 +88,9 @@ export function useUserDataStream(): UseUserDataStreamResult {
     conn.on('AssetUpdate', (assetList: any) => { if (Array.isArray(assetList)) handleAssetSnapshot(assetList as Asset[]); });
 
     try {
-      await conn.invoke('SubscribeUserData', user.id);
+      await conn.invoke('SubscribeUserData');
       setIsSubscribed(true);
-    } catch (e) { }
+    } catch (e) { console.error('[useUserDataStream] SubscribeUserData failed:', e); }
   }, [isAuthenticated, user?.id, upsertOrder, addTrade, handleAssetSnapshot]);
 
   useEffect(() => {
@@ -98,7 +98,7 @@ export function useUserDataStream(): UseUserDataStreamResult {
     return () => {
       const conn = connectionRef.current;
       if (conn && user?.id) {
-        conn.invoke('UnsubscribeUserData', user.id).catch(()=>{});
+        conn.invoke('UnsubscribeUserData').catch(()=>{});
         conn.off('OrderUpdate');
         conn.off('UserTradeUpdate');
         conn.off('AssetUpdate');

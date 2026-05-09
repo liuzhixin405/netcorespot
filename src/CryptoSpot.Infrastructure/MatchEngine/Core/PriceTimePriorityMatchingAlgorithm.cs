@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using CryptoSpot.Domain.Entities;
 
 namespace CryptoSpot.Infrastructure.MatchEngine.Core
 {
-    /// <summary>
-    /// 价格优先 + 同价位 FIFO（依赖 IOrderBook 的内部队列顺序）。
-    /// 不修改订单的 FilledQuantity，仅生成匹配切片，由上层协调更新与结算。
-    /// </summary>
     public class PriceTimePriorityMatchingAlgorithm : IMatchingAlgorithm
     {
         public IEnumerable<MatchSlice> Match(IOrderBook book, Order taker)
@@ -15,12 +12,23 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Core
             while (taker.FilledQuantity < taker.Quantity)
             {
                 var maker = book.GetBestOpposite(taker.Side);
-                if (maker == null) yield break;
+                if (maker == null)
+                {
+                    Debug.WriteLine($"[Match] Taker {taker.OrderId} ({taker.Side}) - no opposite order found");
+                    yield break;
+                }
 
-                if (!PriceCross(taker, maker)) yield break;
+                Debug.WriteLine($"[Match] Taker {taker.OrderId} P={taker.Price} S={taker.Side} vs Maker {maker.OrderId} P={maker.Price} S={maker.Side}");
+
+                if (!PriceCross(taker, maker))
+                {
+                    Debug.WriteLine($"[Match] Price cross FAILED - stopping match for {taker.OrderId}");
+                    yield break;
+                }
                 if (maker.UserId == taker.UserId)
                 {
-                    book.Remove(maker); // 自成交避免
+                    Debug.WriteLine($"[Match] Self-trade skip {taker.OrderId} vs {maker.OrderId}");
+                    book.Remove(maker);
                     continue;
                 }
 

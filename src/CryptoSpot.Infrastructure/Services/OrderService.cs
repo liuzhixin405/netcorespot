@@ -18,6 +18,7 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly ILogger<OrderService> _logger;
         private readonly IDtoMappingService _mappingService;
         private readonly IAssetService _assetService;
+        private readonly IMatchEngineService _matchEngine;
 
         public OrderService(
             IOrderRepository orderRepository,
@@ -25,7 +26,8 @@ namespace CryptoSpot.Infrastructure.Services
             IUnitOfWork unitOfWork,
             ILogger<OrderService> logger,
             IDtoMappingService mappingService,
-            IAssetService assetService)
+            IAssetService assetService,
+            IMatchEngineService matchEngine)
         {
             _orderRepository = orderRepository;
             _tradingPairRepository = tradingPairRepository;
@@ -33,6 +35,7 @@ namespace CryptoSpot.Infrastructure.Services
             _logger = logger;
             _mappingService = mappingService;
             _assetService = assetService;
+            _matchEngine = matchEngine;
         }
 
         public Task<ApiResponseDto<OrderDto?>> CreateOrderDtoAsync(long userId, string symbol, OrderSide side, OrderType type, decimal quantity, decimal? price = null)
@@ -102,6 +105,22 @@ namespace CryptoSpot.Infrastructure.Services
                         order.Status,
                         freezeAmount,
                         freezeSymbol);
+
+                    // 提交到撮合引擎
+                    try
+                    {
+                        await _matchEngine.EnqueueOrderAsync(createdOrder, normalizedSymbol);
+                        _logger.LogInformation(
+                            "Order submitted to match engine: {OrderId} Symbol={Symbol}",
+                            createdOrder.OrderId, normalizedSymbol);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "Failed to submit order {OrderId} to match engine", createdOrder.OrderId);
+                        // 不抛异常——订单已入库，撮合失败不影响下单成功
+                    }
+
                     return _mappingService.MapToDto(createdOrder);
                 }
                 catch

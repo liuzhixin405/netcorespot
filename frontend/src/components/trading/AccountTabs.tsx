@@ -33,7 +33,6 @@ const Tab = styled.button<{ active: boolean }>`
   justify-content: center;
   gap: 0.25rem;
   transition: all 0.2s;
-  
   &:hover {
     background: ${props => props.active ? '#f0f6fc' : 'rgba(255, 255, 255, 0.05)'};
     color: ${props => props.active ? '#0d1117' : '#f0f6fc'};
@@ -48,47 +47,6 @@ const TabContent = styled.div`
   flex-direction: column;
 `;
 
-const EmptyState = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  color: #7d8590;
-  text-align: center;
-  min-height: 200px;
-`;
-
-const EmptyIcon = styled.div`
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: rgba(125, 133, 144, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 1rem;
-`;
-
-const EmptyText = styled.div`
-  font-size: 1rem;
-  font-weight: 600;
-  color: #f0f6fc;
-  margin-bottom: 0.5rem;
-`;
-
-const EmptySubtext = styled.div`
-  font-size: 0.8rem;
-  color: #7d8590;
-`;
-
-const AuthenticatedContent = styled.div`
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  color: #f0f6fc;
-`;
-
 const DataTable = styled.div`
   flex: 1;
   display: flex;
@@ -101,7 +59,6 @@ const DataTable = styled.div`
 
 const TableHeader = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
   padding: 0.36rem 0.5rem;
   background: rgba(17, 24, 35, 0.9);
   border-bottom: 1px solid rgba(87, 100, 122, 0.24);
@@ -119,30 +76,26 @@ const TableBody = styled.div`
 
 const TableRow = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
   padding: 0.32rem 0.5rem;
   border-bottom: 1px solid #21262d;
   font-size: 0.68rem;
   transition: background-color 0.2s;
-  
-  &:hover {
-    background: #21262d;
-  }
-  
-  &:last-child {
-    border-bottom: none;
-  }
+  &:hover { background: #21262d; }
+  &:last-child { border-bottom: none; }
 `;
 
-const StatusBadge = styled.span<{ status: 'pending' | 'filled' | 'cancelled' }>`
-  padding: 0.2rem 0.4rem;
+const StatusBadge = styled.span<{ status: string }>`
+  padding: 0.15rem 0.35rem;
   border-radius: 8px;
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: 0.6rem;
+  font-weight: 700;
   text-transform: uppercase;
+  text-align: center;
   background: ${props => {
     switch (props.status) {
       case 'pending': return 'rgba(255, 165, 0, 0.2)';
+      case 'active': return 'rgba(88, 166, 255, 0.2)';
+      case 'partial': return 'rgba(240, 185, 11, 0.2)';
       case 'filled': return 'rgba(63, 185, 80, 0.2)';
       case 'cancelled': return 'rgba(248, 81, 73, 0.2)';
       default: return 'rgba(125, 133, 144, 0.2)';
@@ -151,6 +104,8 @@ const StatusBadge = styled.span<{ status: 'pending' | 'filled' | 'cancelled' }>`
   color: ${props => {
     switch (props.status) {
       case 'pending': return '#ffa500';
+      case 'active': return '#58a6ff';
+      case 'partial': return '#f0b90b';
       case 'filled': return '#3fb950';
       case 'cancelled': return '#f85149';
       default: return '#7d8590';
@@ -158,18 +113,31 @@ const StatusBadge = styled.span<{ status: 'pending' | 'filled' | 'cancelled' }>`
   }};
 `;
 
+const EmptyState = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: #7d8590;
+  text-align: center;
+  min-height: 120px;
+  gap: 0.5rem;
+`;
+
+const COL_CURRENT = '0.7fr 0.55fr 0.65fr 0.75fr 0.55fr 0.7fr';
+const COL_HISTORY = '0.8fr 0.65fr 0.7fr 0.85fr 0.8fr';
+const COL_TRADES = '0.9fr 0.6fr 0.9fr 0.8fr';
+const COL_ASSETS = '1fr 1fr 1fr 1fr';
+
 const AccountTabs: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'current' | 'history' | 'trades' | 'assets'>('current');
   const { user } = useAuth();
-
-  // 用 hook 管理实时数据
   const { currentOrders, historyOrders, userTrades, assets, isSubscribed } = useUserDataStream();
   const [orders, setOrders] = useState<Order[]>([]);
   const [openOrders, setOpenOrders] = useState<Order[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
-  // 首次加载未收到实时推送时的资产快照占位
   const [seededAssets, setSeededAssets] = useState<Asset[]>([]);
-  // assets 已由 hook 提供，保留本地变量用于兼容原渲染逻辑
   const [loading, setLoading] = useState(false);
 
   const loadData = async () => {
@@ -177,17 +145,17 @@ const AccountTabs: React.FC = () => {
     setLoading(true);
     try {
       const [all, open, tradeList, assetList] = await Promise.all([
-        tradingService.getUserOrders().catch(() => []),
-        tradingService.getOpenOrders().catch(() => []),
-        tradingService.getUserTrades().catch(() => []),
-        tradingService.getUserAssets().catch(() => [])
+        tradingService.getUserOrders().catch(() => [] as Order[]),
+        tradingService.getOpenOrders().catch(() => [] as Order[]),
+        tradingService.getUserTrades().catch(() => [] as Trade[]),
+        tradingService.getUserAssets().catch(() => [] as Asset[]),
       ]);
       setOrders(all);
-      setOpenOrders(open.length ? open : all.filter(o => ['pending','active','partial'].includes(o.status)));
+      const isOpen = (s: string) => ['pending', 'active', 'partial', 'partiallyfilled'].includes(s.toLowerCase());
+      setOpenOrders(open.length ? open : all.filter(o => isOpen(o.status)));
       setTrades(tradeList);
-      // 若当前还没有实时推送资产，则用首次请求的结果填充占位
       if (assets.length === 0 && seededAssets.length === 0 && assetList.length > 0) {
-        setSeededAssets(assetList as Asset[]);
+        setSeededAssets(assetList);
       }
     } finally {
       setLoading(false);
@@ -195,23 +163,16 @@ const AccountTabs: React.FC = () => {
   };
 
   useEffect(() => { loadData(); }, [user]);
-  
-  // 根据实时流更新本地展示列表（避免频繁全量刷新）
+  useEffect(() => { const id = setInterval(loadData, 15000); return () => clearInterval(id); }, [user]);
+
   useEffect(() => {
-    // 合并 hook 提供的实时数据与初始加载数据
-    // 订单：currentOrders 与 historyOrders 补充到 orders/openOrders
     if (currentOrders.length > 0 || historyOrders.length > 0) {
-      // 重新构造 orders 列表：实时 current + history + 初始剩余
-      const terminalIds = new Set(historyOrders.map(o => o.id));
-      const nonTerminal = currentOrders;
-      const combined = [...nonTerminal, ...historyOrders];
-      setOrders(prev => {
-        // 去重并保留最近 (ID现在是string类型)
-        const map = new Map<string, Order>();
-        [...combined, ...prev].forEach(o => { map.set(o.id, o); });
-        return Array.from(map.values()).slice(0, 400);
-      });
-      setOpenOrders(nonTerminal);
+      const map = new Map<string, Order>();
+      [...historyOrders, ...currentOrders, ...orders].forEach(o => map.set(o.id, o));
+      const merged = Array.from(map.values());
+      setOrders(merged.slice(0, 400));
+      const isOpen2 = (s: string) => ['pending', 'active', 'partial', 'partiallyfilled'].includes(s.toLowerCase());
+      setOpenOrders(merged.filter(o => isOpen2(o.status)));
     }
   }, [currentOrders, historyOrders]);
 
@@ -225,196 +186,158 @@ const AccountTabs: React.FC = () => {
     }
   }, [userTrades]);
 
-  // 定期轮询作为备份机制
-  useEffect(() => { const id = setInterval(loadData, 30000); return () => clearInterval(id); }, [user]);
-
-  const statusMap: Record<string, 'pending' | 'active' | 'partial' | 'filled' | 'cancelled'> = {
-    Pending: 'pending',
-    Active: 'active',
-    PartiallyFilled: 'partial',
-    Filled: 'filled',
-    Cancelled: 'cancelled'
+  const fmt = (v: any, d = 4) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(d) : '-';
   };
 
-  const renderStatusBadge = (s: string) => {
-    const mapped = statusMap[s] || 'pending';
-    return <StatusBadge status={mapped === 'filled' ? 'filled' : mapped === 'cancelled' ? 'cancelled' : 'pending'}>{mapped}</StatusBadge>;
+  const fmtTime = (v: any) => {
+    const d = new Date(v);
+    return isNaN(d.getTime()) ? '-' : d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+
+  const normalizeStatus = (s: string): string => {
+    const lower = (s || 'pending').toLowerCase();
+    if (lower === 'partiallyfilled' || lower === 'partially_filled') return 'partial';
+    if (lower === 'filled' || lower === 'fullyfilled') return 'filled';
+    if (lower === 'cancelled' || lower === 'rejected') return 'cancelled';
+    if (lower === 'active') return 'active';
+    return 'pending';
+  };
+
+  const renderBadge = (s: string) => {
+    const m = normalizeStatus(s);
+    return <StatusBadge status={m}>{m}</StatusBadge>;
+  };
+
+  const renderCurrentOrders = () => {
+    const list = openOrders.length ? openOrders : currentOrders;
+    return (
+      <DataTable>
+        <TableHeader style={{ gridTemplateColumns: COL_CURRENT }}>
+          <div>交易对</div><div>方向/类型</div><div>价格</div><div>数量/已成交</div><div>状态</div><div>挂单时间</div>
+        </TableHeader>
+        <TableBody>
+          {list.length > 0 ? list.map(o => (
+            <TableRow key={o.id} style={{ gridTemplateColumns: COL_CURRENT }}>
+              <div style={{ fontWeight: 600 }}>{o.symbol}</div>
+              <div style={{ color: o.side === 'buy' ? '#3fb950' : '#f85149' }}>{o.side}/{o.type}</div>
+              <div>{o.price ? fmt(o.price) : '市价'}</div>
+              <div>{fmt(o.quantity, 6)} / {o.filledQuantity ? fmt(o.filledQuantity, 6) : '0'}</div>
+              <div>{renderBadge(o.status)}</div>
+              <div style={{ color: '#7d8590', fontSize: '0.6rem' }}>{fmtTime(o.createdAt)}</div>
+            </TableRow>
+          )) : (
+            <EmptyState>{loading ? '加载中...' : '暂无当前订单'}</EmptyState>
+          )}
+        </TableBody>
+      </DataTable>
+    );
+  };
+
+  const renderHistoryOrders = () => {
+    const isClosed = (s: string) => ['filled', 'cancelled', 'rejected', 'fullyfilled'].includes(s.toLowerCase());
+    const list = historyOrders.length ? historyOrders : orders.filter(o => isClosed(o.status));
+    return (
+      <DataTable>
+        <TableHeader style={{ gridTemplateColumns: COL_HISTORY }}>
+          <div>交易对</div><div>方向/类型</div><div>均价</div><div>数量/已成交</div><div>状态/时间</div>
+        </TableHeader>
+        <TableBody>
+          {list.length > 0 ? list.map(o => (
+            <TableRow key={o.id} style={{ gridTemplateColumns: COL_HISTORY }}>
+              <div style={{ fontWeight: 600 }}>{o.symbol}</div>
+              <div style={{ color: o.side === 'buy' ? '#3fb950' : '#f85149' }}>{o.side}/{o.type}</div>
+              <div>{o.averagePrice ? fmt(o.averagePrice) : (o.price ? fmt(o.price) : '-')}</div>
+              <div>{fmt(o.quantity, 6)} / {o.filledQuantity ? fmt(o.filledQuantity, 6) : '0'}</div>
+              <div>{renderBadge(o.status)} {fmtTime(o.updatedAt || o.createdAt)}</div>
+            </TableRow>
+          )) : (
+            <EmptyState>{loading ? '加载中...' : '暂无历史订单'}</EmptyState>
+          )}
+        </TableBody>
+      </DataTable>
+    );
+  };
+
+  const renderTrades = () => (
+    <DataTable>
+      <TableHeader style={{ gridTemplateColumns: COL_TRADES }}>
+        <div>交易对</div><div>方向</div><div>价格/数量</div><div>时间</div>
+      </TableHeader>
+      <TableBody>
+        {trades.length > 0 ? trades.map(t => (
+          <TableRow key={t.id} style={{ gridTemplateColumns: COL_TRADES }}>
+            <div style={{ fontWeight: 600 }}>{t.symbol}</div>
+            <div style={{ color: t.side === 'buy' ? '#3fb950' : '#f85149' }}>{t.side || '-'}</div>
+            <div>{fmt(t.price)} / {fmt(t.quantity, 6)}</div>
+            <div>{fmtTime(t.executedAt)}</div>
+          </TableRow>
+        )) : (
+          <EmptyState>{loading ? '加载中...' : '暂无成交记录'}</EmptyState>
+        )}
+      </TableBody>
+    </DataTable>
+  );
+
+  const renderAssets = () => {
+    const list = assets.length > 0 ? assets : seededAssets;
+    return (
+      <DataTable>
+        <TableHeader style={{ gridTemplateColumns: COL_ASSETS }}>
+          <div>币种</div><div>可用</div><div>冻结</div><div>总额</div>
+        </TableHeader>
+        <TableBody>
+          {list.length > 0 ? list.map(a => (
+            <TableRow key={a.symbol} style={{ gridTemplateColumns: COL_ASSETS }}>
+              <div style={{ fontWeight: 700 }}>{a.symbol}</div>
+              <div>{fmt(a.available, 8)}</div>
+              <div>{fmt(a.frozen, 8)}</div>
+              <div>{fmt(a.total, 8)}</div>
+            </TableRow>
+          )) : (
+            <EmptyState>{loading ? '加载中...' : '暂无资产数据'}</EmptyState>
+          )}
+        </TableBody>
+      </DataTable>
+    );
   };
 
   const renderTabContent = () => {
     if (!user) {
       return (
         <EmptyState>
-          <EmptyIcon>
-            <Wallet size={24} />
-          </EmptyIcon>
-          <EmptyText>请先登录</EmptyText>
-          <EmptySubtext>登录后查看您的交易记录和资产</EmptySubtext>
+          <Wallet size={24} />
+          <div style={{ fontWeight: 600, color: '#f0f6fc' }}>请先登录</div>
+          <div style={{ fontSize: '0.8rem' }}>登录后查看交易记录和资产</div>
         </EmptyState>
       );
     }
-
     switch (activeTab) {
-      case 'current': {
-  const list = openOrders.length ? openOrders : currentOrders;
-        return (
-          <AuthenticatedContent>
-            <DataTable>
-              <TableHeader>
-                <div>交易对</div>
-                <div>方向/类型</div>
-                <div>价格</div>
-                <div>状态</div>
-              </TableHeader>
-              <TableBody>
-                {list.length > 0 ? list.map(o => (
-                  <TableRow key={o.id}>
-                    <div>{o.symbol}</div>
-                    <div style={{ color: o.side === 'buy' ? '#3fb950' : '#f85149' }}>{o.side}/{o.type}</div>
-                    <div>{o.price ?? '-'}</div>
-                    <div>{renderStatusBadge(o.status)}</div>
-                  </TableRow>
-                )) : (
-                  <TableRow>
-                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#7d8590', padding: '20px' }}>
-                      {loading ? '加载中...' : '暂无当前订单数据'}
-                    </div>
-                  </TableRow>
-                )}
-              </TableBody>
-            </DataTable>
-          </AuthenticatedContent>
-        );
-      }
-      case 'history': {
-  const history = historyOrders.length ? historyOrders : orders.filter(o => ['filled','cancelled'].includes(o.status));
-        return (
-          <AuthenticatedContent>
-            <DataTable>
-              <TableHeader>
-                <div>交易对</div>
-                <div>方向/类型</div>
-                <div>数量/成交</div>
-                <div>时间</div>
-              </TableHeader>
-              <TableBody>
-                {history.length > 0 ? history.map(o => (
-                  <TableRow key={o.id}>
-                    <div>{o.symbol}</div>
-                    <div style={{ color: o.side === 'buy' ? '#3fb950' : '#f85149' }}>{o.side}/{o.type}</div>
-                    <div>{o.filledQuantity ?? 0}/{o.quantity}</div>
-                    <div>{new Date(o.createdAt).toLocaleTimeString()}</div>
-                  </TableRow>
-                )) : (
-                  <TableRow>
-                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#7d8590', padding: '20px' }}>
-                      {loading ? '加载中...' : '暂无历史订单数据'}
-                    </div>
-                  </TableRow>
-                )}
-              </TableBody>
-            </DataTable>
-          </AuthenticatedContent>
-        );
-      }
-      case 'trades': {
-        return (
-          <AuthenticatedContent>
-            <DataTable>
-              <TableHeader>
-                <div>交易对</div>
-                <div>方向</div>
-                <div>价格/数量</div>
-                <div>时间</div>
-              </TableHeader>
-              <TableBody>
-                {trades.length > 0 ? trades.map(t => (
-                  <TableRow key={t.id}>
-                    <div>{t.symbol}</div>
-                    <div style={{ color: t.side === 'buy' ? '#3fb950' : '#f85149' }}>{t.side || '-'}</div>
-                    <div>{t.price} / {t.quantity}</div>
-                    <div>{new Date(t.executedAt).toLocaleTimeString()}</div>
-                  </TableRow>
-                )) : (
-                  <TableRow>
-                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#7d8590', padding: '20px' }}>
-                      {loading ? '加载中...' : '暂无成交记录数据'}
-                    </div>
-                  </TableRow>
-                )}
-              </TableBody>
-            </DataTable>
-          </AuthenticatedContent>
-        );
-      }
-      case 'assets': {
-        return (
-          <AuthenticatedContent>
-            <DataTable>
-              <TableHeader>
-                <div>币种</div>
-                <div>可用</div>
-                <div>冻结</div>
-                <div>总额</div>
-              </TableHeader>
-              <TableBody>
-                {(assets.length > 0 ? assets : seededAssets).length > 0 ? (assets.length > 0 ? assets : seededAssets).map(a => (
-                  <TableRow key={a.symbol}>
-                    <div style={{ fontWeight: 'bold' }}>{a.symbol}</div>
-                    <div>{a.available}</div>
-                    <div>{a.frozen}</div>
-                    <div>{a.total}</div>
-                  </TableRow>
-                )) : (
-                  <TableRow>
-                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#7d8590', padding: '20px' }}>
-                      {loading ? '加载中...' : '暂无资产数据'}
-                    </div>
-                  </TableRow>
-                )}
-              </TableBody>
-            </DataTable>
-          </AuthenticatedContent>
-        );
-      }
-      default:
-        return null;
+      case 'current': return renderCurrentOrders();
+      case 'history': return renderHistoryOrders();
+      case 'trades': return renderTrades();
+      case 'assets': return renderAssets();
+      default: return null;
     }
   };
+
+  const tabs = [
+    { key: 'current' as const, icon: Clock, label: `当前委托${isSubscribed ? '' : ' (未订阅)'}` },
+    { key: 'history' as const, icon: History, label: '历史委托' },
+    { key: 'trades' as const, icon: CheckCircle, label: '成交记录' },
+    { key: 'assets' as const, icon: Wallet, label: '我的资产' },
+  ];
 
   return (
     <Container>
       <TabHeader>
-        <Tab 
-          active={activeTab === 'current'} 
-          onClick={() => setActiveTab('current')}
-        >
-          <Clock size={14} />
-          当前委托{isSubscribed ? '' : ' (未订阅)'}
-        </Tab>
-        <Tab 
-          active={activeTab === 'history'} 
-          onClick={() => setActiveTab('history')}
-        >
-          <History size={14} />
-          历史委托
-        </Tab>
-        <Tab 
-          active={activeTab === 'trades'} 
-          onClick={() => setActiveTab('trades')}
-        >
-          <CheckCircle size={14} />
-          成交记录
-        </Tab>
-        <Tab 
-          active={activeTab === 'assets'} 
-          onClick={() => setActiveTab('assets')}
-        >
-          <Wallet size={14} />
-          我的资产
-        </Tab>
+        {tabs.map(({ key, icon: Icon, label }) => (
+          <Tab key={key} active={activeTab === key} onClick={() => setActiveTab(key)}>
+            <Icon size={14} />{label}
+          </Tab>
+        ))}
       </TabHeader>
-      
       <TabContent>
         {renderTabContent()}
       </TabContent>

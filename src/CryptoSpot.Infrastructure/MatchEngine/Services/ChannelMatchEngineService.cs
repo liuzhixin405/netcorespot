@@ -98,7 +98,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     }
 
     /// <summary>
-    /// 下单接口（现有接口）
+    /// 下单接口（完整流程：冻结资产 + 入队撮合）
     /// </summary>
     public async Task<Order> PlaceOrderAsync(Order order, string symbol)
     {
@@ -120,16 +120,60 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             throw new InvalidOperationException($"余额不足：需要 {amount} {currency}");
         }
 
-        // 设置订单状态
         order.Status = OrderStatus.Active;
         order.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        // 提交到 Channel
         var request = new OrderRequest { Order = order, Symbol = normalizedSymbol };
         await channel.Writer.WriteAsync(request, _cts.Token);
 
         return order;
+    }
+
+    /// <summary>
+    /// 直接入队撮合（资产已由调用方在 DB 层冻结）
+    /// </summary>
+    public async Task EnqueueOrderAsync(Order order, string symbol)
+    {
+        ValidateOrderInput(order, symbol);
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        GetOrCreateOrderBook(normalizedSymbol);
+
+        if (!_orderChannels.TryGetValue(normalizedSymbol, out var channel))
+        {
+            throw new InvalidOperationException($"Trading pair {normalizedSymbol} not initialized");
+        }
+
+        order.Status = OrderStatus.Active;
+        if (order.CreatedAt == 0)
+            order.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        // 立即持久化 Active 状态，前端不需要等后台处理就能看到
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var existing = await db.Orders.FindAsync(order.Id);
+                if (existing != null)
+                {
+                    existing.Status = order.Status;
+                    existing.UpdatedAt = order.UpdatedAt;
+                    await db.SaveChangesAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist Active status for order {OrderId}", order.OrderId);
+            }
+        });
+
+        var request = new OrderRequest { Order = order, Symbol = normalizedSymbol };
+        await channel.Writer.WriteAsync(request, _cts.Token);
+
+        _logger.LogDebug("Order {OrderId} enqueued for {Symbol}", order.OrderId, normalizedSymbol);
     }
 
     public Task<OrderBookDepthDto?> GetOrderBookAsync(string symbol, int depth = 20)
@@ -195,14 +239,22 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         CancellationToken ct)
     {
         var trades = new List<Trade>();
+        var affectedMakers = new HashSet<Order>(); // 追踪被修改的 maker
 
-        // 添加到订单簿
+        _logger.LogInformation(
+            "Processing order {OrderId}: Side={Side}, Type={Type}, Price={Price}, Qty={Qty}, UserId={UserId}",
+            taker.OrderId, taker.Side, taker.Type, taker.Price, taker.Quantity, taker.UserId);
+
         orderBook.Add(taker);
+        _logger.LogInformation("Order {OrderId} added to book. Bids={Bids}, Asks={Asks}",
+            taker.OrderId,
+            orderBook.GetDepth(OrderSide.Buy, 5).Count,
+            orderBook.GetDepth(OrderSide.Sell, 5).Count);
 
-        // 执行撮合
+        int matchCount = 0;
         foreach (var matchSlice in _matchingAlgorithm.Match(orderBook, taker))
         {
-            // 执行资产结算
+            matchCount++;
             var settlementSuccess = await SettleTradeAsync(matchSlice, symbol);
             if (!settlementSuccess)
             {
@@ -212,33 +264,46 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
                 break;
             }
 
-            // 创建交易记录
             var trade = CreateTradeRecord(matchSlice, taker, symbol);
             trades.Add(trade);
-            _trades[trade.Id] = trade;
-
-            // 定期清理过期交易记录
+            var memId = Interlocked.Increment(ref _nextTradeId);
+            _trades[memId] = trade;
             TryCleanupOldTrades();
 
-            // 更新订单状态
             UpdateOrderStatus(matchSlice.Maker);
             UpdateOrderStatus(taker);
+            affectedMakers.Add(matchSlice.Maker);
 
-            // 发布交易事件
             await PublishTradeEventsAsync(symbol, trade, matchSlice.Maker, taker);
 
-            // 吃单完全成交则终止
             if (taker.FilledQuantity >= taker.Quantity) break;
         }
 
-        // 如果没有成交，发布订单簿更新事件
+        _logger.LogInformation(
+            "Order {OrderId} matching complete: Matches={Matches}, TakerFill={Filled}/{Qty}, Status={Status}",
+            taker.OrderId, matchCount, taker.FilledQuantity, taker.Quantity, taker.Status);
+
         if (trades.Count == 0)
         {
+            _logger.LogInformation("Order {OrderId} had no trades, staying in book", taker.OrderId);
             await PublishOrderPlacedEventsAsync(symbol, taker);
         }
 
-        // 持久化到数据库
+        // 持久化 taker
         await PersistToDatabaseAsync(taker, trades, symbol);
+
+        // 持久化所有被修改的 maker
+        foreach (var maker in affectedMakers)
+        {
+            try
+            {
+                await PersistOrderStatusAsync(maker);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist maker {OrderId} status", maker.OrderId);
+            }
+        }
     }
 
     /// <summary>
@@ -275,7 +340,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     }
 
     /// <summary>
-    /// 创建交易记录
+    /// 创建交易记录（Id=0 让数据库自增，避免主键冲突）
     /// </summary>
     private Trade CreateTradeRecord(MatchSlice slice, Order taker, string symbol)
     {
@@ -284,7 +349,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
 
         return new Trade
         {
-            Id = tradeId,
+            Id = 0, // 数据库自增，避免 Duplicate entry
             TradingPairId = taker.TradingPairId,
             BuyOrderId = isTakerBuy ? taker.Id : slice.Maker.Id,
             SellOrderId = isTakerBuy ? slice.Maker.Id : taker.Id,
@@ -293,7 +358,9 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             BuyerId = isTakerBuy ? taker.UserId ?? 0 : slice.Maker.UserId ?? 0,
             SellerId = isTakerBuy ? slice.Maker.UserId ?? 0 : taker.UserId ?? 0,
             ExecutedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            TradeId = tradeId.ToString()
+            TradeId = tradeId.ToString(),
+            CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
         };
     }
 
@@ -317,7 +384,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     }
 
     /// <summary>
-    /// 发布交易事件和 ticker 数据
+    /// 发布交易事件、ticker 数据和用户订单/资产更新
     /// </summary>
     private async Task PublishTradeEventsAsync(
         string symbol,
@@ -327,7 +394,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     {
         _logger.LogInformation("Trade executed: Symbol={Symbol}, TradeId={TradeId}", symbol, trade.Id);
 
-        // 推送 ticker 数据 (最新成交价、买卖一档、中间价)
+        // 推送 ticker 数据
         var orderBook = _orderBooks.GetValueOrDefault(symbol);
         var bids = orderBook?.GetDepth(OrderSide.Buy, 1);
         var asks = orderBook?.GetDepth(OrderSide.Sell, 1);
@@ -341,7 +408,75 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         await _pushService.PushLastTradeAndMidPriceAsync(
             symbol, trade.Price, trade.Quantity,
             bestBid, bestAsk, midPrice, now);
+
+        // 推送订单状态更新给用户
+        await PushOrderUpdateToUserAsync(maker, symbol);
+        await PushOrderUpdateToUserAsync(taker, symbol);
+
+        // 推送成交给双方（各自的方向视角）
+        long nowTs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if (maker.UserId.HasValue)
+        {
+            await _pushService.PushUserTradeAsync(maker.UserId.Value, new TradeDto
+            {
+                Id = trade.Id, TradeId = trade.TradeId, Symbol = symbol,
+                Price = trade.Price, Quantity = trade.Quantity,
+                Fee = trade.Fee, FeeAsset = trade.FeeAsset,
+                ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.ExecutedAt).DateTime,
+                Side = trade.BuyerId == maker.UserId ? Domain.Entities.OrderSide.Buy : Domain.Entities.OrderSide.Sell
+            });
+        }
+        if (taker.UserId.HasValue)
+        {
+            await _pushService.PushUserTradeAsync(taker.UserId.Value, new TradeDto
+            {
+                Id = trade.Id, TradeId = trade.TradeId, Symbol = symbol,
+                Price = trade.Price, Quantity = trade.Quantity,
+                Fee = trade.Fee, FeeAsset = trade.FeeAsset,
+                ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.ExecutedAt).DateTime,
+                Side = trade.BuyerId == taker.UserId ? Domain.Entities.OrderSide.Buy : Domain.Entities.OrderSide.Sell
+            });
+        }
     }
+
+    private async Task PushOrderUpdateToUserAsync(Order order, string symbol)
+    {
+        if (!order.UserId.HasValue) return;
+        try
+        {
+            var dto = new OrderDto
+            {
+                Id = order.Id,
+                OrderId = order.OrderId,
+                Symbol = symbol,
+                Side = order.Side,
+                Type = order.Type,
+                Quantity = order.Quantity,
+                Price = order.Price,
+                FilledQuantity = order.FilledQuantity,
+                AveragePrice = order.AveragePrice,
+                Status = order.Status,
+                CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(order.CreatedAt).DateTime,
+                UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(order.UpdatedAt).DateTime
+            };
+            await _pushService.PushUserOrderUpdateAsync(order.UserId.Value, dto);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "推送订单更新失败 OrderId={OrderId}", order.OrderId);
+        }
+    }
+
+    private static string MapOrderStatus(OrderStatus status) => status switch
+    {
+        OrderStatus.Pending => "pending",
+        OrderStatus.Active => "active",
+        OrderStatus.PartiallyFilled => "partiallyFilled",
+        OrderStatus.Filled => "filled",
+        OrderStatus.Cancelled => "cancelled",
+        OrderStatus.Rejected => "rejected",
+        _ => "pending"
+    };
 
     /// <summary>
     /// 发布订单下单事件
@@ -350,6 +485,31 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     {
         _logger.LogInformation("Order placed: Symbol={Symbol}, OrderId={OrderId}", symbol, order.Id);
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 仅持久化订单状态
+    /// </summary>
+    private async Task PersistOrderStatusAsync(Order order)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var existing = await dbContext.Orders.FindAsync(order.Id);
+            if (existing != null)
+            {
+                existing.FilledQuantity = order.FilledQuantity;
+                existing.Status = order.Status;
+                existing.AveragePrice = order.AveragePrice;
+                existing.UpdatedAt = order.UpdatedAt;
+                await dbContext.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist order status for {OrderId}", order.OrderId);
+        }
     }
 
     /// <summary>

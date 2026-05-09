@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using CryptoSpot.Application.Abstractions.Repositories;
@@ -21,6 +22,8 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<MarketDataStreamService> _logger;
         private readonly PriceUpdateBatchService _priceUpdateBatchService;
+
+        private readonly ConcurrentDictionary<string, long> _symbolToTradingPairId = new(StringComparer.OrdinalIgnoreCase);
 
         // 默认订阅的交易对
         private static readonly string[] DefaultSymbols = new[]
@@ -204,7 +207,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                 });
             };
 
-            // KLine 事件 - K线更新
+            // KLine 事件 - K线更新（推送 + 持久化）
             _streamProvider.OnKLine += kline =>
             {
                 _ = Task.Run(async () =>
@@ -227,10 +230,38 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                             };
                             await pushService.PushKLineDataAsync(kline.Symbol, kline.Interval, klineDto, kline.IsClosed);
                         }
+
+                        // 持久化到数据库（仅已闭合的 K 线）
+                        if (kline.IsClosed)
+                        {
+                            var tradingPairId = await GetTradingPairIdAsync(kline.Symbol, scope);
+                            if (tradingPairId > 0)
+                            {
+                                var klineRepo = scope.ServiceProvider.GetService<IKLineDataRepository>();
+                                if (klineRepo != null)
+                                {
+                                    var entity = new Domain.Entities.KLineData
+                                    {
+                                        TradingPairId = tradingPairId,
+                                        TimeFrame = kline.Interval,
+                                        OpenTime = kline.OpenTime,
+                                        Open = kline.Open,
+                                        High = kline.High,
+                                        Low = kline.Low,
+                                        Close = kline.Close,
+                                        Volume = kline.Volume,
+                                        CloseTime = kline.Ts,
+                                        CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                                        UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                                    };
+                                    await klineRepo.UpsertKLineDataAsync(entity);
+                                }
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "推送 KLine 数据失败: {Symbol} {Interval}", kline.Symbol, kline.Interval);
+                        _logger.LogWarning(ex, "处理 KLine 事件失败: {Symbol} {Interval}", kline.Symbol, kline.Interval);
                     }
                 });
             };
@@ -287,6 +318,32 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             }
 
             return DefaultSymbols;
+        }
+
+        private async Task<long> GetTradingPairIdAsync(string symbol, IServiceScope scope)
+        {
+            if (_symbolToTradingPairId.TryGetValue(symbol, out var cached))
+                return cached;
+
+            try
+            {
+                var repo = scope.ServiceProvider.GetService<ITradingPairRepository>();
+                if (repo != null)
+                {
+                    var pair = await repo.GetBySymbolAsync(symbol);
+                    if (pair != null)
+                    {
+                        _symbolToTradingPairId[symbol] = pair.Id;
+                        return pair.Id;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "查找交易对 {Symbol} ID 失败", symbol);
+            }
+
+            return 0;
         }
 
         public override async Task StopAsync(CancellationToken cancellationToken)

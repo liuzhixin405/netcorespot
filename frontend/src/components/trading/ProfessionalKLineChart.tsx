@@ -273,26 +273,36 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
     };
   }, [data]);
 
+  // Dedup by SECONDS (lightweight-charts Time is seconds, need unique sec-level keys)
+  const deduped = useMemo(() => {
+    const seen = new Map<number, KLineData>();
+    for (const item of data) {
+      const sec = Math.floor(item.timestamp / 1000);
+      seen.set(sec, item); // keep latest per second
+    }
+    return Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
+  }, [data]);
+
   // Convert data to lightweight-charts format
   const candleData = useMemo<CandlestickData[]>(() =>
-    data.map(item => ({
+    deduped.map(item => ({
       time: (item.timestamp / 1000) as Time,
       open: item.open,
       high: item.high,
       low: item.low,
       close: item.close,
-    })), [data]);
+    })), [deduped]);
 
   const volumeData = useMemo<HistogramData[]>(() =>
-    data.map(item => ({
+    deduped.map(item => ({
       time: (item.timestamp / 1000) as Time,
       value: item.volume,
       color: item.close >= item.open ? 'rgba(38, 166, 154, 0.55)' : 'rgba(239, 83, 80, 0.55)',
-    })), [data]);
+    })), [deduped]);
 
-  const ma5Data = useMemo<LineData[]>(() => calcMA(data, 5), [data]);
-  const ma10Data = useMemo<LineData[]>(() => calcMA(data, 10), [data]);
-  const ma30Data = useMemo<LineData[]>(() => calcMA(data, 30), [data]);
+  const ma5Data = useMemo<LineData[]>(() => calcMA(deduped, 5), [deduped]);
+  const ma10Data = useMemo<LineData[]>(() => calcMA(deduped, 10), [deduped]);
+  const ma30Data = useMemo<LineData[]>(() => calcMA(deduped, 30), [deduped]);
 
   // Initialize chart
   useEffect(() => {
@@ -339,12 +349,15 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
       localization: {
         locale: 'zh-CN',
         timeFormatter: (time: Time) => {
-          const date = new Date((time as number) * 1000);
-          const month = String(date.getMonth() + 1).padStart(2, '0');
-          const day = String(date.getDate()).padStart(2, '0');
-          const hours = String(date.getHours()).padStart(2, '0');
-          const minutes = String(date.getMinutes()).padStart(2, '0');
-          return `${month}-${day} ${hours}:${minutes}`;
+          const ts = (time as number) * 1000;
+          return new Date(ts).toLocaleString('zh-CN', {
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Asia/Shanghai',
+          });
         },
       },
     });
@@ -421,19 +434,23 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
     };
   }, []); // Only create chart once
 
-  // Update data
+  // Update data (with per-series dedup to prevent duplicate Time errors)
   useEffect(() => {
-    const candle = candleSeriesRef.current;
-    const volume = volumeSeriesRef.current;
-    const ma5 = ma5SeriesRef.current;
-    const ma10 = ma10SeriesRef.current;
-    const ma30 = ma30SeriesRef.current;
+    const uniqueByTime = <T extends { time: Time }>(arr: T[]): T[] => {
+      const seen = new Set<number>();
+      return arr.filter(item => {
+        const t = item.time as number;
+        if (seen.has(t)) return false;
+        seen.add(t);
+        return true;
+      });
+    };
 
-    if (candle) candle.setData(candleData);
-    if (volume) volume.setData(volumeData);
-    if (ma5) ma5.setData(ma5Data);
-    if (ma10) ma10.setData(ma10Data);
-    if (ma30) ma30.setData(ma30Data);
+    if (candleSeriesRef.current) candleSeriesRef.current.setData(uniqueByTime(candleData));
+    if (volumeSeriesRef.current) volumeSeriesRef.current.setData(uniqueByTime(volumeData));
+    if (ma5SeriesRef.current) ma5SeriesRef.current.setData(uniqueByTime(ma5Data));
+    if (ma10SeriesRef.current) ma10SeriesRef.current.setData(uniqueByTime(ma10Data));
+    if (ma30SeriesRef.current) ma30SeriesRef.current.setData(uniqueByTime(ma30Data));
   }, [candleData, volumeData, ma5Data, ma10Data, ma30Data]);
 
   const resetView = () => {
@@ -484,7 +501,7 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
             </Metric>
             <Metric>
               <MetricLabel>更新</MetricLabel>
-              <MetricValue>{lastUpdate > 0 ? new Date(lastUpdate).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--'}</MetricValue>
+              <MetricValue>{lastUpdate > 0 ? new Date(lastUpdate).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Shanghai' }) : '--'}</MetricValue>
             </Metric>
           </Metrics>
         </MarketBlock>
