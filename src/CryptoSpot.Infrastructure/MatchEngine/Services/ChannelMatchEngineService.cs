@@ -149,20 +149,18 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             order.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        // 立即持久化 Active 状态，前端不需要等后台处理就能看到
+        // 立即持久化 Active 状态（仅当订单仍为 Pending 时，避免覆盖撮合引擎的结果）
         _ = Task.Run(async () =>
         {
             try
             {
                 using var scope = _scopeFactory.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                var existing = await db.Orders.FindAsync(order.Id);
-                if (existing != null)
-                {
-                    existing.Status = order.Status;
-                    existing.UpdatedAt = order.UpdatedAt;
-                    await db.SaveChangesAsync();
-                }
+                await db.Orders
+                    .Where(o => o.Id == order.Id && o.Status == OrderStatus.Pending)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(o => o.Status, order.Status)
+                        .SetProperty(o => o.UpdatedAt, order.UpdatedAt));
             }
             catch (Exception ex)
             {
@@ -496,15 +494,13 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         {
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-            var existing = await dbContext.Orders.FindAsync(order.Id);
-            if (existing != null)
-            {
-                existing.FilledQuantity = order.FilledQuantity;
-                existing.Status = order.Status;
-                existing.AveragePrice = order.AveragePrice;
-                existing.UpdatedAt = order.UpdatedAt;
-                await dbContext.SaveChangesAsync();
-            }
+            await dbContext.Orders
+                .Where(o => o.Id == order.Id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(o => o.FilledQuantity, order.FilledQuantity)
+                    .SetProperty(o => o.Status, order.Status)
+                    .SetProperty(o => o.AveragePrice, order.AveragePrice)
+                    .SetProperty(o => o.UpdatedAt, order.UpdatedAt));
         }
         catch (Exception ex)
         {
@@ -521,25 +517,32 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         {
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var strategy = dbContext.Database.CreateExecutionStrategy();
 
-            var existingOrder = await dbContext.Orders.FindAsync(order.Id);
-            if (existingOrder == null)
+            await strategy.ExecuteAsync(async () =>
             {
-                dbContext.Orders.Add(order);
-            }
-            else
-            {
-                existingOrder.FilledQuantity = order.FilledQuantity;
-                existingOrder.Status = order.Status;
-                existingOrder.UpdatedAt = order.UpdatedAt;
-            }
+                await using var transaction = await dbContext.Database.BeginTransactionAsync();
 
-            foreach (var trade in trades)
-            {
-                dbContext.Trades.Add(trade);
-            }
+                var rows = await dbContext.Orders
+                    .Where(o => o.Id == order.Id)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(o => o.FilledQuantity, order.FilledQuantity)
+                        .SetProperty(o => o.Status, order.Status)
+                        .SetProperty(o => o.UpdatedAt, order.UpdatedAt));
 
-            await dbContext.SaveChangesAsync();
+                if (rows == 0)
+                {
+                    dbContext.Orders.Add(order);
+                }
+
+                foreach (var trade in trades)
+                {
+                    dbContext.Trades.Add(trade);
+                }
+
+                await dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+            });
         }
         catch (Exception ex)
         {
