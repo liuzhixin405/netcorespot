@@ -158,7 +158,7 @@ namespace CryptoSpot.Infrastructure
             {
                 try
                 {
-                    context.Database.Migrate();
+                   // context.Database.Migrate();
                     Console.WriteLine("Database migration completed successfully");
 
                     var userCount = await context.Users.CountAsync();

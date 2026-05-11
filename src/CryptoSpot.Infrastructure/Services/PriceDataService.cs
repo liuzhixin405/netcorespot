@@ -2,6 +2,9 @@ using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.Mapping;
+using CryptoSpot.Domain.Entities;
+using CryptoSpot.Persistence.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.Services
@@ -10,24 +13,25 @@ namespace CryptoSpot.Infrastructure.Services
     {
         private readonly ITradingPairRepository _tradingPairRepository;
         private readonly IDtoMappingService _mappingService;
+        private readonly IDbContextFactory<ApplicationDbContext> _dbContextFactory;
         private readonly ILogger<PriceDataService> _logger;
 
         public PriceDataService(
             ITradingPairRepository tradingPairRepository,
             IDtoMappingService mappingService,
+            IDbContextFactory<ApplicationDbContext> dbContextFactory,
             ILogger<PriceDataService> logger)
         {
             _tradingPairRepository = tradingPairRepository;
             _mappingService = mappingService;
+            _dbContextFactory = dbContextFactory;
             _logger = logger;
         }
 
         public async Task<TradingPairDto?> GetCurrentPriceAsync(string symbol)
         {
             if (string.IsNullOrWhiteSpace(symbol))
-            {
                 return null;
-            }
 
             try
             {
@@ -44,33 +48,24 @@ namespace CryptoSpot.Infrastructure.Services
         public async Task<IEnumerable<TradingPairDto>> GetCurrentPricesAsync(string[] symbols)
         {
             if (symbols == null || symbols.Length == 0)
-            {
                 return Enumerable.Empty<TradingPairDto>();
-            }
 
-            var normalizedSymbols = symbols
+            var normalized = symbols
                 .Where(s => !string.IsNullOrWhiteSpace(s))
-                .Select(s => s.Trim())
+                .Select(s => s.Trim().ToUpperInvariant())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            if (normalizedSymbols.Length == 0)
-            {
+            if (normalized.Length == 0)
                 return Enumerable.Empty<TradingPairDto>();
-            }
 
-            var result = new List<TradingPairDto>(normalizedSymbols.Length);
+            await using var context = await _dbContextFactory.CreateDbContextAsync();
+            var pairs = await context.Set<TradingPair>()
+                .AsNoTracking()
+                .Where(tp => normalized.Contains(tp.Symbol))
+                .ToListAsync();
 
-            foreach (var symbol in normalizedSymbols)
-            {
-                var dto = await GetCurrentPriceAsync(symbol);
-                if (dto != null)
-                {
-                    result.Add(dto);
-                }
-            }
-
-            return result;
+            return _mappingService.MapToDto(pairs);
         }
 
         public async Task<IEnumerable<TradingPairDto>> GetTopTradingPairsAsync(int count = 10)

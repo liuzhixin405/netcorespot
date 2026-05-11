@@ -15,6 +15,6 @@ public class KLineDataConfiguration : IEntityTypeConfiguration<KLineData>
         entity.Property(e => e.Low).HasColumnType("decimal(18,8)");
         entity.Property(e => e.Close).HasColumnType("decimal(18,8)");
         entity.Property(e => e.Volume).HasColumnType("decimal(18,8)");
-        entity.HasIndex(e => new { e.TradingPairId, e.TimeFrame, e.OpenTime });
+        entity.HasIndex(e => new { e.TradingPairId, e.TimeFrame, e.OpenTime }).IsUnique();
     }
 }

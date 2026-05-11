@@ -38,15 +38,6 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Core
                 var price = maker.Price ?? taker.Price ?? 0m;
 
                 yield return new MatchSlice(maker, taker, price, qty);
-
-                // 上层会根据结果刷新状态; 此处不推进数量以便迭代者控制终止条件
-                taker.FilledQuantity += qty; // 暂时这里直接推进，避免上层重复逻辑（后续可改成纯函数，返回更新策略）
-                maker.FilledQuantity += qty;
-
-                if (maker.FilledQuantity >= maker.Quantity)
-                {
-                    book.Remove(maker);
-                }
             }
         }
 

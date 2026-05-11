@@ -1,4 +1,3 @@
-// filepath: g:\github\netcorespot\src\CryptoSpot.Persistence\Repositories\AssetRepository.cs
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Persistence.Data;
@@ -10,25 +9,25 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
 {
     public AssetRepository(IDbContextFactory<ApplicationDbContext> dbContextFactory) : base(dbContextFactory) { }
 
-    public async Task<Asset?> GetUserAssetAsync(int userId, string symbol)
+    public async Task<Asset?> GetUserAssetAsync(long userId, string symbol)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<Asset>().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
+        return await context.Set<Asset>().AsNoTracking().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
     }
 
-    public async Task<IEnumerable<Asset>> GetUserAssetsAsync(int userId)
+    public async Task<IEnumerable<Asset>> GetUserAssetsAsync(long userId)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<Asset>().Where(a => a.UserId == userId).OrderBy(a => a.Symbol).ToListAsync();
+        return await context.Set<Asset>().AsNoTracking().Where(a => a.UserId == userId).OrderBy(a => a.Symbol).ToListAsync();
     }
 
-    public async Task<IEnumerable<Asset>> GetAssetsByUserIdAsync(int userId)
+    public async Task<IEnumerable<Asset>> GetAssetsByUserIdAsync(long userId)
         => await GetUserAssetsAsync(userId);
 
-    public async Task<Asset?> GetAssetByUserIdAndSymbolAsync(int userId, string symbol)
+    public async Task<Asset?> GetAssetByUserIdAndSymbolAsync(long userId, string symbol)
         => await GetUserAssetAsync(userId, symbol);
 
-    public async Task<bool> UpdateBalanceAsync(int userId, string symbol, decimal amount)
+    public async Task<bool> UpdateBalanceAsync(long userId, string symbol, decimal amount)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var asset = await context.Set<Asset>().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
@@ -55,7 +54,7 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
         return true;
     }
 
-    public async Task<bool> FreezeAssetAsync(int userId, string symbol, decimal amount)
+    public async Task<bool> FreezeAssetAsync(long userId, string symbol, decimal amount)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var asset = await context.Set<Asset>().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
@@ -66,7 +65,7 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
         return true;
     }
 
-    public async Task<bool> UnfreezeAssetAsync(int userId, string symbol, decimal amount)
+    public async Task<bool> UnfreezeAssetAsync(long userId, string symbol, decimal amount)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var asset = await context.Set<Asset>().FirstOrDefaultAsync(a => a.UserId == userId && a.Symbol == symbol);
@@ -76,5 +75,4 @@ public class AssetRepository : BaseRepository<Asset>, IAssetRepository
         await context.SaveChangesAsync();
         return true;
     }
-
 }

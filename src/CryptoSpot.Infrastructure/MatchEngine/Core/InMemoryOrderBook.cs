@@ -21,48 +21,57 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Core
 
         public void Add(Order order)
         {
-            var dict = order.Side == OrderSide.Buy ? _bids : _asks;
-            var price = order.Price ?? 0m;
-            if (!dict.TryGetValue(price, out var q))
+            lock (_syncRoot)
             {
-                q = new Queue<Order>();
-                dict[price] = q;
+                var dict = order.Side == OrderSide.Buy ? _bids : _asks;
+                var price = order.Price ?? 0m;
+                if (!dict.TryGetValue(price, out var q))
+                {
+                    q = new Queue<Order>();
+                    dict[price] = q;
+                }
+                q.Enqueue(order);
             }
-            q.Enqueue(order);
         }
 
         public Order? GetBestOpposite(OrderSide side)
         {
-            var dict = side == OrderSide.Buy ? _asks : _bids;
-            if (dict.Count == 0) return null;
-            var first = dict.First();
-            var q = first.Value;
-            while (q.Count > 0)
+            lock (_syncRoot)
             {
-                var order = q.Peek();
-                if (order.FilledQuantity >= order.Quantity)
+                var dict = side == OrderSide.Buy ? _asks : _bids;
+                if (dict.Count == 0) return null;
+                var first = dict.First();
+                var q = first.Value;
+                while (q.Count > 0)
                 {
-                    q.Dequeue();
-                    continue;
+                    var order = q.Peek();
+                    if (order.FilledQuantity >= order.Quantity)
+                    {
+                        q.Dequeue();
+                        continue;
+                    }
+                    return order;
                 }
-                return order;
+                dict.Remove(first.Key);
+                return GetBestOpposite(side);
             }
-            dict.Remove(first.Key);
-            return GetBestOpposite(side);
         }
 
         public void Remove(Order order)
         {
-            var dict = order.Side == OrderSide.Buy ? _bids : _asks;
-            var price = order.Price ?? 0m;
-            if (dict.TryGetValue(price, out var q))
+            lock (_syncRoot)
             {
-                var list = q.ToList();
-                list.RemoveAll(o => o.Id == order.Id);
-                if (list.Count == 0)
-                    dict.Remove(price);
-                else
-                    dict[price] = new Queue<Order>(list);
+                var dict = order.Side == OrderSide.Buy ? _bids : _asks;
+                var price = order.Price ?? 0m;
+                if (dict.TryGetValue(price, out var q))
+                {
+                    var list = q.ToList();
+                    list.RemoveAll(o => o.Id == order.Id);
+                    if (list.Count == 0)
+                        dict.Remove(price);
+                    else
+                        dict[price] = new Queue<Order>(list);
+                }
             }
         }
 
@@ -70,15 +79,14 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Core
         {
             var dict = side == OrderSide.Buy ? _bids : _asks;
             var result = new List<(decimal price, decimal quantity)>(depth);
-            // Snapshot keys first to avoid enumeration modification during concurrent access
             decimal[] keys;
-            lock (dict)
+            lock (_syncRoot)
             {
                 keys = dict.Keys.Take(depth).ToArray();
             }
             foreach (var key in keys)
             {
-                lock (dict)
+                lock (_syncRoot)
                 {
                     if (!dict.TryGetValue(key, out var q)) continue;
                     var total = q.Where(o => o.FilledQuantity < o.Quantity)

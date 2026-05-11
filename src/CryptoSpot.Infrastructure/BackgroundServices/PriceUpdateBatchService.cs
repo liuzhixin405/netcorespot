@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -123,7 +124,6 @@ public class PriceUpdateBatchService : BackgroundService
     {
         try
         {
-            // 去重：每个 symbol 只保留最新的一条
             var latestUpdates = batch
                 .GroupBy(x => x.Symbol)
                 .Select(g => g.Last())
@@ -132,27 +132,26 @@ public class PriceUpdateBatchService : BackgroundService
             _logger.LogDebug("📦 批处理价格更新: {Count} 个请求 -> {Unique} 个唯一交易对",
                 batch.Count, latestUpdates.Count);
 
-            // 创建独立的 Scope 进行数据库操作
             using var scope = _scopeFactory.CreateScope();
-            var priceService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
-
-            // 批量更新
-            var successCount = 0;
+            var db = scope.ServiceProvider.GetRequiredService<CryptoSpot.Persistence.Data.ApplicationDbContext>();
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
             foreach (var update in latestUpdates)
             {
                 try
                 {
-                    await priceService.UpdateTradingPairPriceAsync(
-                        update.Symbol,
-                        update.Price,
-                        update.Change24h,
-                        update.Volume24h,
-                        update.High24h,
-                        update.Low24h);
-                    successCount++;
+                    await db.Database.ExecuteSqlInterpolatedAsync($"""
+                        UPDATE TradingPairs SET
+                            Price = {update.Price},
+                            Change24h = {update.Change24h},
+                            Volume24h = {update.Volume24h},
+                            High24h = {update.High24h},
+                            Low24h = {update.Low24h},
+                            UpdatedAt = {now},
+                            LastUpdated = {now}
+                        WHERE Symbol = {update.Symbol} AND IsDeleted = 0
+                    """, ct);
 
-                    // 推送 ticker（外部行情）
                     await _pushService.PushLastTradeAndMidPriceAsync(
                         update.Symbol, update.Price, null, null, null, null, now);
                 }
@@ -162,7 +161,7 @@ public class PriceUpdateBatchService : BackgroundService
                 }
             }
 
-            _logger.LogDebug("✅ 批处理完成: {Success}/{Total} 个交易对已更新", successCount, latestUpdates.Count);
+            _logger.LogDebug("✅ 批处理完成: {Count} 个交易对已更新", latestUpdates.Count);
         }
         catch (Exception ex)
         {

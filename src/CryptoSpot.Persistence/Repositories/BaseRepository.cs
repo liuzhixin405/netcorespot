@@ -21,31 +21,31 @@ public class BaseRepository<T> : IRepository<T> where T : class
     public virtual async Task<T?> GetByIdAsync(long id)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<T>().FindAsync(id);
+        return await context.Set<T>().AsNoTracking().FirstOrDefaultAsync(e => EF.Property<long>(e, "Id") == id);
     }
 
     public virtual async Task<T?> GetFirstOrDefaultAsync(Expression<Func<T, bool>> predicate)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<T>().FirstOrDefaultAsync(predicate);
+        return await context.Set<T>().AsNoTracking().FirstOrDefaultAsync(predicate);
     }
 
     public virtual async Task<IEnumerable<T>> FindAsync(Expression<Func<T, bool>> predicate)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<T>().Where(predicate).ToListAsync();
+        return await context.Set<T>().AsNoTracking().Where(predicate).ToListAsync();
     }
 
     public virtual async Task<IEnumerable<T>> GetAllAsync()
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<T>().ToListAsync();
+        return await context.Set<T>().AsNoTracking().ToListAsync();
     }
 
     public virtual async Task<(IEnumerable<T> Items, int TotalCount)> GetPagedAsync(Expression<Func<T, bool>>? predicate = null, int pageNumber = 1, int pageSize = 10, Expression<Func<T, object>>? orderBy = null, bool isDescending = false)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var query = context.Set<T>().AsQueryable();
+        var query = context.Set<T>().AsNoTracking().AsQueryable();
         if (predicate != null) query = query.Where(predicate);
         var totalCount = await query.CountAsync();
         if (orderBy != null) query = isDescending ? query.OrderByDescending(orderBy) : query.OrderBy(orderBy);
@@ -114,25 +114,18 @@ public class BaseRepository<T> : IRepository<T> where T : class
     public virtual async Task<int> DeleteWhereAsync(Expression<Func<T, bool>> predicate)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var entities = await context.Set<T>().Where(predicate).ToListAsync();
-        if (entities.Any())
-        {
-            context.Set<T>().RemoveRange(entities);
-            await context.SaveChangesAsync();
-            return entities.Count;
-        }
-        return 0;
+        return await context.Set<T>().Where(predicate).ExecuteDeleteAsync();
     }
 
     public virtual async Task<bool> ExistsAsync(Expression<Func<T, bool>> predicate)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<T>().AnyAsync(predicate);
+        return await context.Set<T>().AsNoTracking().AnyAsync(predicate);
     }
 
     public virtual async Task<int> CountAsync(Expression<Func<T, bool>>? predicate = null)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return predicate == null ? await context.Set<T>().CountAsync() : await context.Set<T>().CountAsync(predicate);
+        return predicate == null ? await context.Set<T>().AsNoTracking().CountAsync() : await context.Set<T>().AsNoTracking().CountAsync(predicate);
     }
 }

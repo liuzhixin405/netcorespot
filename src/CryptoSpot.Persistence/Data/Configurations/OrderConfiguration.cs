@@ -15,6 +15,8 @@ public class OrderConfiguration : IEntityTypeConfiguration<Order>
         entity.Property(e => e.FilledQuantity).HasColumnType("decimal(18,8)");
         entity.Property(e => e.AveragePrice).HasColumnType("decimal(18,8)");
         entity.HasIndex(e => e.OrderId).IsUnique();
-        entity.HasIndex(e => new { e.UserId, e.Status });
+        entity.HasIndex(e => new { e.TradingPairId, e.Status, e.Side, e.Price });
+        entity.HasIndex(e => new { e.UserId, e.CreatedAt });
+        entity.HasIndex(e => new { e.Status, e.CreatedAt });
     }
 }

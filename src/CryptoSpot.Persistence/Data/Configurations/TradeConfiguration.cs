@@ -15,6 +15,8 @@ public class TradeConfiguration : IEntityTypeConfiguration<Trade>
         entity.Property(e => e.Fee).HasColumnType("decimal(18,8)");
         entity.Property(e => e.FeeAsset).HasMaxLength(10);
         entity.HasIndex(e => e.TradeId).IsUnique();
-        entity.HasIndex(e => e.ExecutedAt);
+        entity.HasIndex(e => new { e.TradingPairId, e.ExecutedAt });
+        entity.HasIndex(e => new { e.BuyerId, e.ExecutedAt });
+        entity.HasIndex(e => new { e.SellerId, e.ExecutedAt });
     }
 }

@@ -1,3 +1,6 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Cryptography;
+using System.Text;
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.Auth;
 using CryptoSpot.Application.Common.Interfaces;
@@ -5,6 +8,8 @@ using CryptoSpot.Application.DTOs.Auth;
 using CryptoSpot.Application.DTOs.Common;
 using CryptoSpot.Application.DTOs.Users;
 using CryptoSpot.Domain.Entities;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using static CryptoSpot.Domain.Entities.User;
 
@@ -16,6 +21,8 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly IPasswordHasher _passwordHasher;
         private readonly ITokenService _tokenService;
         private readonly TimeProvider _timeProvider;
+        private readonly IMemoryCache _cache;
+        private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly ILogger<AuthService> _logger;
 
         public AuthService(
@@ -23,11 +30,17 @@ namespace CryptoSpot.Infrastructure.Services
             IPasswordHasher passwordHasher,
             ITokenService tokenService,
             TimeProvider timeProvider,
+            IMemoryCache cache,
+            IHttpContextAccessor httpContextAccessor,
             ILogger<AuthService> logger)
         {
             _userRepository = userRepository;
             _passwordHasher = passwordHasher;
             _tokenService = tokenService;
+            _timeProvider = timeProvider;
+            _cache = cache;
+            _httpContextAccessor = httpContextAccessor;
+            _logger = logger;
             _timeProvider = timeProvider;
             _logger = logger;
         }
@@ -131,6 +144,27 @@ namespace CryptoSpot.Infrastructure.Services
         public Task<ApiResponseDto<bool>> LogoutAsync(long userId)
         {
             _logger.LogInformation("用户登出: UserId={UserId}", userId);
+
+            var authHeader = _httpContextAccessor.HttpContext?.Request.Headers["Authorization"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                var token = authHeader["Bearer ".Length..].Trim();
+                try
+                {
+                    var jwt = new JwtSecurityTokenHandler().ReadJwtToken(token);
+                    var remainingLifetime = jwt.ValidTo - _timeProvider.GetUtcNow().UtcDateTime;
+                    if (remainingLifetime > TimeSpan.Zero)
+                    {
+                        var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+                        _cache.Set($"blacklist:{tokenHash}", true, remainingLifetime);
+                    }
+                }
+                catch
+                {
+                    // Token format invalid, skip blacklisting
+                }
+            }
+
             return Task.FromResult(ApiResponseDto<bool>.CreateSuccess(true));
         }
 

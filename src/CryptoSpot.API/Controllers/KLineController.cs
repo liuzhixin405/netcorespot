@@ -1,15 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.OutputCaching;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 
 namespace CryptoSpot.API.Controllers
 {
-    /// <summary>
-    /// K线数据控制器 - 提供历史K线数据API
-    /// </summary>
     [ApiController]
     [Route("api/[controller]")]
-    [AllowAnonymous] // K线数据允许匿名访问
+    [AllowAnonymous]
     public class KLineController : ControllerBase
     {
         private readonly IKLineDataService _klineDataService;
@@ -23,16 +21,8 @@ namespace CryptoSpot.API.Controllers
             _logger = logger;
         }
 
-        /// <summary>
-        /// 获取K线历史数据
-        /// </summary>
-        /// <param name="symbol">交易对符号，如 BTCUSDT</param>
-        /// <param name="interval">时间间隔，如 1m, 5m, 15m, 1h, 4h, 1d</param>
-        /// <param name="startTime">开始时间戳（毫秒）</param>
-        /// <param name="endTime">结束时间戳（毫秒）</param>
-        /// <param name="limit">返回数据条数，默认1000，最大1000</param>
-        /// <returns>K线数据列表</returns>
         [HttpGet("history")]
+        [OutputCache(Duration = 5)]
         public async Task<IActionResult> GetKLineHistory(
             [FromQuery] string symbol,
             [FromQuery] string interval,
@@ -108,6 +98,7 @@ namespace CryptoSpot.API.Controllers
         /// <param name="interval">时间间隔</param>
         /// <returns>最新的K线数据</returns>
         [HttpGet("latest")]
+        [OutputCache(Duration = 3)]
         public async Task<IActionResult> GetLatestKLine(
             [FromQuery] string symbol,
             [FromQuery] string interval)
@@ -156,6 +147,7 @@ namespace CryptoSpot.API.Controllers
         /// </summary>
         /// <returns>支持的时间间隔列表</returns>
         [HttpGet("intervals")]
+        [OutputCache(Duration = 3600)]
         public IActionResult GetSupportedIntervals()
         {
             var intervals = new[]

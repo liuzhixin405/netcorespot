@@ -19,7 +19,6 @@ namespace CryptoSpot.Infrastructure.Services
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<AutoTradingLogicService> _logger;
-        private readonly Random _random = new();
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private Task? _tradingTask;
 
@@ -136,7 +135,7 @@ namespace CryptoSpot.Infrastructure.Services
                 // 创建买卖订单 - 让价格更接近以便匹配
                 var buyPrice = currentPrice.Price * 0.9995m; // 低于市价0.05%
                 var sellPrice = currentPrice.Price * 1.0005m; // 高于市价0.05%
-                var quantity = (decimal)(_random.NextDouble() * 0.1 + 0.01); // 随机数量
+                var quantity = (decimal)(Random.Shared.NextDouble() * 0.1 + 0.01); // 随机数量
 
                 // 使用交易服务创建订单（会触发撮合引擎）
                 var buyRequest = new CreateOrderRequestDto

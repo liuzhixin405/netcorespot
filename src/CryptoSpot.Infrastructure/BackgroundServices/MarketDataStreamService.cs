@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
+using System.Threading.Channels;
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
@@ -12,10 +11,6 @@ using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.BackgroundServices
 {
-    /// <summary>
-    /// 市场数据流后台服务
-    /// 负责连接 OKX WebSocket，订阅行情数据，并通过 SignalR 推送给前端
-    /// </summary>
     public class MarketDataStreamService : BackgroundService
     {
         private readonly IMarketDataStreamProvider _streamProvider;
@@ -25,7 +20,30 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
 
         private readonly ConcurrentDictionary<string, long> _symbolToTradingPairId = new(StringComparer.OrdinalIgnoreCase);
 
-        // 默认订阅的交易对
+        private readonly Channel<TickerEvent> _tickerChannel =
+            Channel.CreateBounded<TickerEvent>(new BoundedChannelOptions(5000)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
+
+        private readonly Channel<OrderBookEvent> _orderBookChannel =
+            Channel.CreateBounded<OrderBookEvent>(new BoundedChannelOptions(2000)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
+
+        private readonly Channel<TradeEvent> _tradeChannel =
+            Channel.CreateBounded<TradeEvent>(new BoundedChannelOptions(2000)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
+
+        private readonly Channel<KLineEvent> _klineChannel =
+            Channel.CreateBounded<KLineEvent>(new BoundedChannelOptions(2000)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest
+            });
+
         private static readonly string[] DefaultSymbols = new[]
         {
             "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
@@ -48,35 +66,25 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
         {
             _logger.LogInformation("✅ MarketDataStreamService 正在启动...");
 
-            // 等待应用完全启动
             await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
 
             try
             {
-                // 注册事件处理器
                 RegisterEventHandlers();
 
-                // 连接 WebSocket
                 await _streamProvider.ConnectAsync(stoppingToken);
                 _logger.LogInformation("✅ 已连接到 {Provider} WebSocket", _streamProvider.ProviderName);
 
-                // 订阅默认交易对
                 await SubscribeDefaultSymbolsAsync(stoppingToken);
 
-                // 保持服务运行
-                while (!stoppingToken.IsCancellationRequested)
-                {
-                    // 检查连接状态
-                    if (!_streamProvider.IsConnected)
-                    {
-                        _logger.LogWarning("⚠️ WebSocket 连接断开，尝试重连...");
-                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-                        await _streamProvider.ConnectAsync(stoppingToken);
-                        await SubscribeDefaultSymbolsAsync(stoppingToken);
-                    }
+                // 每类事件一个消费 Task，不再 Fire-and-Forget
+                var monitorTask = MonitorConnectionAsync(stoppingToken);
+                var tickerTask = ProcessTickerChannelAsync(stoppingToken);
+                var orderBookTask = ProcessOrderBookChannelAsync(stoppingToken);
+                var tradeTask = ProcessTradeChannelAsync(stoppingToken);
+                var klineTask = ProcessKLineChannelAsync(stoppingToken);
 
-                    await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
-                }
+                await Task.WhenAll(monitorTask, tickerTask, orderBookTask, tradeTask, klineTask);
             }
             catch (OperationCanceledException)
             {
@@ -88,153 +96,162 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             }
         }
 
+        private async Task MonitorConnectionAsync(CancellationToken ct)
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), ct);
+                if (!_streamProvider.IsConnected)
+                {
+                    _logger.LogWarning("⚠️ WebSocket 连接断开，尝试重连...");
+                    await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                    await _streamProvider.ConnectAsync(ct);
+                    await SubscribeDefaultSymbolsAsync(ct);
+                }
+            }
+        }
+
         private void RegisterEventHandlers()
         {
-            // Ticker 事件 - 价格更新
             _streamProvider.OnTicker += ticker =>
             {
-                try
-                {
-                    // 通过批量服务更新数据库
-                    _priceUpdateBatchService.TryEnqueue(
-                        ticker.Symbol,
-                        ticker.Last,
-                        ticker.ChangePercent,
-                        ticker.Volume24h,
-                        ticker.High24h,
-                        ticker.Low24h);
-
-                    // 推送到 SignalR
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            using var scope = _serviceScopeFactory.CreateScope();
-                            var pushService = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
-                            if (pushService != null)
-                            {
-                                var priceData = new
-                                {
-                                    symbol = ticker.Symbol,
-                                    price = ticker.Last,
-                                    change24h = ticker.ChangePercent,
-                                    volume24h = ticker.Volume24h,
-                                    high24h = ticker.High24h,
-                                    low24h = ticker.Low24h,
-                                    timestamp = ticker.Ts
-                                };
-                                await pushService.PushPriceDataAsync(ticker.Symbol, priceData);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "推送 Ticker 数据失败: {Symbol}", ticker.Symbol);
-                        }
-                    });
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "处理 Ticker 事件失败: {Symbol}", ticker.Symbol);
-                }
+                _priceUpdateBatchService.TryEnqueue(
+                    ticker.Symbol, ticker.Last, ticker.ChangePercent,
+                    ticker.Volume24h, ticker.High24h, ticker.Low24h);
+                _tickerChannel.Writer.TryWrite(new TickerEvent(ticker));
             };
 
-            // OrderBook 事件 - 订单簿更新
             _streamProvider.OnOrderBook += orderBook =>
             {
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        using var scope = _serviceScopeFactory.CreateScope();
-                        var pushService = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
-                        if (pushService != null)
-                        {
-                            var bids = orderBook.Bids.Select(b => new OrderBookLevelDto
-                            {
-                                Price = b.Price,
-                                Quantity = b.Quantity,
-                                Total = b.Price * b.Quantity
-                            }).ToList();
-
-                            var asks = orderBook.Asks.Select(a => new OrderBookLevelDto
-                            {
-                                Price = a.Price,
-                                Quantity = a.Quantity,
-                                Total = a.Price * a.Quantity
-                            }).ToList();
-
-                            await pushService.PushExternalOrderBookSnapshotAsync(
-                                orderBook.Symbol,
-                                bids,
-                                asks,
-                                orderBook.Ts);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "推送 OrderBook 数据失败: {Symbol}", orderBook.Symbol);
-                    }
-                });
+                _orderBookChannel.Writer.TryWrite(new OrderBookEvent(orderBook));
             };
 
-            // Trade 事件 - 成交更新
             _streamProvider.OnTrade += trade =>
             {
-                _ = Task.Run(async () =>
+                _tradeChannel.Writer.TryWrite(new TradeEvent(trade));
+            };
+
+            _streamProvider.OnKLine += kline =>
+            {
+                _klineChannel.Writer.TryWrite(new KLineEvent(kline));
+            };
+
+            _logger.LogInformation("✅ 已注册市场数据事件处理器");
+        }
+
+        private async Task ProcessTickerChannelAsync(CancellationToken ct)
+        {
+            try
+            {
+                await foreach (var evt in _tickerChannel.Reader.ReadAllAsync(ct))
                 {
                     try
                     {
                         using var scope = _serviceScopeFactory.CreateScope();
-                        var pushService = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
-                        if (pushService != null)
+                        var pushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                        var priceData = new
                         {
-                            var tradeDto = new MarketTradeDto
-                            {
-                                Id = trade.TradeId,
-                                Symbol = trade.Symbol,
-                                Price = trade.Price,
-                                Quantity = trade.Quantity,
-                                ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.Ts).UtcDateTime,
-                                IsBuyerMaker = trade.Side.Equals("sell", StringComparison.OrdinalIgnoreCase)
-                            };
-                            await pushService.PushTradeDataAsync(trade.Symbol, tradeDto);
-                        }
+                            symbol = evt.Ticker.Symbol,
+                            price = evt.Ticker.Last,
+                            change24h = evt.Ticker.ChangePercent,
+                            volume24h = evt.Ticker.Volume24h,
+                            high24h = evt.Ticker.High24h,
+                            low24h = evt.Ticker.Low24h,
+                            timestamp = evt.Ticker.Ts
+                        };
+                        await pushService.PushPriceDataAsync(evt.Ticker.Symbol, priceData);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "推送 Trade 数据失败: {Symbol}", trade.Symbol);
+                        _logger.LogWarning(ex, "推送 Ticker 数据失败: {Symbol}", evt.Ticker.Symbol);
                     }
-                });
-            };
+                }
+            }
+            catch (OperationCanceledException) { }
+        }
 
-            // KLine 事件 - K线更新（推送 + 持久化）
-            _streamProvider.OnKLine += kline =>
+        private async Task ProcessOrderBookChannelAsync(CancellationToken ct)
+        {
+            try
             {
-                _ = Task.Run(async () =>
+                await foreach (var evt in _orderBookChannel.Reader.ReadAllAsync(ct))
                 {
                     try
                     {
                         using var scope = _serviceScopeFactory.CreateScope();
-                        var pushService = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
-                        if (pushService != null)
+                        var pushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                        var bids = evt.OrderBook.Bids.Select(b => new OrderBookLevelDto
                         {
-                            var klineDto = new KLineDataDto
-                            {
-                                OpenTime = kline.OpenTime,
-                                Open = kline.Open,
-                                High = kline.High,
-                                Low = kline.Low,
-                                Close = kline.Close,
-                                Volume = kline.Volume,
-                                CloseTime = kline.Ts
-                            };
-                            await pushService.PushKLineDataAsync(kline.Symbol, kline.Interval, klineDto, kline.IsClosed);
-                        }
+                            Price = b.Price, Quantity = b.Quantity, Total = b.Price * b.Quantity
+                        }).ToList();
+                        var asks = evt.OrderBook.Asks.Select(a => new OrderBookLevelDto
+                        {
+                            Price = a.Price, Quantity = a.Quantity, Total = a.Price * a.Quantity
+                        }).ToList();
+                        await pushService.PushExternalOrderBookSnapshotAsync(
+                            evt.OrderBook.Symbol, bids, asks, evt.OrderBook.Ts);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "推送 OrderBook 数据失败: {Symbol}", evt.OrderBook.Symbol);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+        }
 
-                        // 持久化到数据库（仅已闭合的 K 线）
-                        if (kline.IsClosed)
+        private async Task ProcessTradeChannelAsync(CancellationToken ct)
+        {
+            try
+            {
+                await foreach (var evt in _tradeChannel.Reader.ReadAllAsync(ct))
+                {
+                    try
+                    {
+                        using var scope = _serviceScopeFactory.CreateScope();
+                        var pushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                        var tradeDto = new MarketTradeDto
                         {
-                            var tradingPairId = await GetTradingPairIdAsync(kline.Symbol, scope);
+                            Id = evt.Trade.TradeId,
+                            Symbol = evt.Trade.Symbol,
+                            Price = evt.Trade.Price,
+                            Quantity = evt.Trade.Quantity,
+                            ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(evt.Trade.Ts).UtcDateTime,
+                            IsBuyerMaker = evt.Trade.Side.Equals("sell", StringComparison.OrdinalIgnoreCase)
+                        };
+                        await pushService.PushTradeDataAsync(evt.Trade.Symbol, tradeDto);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "推送 Trade 数据失败: {Symbol}", evt.Trade.Symbol);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+        }
+
+        private async Task ProcessKLineChannelAsync(CancellationToken ct)
+        {
+            try
+            {
+                await foreach (var evt in _klineChannel.Reader.ReadAllAsync(ct))
+                {
+                    try
+                    {
+                        using var scope = _serviceScopeFactory.CreateScope();
+                        var pushService = scope.ServiceProvider.GetRequiredService<IRealTimeDataPushService>();
+                        var klineDto = new KLineDataDto
+                        {
+                            OpenTime = evt.KLine.OpenTime,
+                            Open = evt.KLine.Open, High = evt.KLine.High,
+                            Low = evt.KLine.Low, Close = evt.KLine.Close,
+                            Volume = evt.KLine.Volume, CloseTime = evt.KLine.Ts
+                        };
+                        await pushService.PushKLineDataAsync(evt.KLine.Symbol, evt.KLine.Interval, klineDto, evt.KLine.IsClosed);
+
+                        if (evt.KLine.IsClosed)
+                        {
+                            var tradingPairId = await GetTradingPairIdAsync(evt.KLine.Symbol, scope);
                             if (tradingPairId > 0)
                             {
                                 var klineRepo = scope.ServiceProvider.GetService<IKLineDataRepository>();
@@ -243,14 +260,12 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                                     var entity = new Domain.Entities.KLineData
                                     {
                                         TradingPairId = tradingPairId,
-                                        TimeFrame = kline.Interval,
-                                        OpenTime = kline.OpenTime,
-                                        Open = kline.Open,
-                                        High = kline.High,
-                                        Low = kline.Low,
-                                        Close = kline.Close,
-                                        Volume = kline.Volume,
-                                        CloseTime = kline.Ts,
+                                        TimeFrame = evt.KLine.Interval,
+                                        OpenTime = evt.KLine.OpenTime,
+                                        Open = evt.KLine.Open, High = evt.KLine.High,
+                                        Low = evt.KLine.Low, Close = evt.KLine.Close,
+                                        Volume = evt.KLine.Volume,
+                                        CloseTime = evt.KLine.Ts,
                                         CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
                                         UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                                     };
@@ -261,12 +276,12 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "处理 KLine 事件失败: {Symbol} {Interval}", kline.Symbol, kline.Interval);
+                        _logger.LogWarning(ex, "处理 KLine 事件失败: {Symbol} {Interval}",
+                            evt.KLine.Symbol, evt.KLine.Interval);
                     }
-                });
-            };
-
-            _logger.LogInformation("✅ 已注册市场数据事件处理器");
+                }
+            }
+            catch (OperationCanceledException) { }
         }
 
         private async Task SubscribeDefaultSymbolsAsync(CancellationToken ct)
@@ -281,7 +296,6 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                     await _streamProvider.SubscribeOrderBookAsync(symbol, 5, ct);
                     await _streamProvider.SubscribeTradesAsync(symbol, ct);
                     await _streamProvider.SubscribeKLineAsync(symbol, "1m", ct);
-
                     _logger.LogDebug("已订阅 {Symbol} 的行情数据", symbol);
                     await Task.Delay(100, ct);
                 }
@@ -307,16 +321,12 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                     .Select(s => s!.ToUpperInvariant())
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
-                if (symbols.Count > 0)
-                {
-                    return symbols;
-                }
+                if (symbols.Count > 0) return symbols;
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "获取活动交易对失败，使用默认配置");
             }
-
             return DefaultSymbols;
         }
 
@@ -342,13 +352,16 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             {
                 _logger.LogWarning(ex, "查找交易对 {Symbol} ID 失败", symbol);
             }
-
             return 0;
         }
 
         public override async Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("MarketDataStreamService 正在停止...");
+            _tickerChannel.Writer.Complete();
+            _orderBookChannel.Writer.Complete();
+            _tradeChannel.Writer.Complete();
+            _klineChannel.Writer.Complete();
 
             try
             {
@@ -358,8 +371,12 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             {
                 _logger.LogWarning(ex, "断开 WebSocket 连接时出错");
             }
-
             await base.StopAsync(cancellationToken);
         }
+
+        private record TickerEvent(MarketTicker Ticker);
+        private record OrderBookEvent(OrderBookDelta OrderBook);
+        private record TradeEvent(PublicTrade Trade);
+        private record KLineEvent(KLineUpdate KLine);
     }
 }

@@ -7,12 +7,17 @@ namespace CryptoSpot.Persistence.Repositories;
 
 public class TradingPairRepository : BaseRepository<TradingPair>, ITradingPairRepository
 {
+    private static readonly Func<ApplicationDbContext, string, CancellationToken, Task<TradingPair?>>
+        s_getBySymbol = EF.CompileAsyncQuery(
+            (ApplicationDbContext db, string symbol, CancellationToken ct) =>
+                db.Set<TradingPair>().AsNoTracking().FirstOrDefault(tp => tp.Symbol == symbol));
+
     public TradingPairRepository(IDbContextFactory<ApplicationDbContext> dbContextFactory) : base(dbContextFactory) { }
 
     public async Task<TradingPair?> GetBySymbolAsync(string symbol)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<TradingPair>().FirstOrDefaultAsync(tp => tp.Symbol == symbol);
+        return await s_getBySymbol(context, symbol, CancellationToken.None);
     }
 
     public async Task<IEnumerable<TradingPair>> GetActiveTradingPairsAsync()

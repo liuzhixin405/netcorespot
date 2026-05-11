@@ -52,9 +52,6 @@ builder.Services.AddCleanArchitecture();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddMemoryCache();
 
-// 数据库协调器
-builder.Services.AddSingleton<IDatabaseCoordinator, DatabaseCoordinator>();
-
 // 强类型配置绑定
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSettings"));
 
@@ -152,8 +149,14 @@ builder.Services.AddCors(options =>
     });
 });
 
+// ==================== OutputCache 配置 ====================
+builder.Services.AddOutputCache();
+
 // ==================== SignalR 配置 ====================
-builder.Services.AddSignalR(options => options.EnableDetailedErrors = true);
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+}).AddMessagePackProtocol();
 
 // ==================== 健康检查 ====================
 builder.Services.AddCryptoSpotHealthChecks(builder.Configuration);
@@ -173,6 +176,7 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors("AllowReactApp");
 app.UseRouting();
+app.UseOutputCache();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();

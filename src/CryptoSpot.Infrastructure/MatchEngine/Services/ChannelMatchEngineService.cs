@@ -262,6 +262,15 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
                 break;
             }
 
+            var qty = matchSlice.Quantity;
+            taker.FilledQuantity += qty;
+            matchSlice.Maker.FilledQuantity += qty;
+
+            if (matchSlice.Maker.FilledQuantity >= matchSlice.Maker.Quantity)
+            {
+                orderBook.Remove(matchSlice.Maker);
+            }
+
             var trade = CreateTradeRecord(matchSlice, taker, symbol);
             trades.Add(trade);
             var memId = Interlocked.Increment(ref _nextTradeId);
@@ -342,7 +351,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     /// </summary>
     private Trade CreateTradeRecord(MatchSlice slice, Order taker, string symbol)
     {
-        var tradeId = Interlocked.Increment(ref _nextTradeId);
+        var tradeId = $"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{Interlocked.Increment(ref _nextTradeId):x}";
         var isTakerBuy = taker.Side == OrderSide.Buy;
 
         return new Trade

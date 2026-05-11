@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 using CryptoSpot.Application.Common.Interfaces;
 using CryptoSpot.Application.Common.Models;
 using CryptoSpot.Domain.Entities;
@@ -34,6 +35,7 @@ namespace CryptoSpot.API.Controllers
         // 交易对相关
         [HttpGet("pairs")]
         [AllowAnonymous]
+        [OutputCache(Duration = 5)]
         public async Task<ActionResult<ApiResponseDto<IEnumerable<TradingPairDto>>>> GetTradingPairs()
         {
             var result = await _tradingService.GetTradingPairsAsync();
@@ -42,6 +44,7 @@ namespace CryptoSpot.API.Controllers
 
         [HttpGet("pairs/{symbol}")]
         [AllowAnonymous]
+        [OutputCache(Duration = 5)]
         public async Task<ActionResult<ApiResponseDto<TradingPairDto?>>> GetTradingPair(string symbol)
         {
             var result = await _tradingService.GetTradingPairAsync(symbol);
@@ -201,6 +204,7 @@ namespace CryptoSpot.API.Controllers
         // 订单簿
         [HttpGet("orderbook/{symbol}")]
         [AllowAnonymous]
+        [OutputCache(Duration = 1)]
         public async Task<ActionResult<ApiResponseDto<OrderBookDepthDto>>> GetOrderBookDepth(string symbol, [FromQuery] int depth = 20)
         {
             var result = await _tradingService.GetOrderBookDepthAsync(symbol, depth);
@@ -210,6 +214,7 @@ namespace CryptoSpot.API.Controllers
         // 市场最近成交 (公开数据)
         [HttpGet("market/trades/{symbol}")]
         [AllowAnonymous]
+        [OutputCache(Duration = 5)]
         public async Task<ActionResult<ApiResponseDto<IEnumerable<MarketTradeDto>>>> GetMarketRecentTrades(
             string symbol, 
             [FromQuery] int limit = 50)
