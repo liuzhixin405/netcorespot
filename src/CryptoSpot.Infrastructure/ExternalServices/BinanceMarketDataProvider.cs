@@ -54,7 +54,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 ConfigureProxy();
             }
             
-            _timer = new Timer(SyncDataCallback, null, Timeout.Infinite, Timeout.Infinite);
+            _timer = new Timer(_ => { _ = SyncDataCallbackAsync(); }, null, Timeout.Infinite, Timeout.Infinite);
         }
 
         private void ConfigureProxy()
@@ -202,7 +202,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             _timer?.Dispose();
         }
 
-        private async void SyncDataCallback(object? state)
+        private async Task SyncDataCallbackAsync()
         {
             try
             {

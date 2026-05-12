@@ -137,10 +137,9 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var cutoff = DateTimeOffset.UtcNow.AddDays(-keepDays).ToUnixTimeMilliseconds();
-        var expired = await context.Set<KLineData>().Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval && k.OpenTime < cutoff).ToListAsync();
-        if (expired.Any()) context.Set<KLineData>().RemoveRange(expired);
-        await context.SaveChangesAsync();
-        return expired.Count;
+        return await context.Set<KLineData>()
+            .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval && k.OpenTime < cutoff)
+            .ExecuteDeleteAsync();
     }
 
     public async Task<KLineDataStatistics> GetKLineDataStatisticsAsync(long tradingPairId, string interval)

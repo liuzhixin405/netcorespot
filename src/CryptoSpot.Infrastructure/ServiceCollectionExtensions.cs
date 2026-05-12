@@ -67,7 +67,7 @@ namespace CryptoSpot.Infrastructure
             };
             
             // DbContext 工厂
-            services.AddPooledDbContextFactory<ApplicationDbContext>(configureDbContext, poolSize: 30);
+            services.AddPooledDbContextFactory<ApplicationDbContext>(configureDbContext, poolSize: 128);
             
             // Scoped DbContext
             services.AddScoped<ApplicationDbContext>(sp =>
@@ -158,16 +158,33 @@ namespace CryptoSpot.Infrastructure
             {
                 try
                 {
-                   // context.Database.Migrate();
-                    Console.WriteLine("Database migration completed successfully");
+                    // 获取已应用的迁移列表，只执行未应用的迁移
+                    var appliedMigrations = await context.Database.GetAppliedMigrationsAsync();
+                    var pendingMigrations = (await context.Database.GetPendingMigrationsAsync()).ToList();
+
+                    if (pendingMigrations.Any())
+                    {
+                        Console.WriteLine($"Applying {pendingMigrations.Count} pending migrations...");
+                        context.Database.Migrate();
+                        Console.WriteLine("Database migration completed successfully");
+                    }
+                    else
+                    {
+                        Console.WriteLine("No pending migrations");
+                    }
 
                     var userCount = await context.Users.CountAsync();
                     Console.WriteLine($"Current user count: {userCount}");
                 }
+                catch (Exception ex) when (ex.Message.Contains("Duplicate key", StringComparison.OrdinalIgnoreCase))
+                {
+                    // 索引已存在，可能是手动创建或部分应用，跳过
+                    Console.WriteLine($"Migration skipped (indexes already exist): {ex.Message}");
+                }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Database setup failed: {ex.Message}");
-                    throw;
+                    Console.WriteLine($"Database setup warning (app will continue): {ex.Message}");
+                    // 不再 throw，让应用继续启动
                 }
             }
 

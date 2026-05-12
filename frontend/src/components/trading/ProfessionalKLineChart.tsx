@@ -240,7 +240,7 @@ const HORZ_GRID = 'rgba(48, 54, 61, 0.6)';
 const TEXT_COLOR = '#8b949e';
 const CROSSHAIR_COLOR = 'rgba(255,255,255,0.5)';
 
-export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
+export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = React.memo(({
   symbol,
   timeframe,
   onTimeframeChange,
@@ -541,7 +541,7 @@ export const ProfessionalKLineChart: React.FC<ProfessionalKLineChartProps> = ({
       </ChartContainer>
     </Container>
   );
-};
+});
 
 function calcMA(data: KLineData[], period: number): LineData[] {
   const result: LineData[] = [];

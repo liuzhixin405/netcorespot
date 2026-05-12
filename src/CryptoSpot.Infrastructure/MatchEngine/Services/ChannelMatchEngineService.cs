@@ -239,12 +239,12 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         var trades = new List<Trade>();
         var affectedMakers = new HashSet<Order>(); // 追踪被修改的 maker
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Processing order {OrderId}: Side={Side}, Type={Type}, Price={Price}, Qty={Qty}, UserId={UserId}",
             taker.OrderId, taker.Side, taker.Type, taker.Price, taker.Quantity, taker.UserId);
 
         orderBook.Add(taker);
-        _logger.LogInformation("Order {OrderId} added to book. Bids={Bids}, Asks={Asks}",
+        _logger.LogDebug("Order {OrderId} added to book. Bids={Bids}, Asks={Asks}",
             taker.OrderId,
             orderBook.GetDepth(OrderSide.Buy, 5).Count,
             orderBook.GetDepth(OrderSide.Sell, 5).Count);
@@ -286,13 +286,13 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             if (taker.FilledQuantity >= taker.Quantity) break;
         }
 
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Order {OrderId} matching complete: Matches={Matches}, TakerFill={Filled}/{Qty}, Status={Status}",
             taker.OrderId, matchCount, taker.FilledQuantity, taker.Quantity, taker.Status);
 
         if (trades.Count == 0)
         {
-            _logger.LogInformation("Order {OrderId} had no trades, staying in book", taker.OrderId);
+            _logger.LogDebug("Order {OrderId} had no trades, staying in book", taker.OrderId);
             await PublishOrderPlacedEventsAsync(symbol, taker);
         }
 
@@ -399,7 +399,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         Order maker,
         Order taker)
     {
-        _logger.LogInformation("Trade executed: Symbol={Symbol}, TradeId={TradeId}", symbol, trade.Id);
+        _logger.LogDebug("Trade executed: Symbol={Symbol}, TradeId={TradeId}", symbol, trade.Id);
 
         // 推送 ticker 数据
         var orderBook = _orderBooks.GetValueOrDefault(symbol);
@@ -490,7 +490,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     /// </summary>
     private async Task PublishOrderPlacedEventsAsync(string symbol, Order order)
     {
-        _logger.LogInformation("Order placed: Symbol={Symbol}, OrderId={OrderId}", symbol, order.Id);
+        _logger.LogDebug("Order placed: Symbol={Symbol}, OrderId={OrderId}", symbol, order.Id);
         await Task.CompletedTask;
     }
 
@@ -532,14 +532,21 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             {
                 await using var transaction = await dbContext.Database.BeginTransactionAsync();
 
-                var rows = await dbContext.Orders
-                    .Where(o => o.Id == order.Id)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(o => o.FilledQuantity, order.FilledQuantity)
-                        .SetProperty(o => o.Status, order.Status)
-                        .SetProperty(o => o.UpdatedAt, order.UpdatedAt));
+                if (order.Id > 0)
+                {
+                    var rows = await dbContext.Orders
+                        .Where(o => o.Id == order.Id)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(o => o.FilledQuantity, order.FilledQuantity)
+                            .SetProperty(o => o.Status, order.Status)
+                            .SetProperty(o => o.UpdatedAt, order.UpdatedAt));
 
-                if (rows == 0)
+                    if (rows == 0)
+                    {
+                        dbContext.Orders.Add(order);
+                    }
+                }
+                else
                 {
                     dbContext.Orders.Add(order);
                 }

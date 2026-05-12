@@ -23,7 +23,7 @@ public class TradingPairRepository : BaseRepository<TradingPair>, ITradingPairRe
     public async Task<IEnumerable<TradingPair>> GetActiveTradingPairsAsync()
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<TradingPair>().Where(tp => tp.IsActive).OrderBy(tp => tp.Symbol).ToListAsync();
+        return await context.Set<TradingPair>().AsNoTracking().Where(tp => tp.IsActive).OrderBy(tp => tp.Symbol).ToListAsync();
     }
 
     public async Task<bool> UpdatePriceAsync(string symbol, decimal price, decimal change24h, decimal volume24h, decimal high24h, decimal low24h)
@@ -37,7 +37,7 @@ public class TradingPairRepository : BaseRepository<TradingPair>, ITradingPairRe
     public async Task<IEnumerable<TradingPair>> GetTopTradingPairsAsync(int limit)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<TradingPair>().Where(tp => tp.IsActive).OrderByDescending(tp => tp.Volume24h).Take(limit).ToListAsync();
+        return await context.Set<TradingPair>().AsNoTracking().Where(tp => tp.IsActive).OrderByDescending(tp => tp.Volume24h).Take(limit).ToListAsync();
     }
 
     public async Task<long> GetTradingPairIdAsync(string symbol) => (await GetBySymbolAsync(symbol))?.Id ?? 0;
@@ -45,6 +45,6 @@ public class TradingPairRepository : BaseRepository<TradingPair>, ITradingPairRe
     public async Task<IEnumerable<TradingPair>> SearchTradingPairsAsync(string searchTerm, int limit)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<TradingPair>().Where(tp => tp.IsActive && tp.Symbol.Contains(searchTerm)).OrderBy(tp => tp.Symbol).Take(limit).ToListAsync();
+        return await context.Set<TradingPair>().AsNoTracking().Where(tp => tp.IsActive && tp.Symbol.Contains(searchTerm)).OrderBy(tp => tp.Symbol).Take(limit).ToListAsync();
     }
 }

@@ -157,7 +157,7 @@ interface OrderBookProps {
 const formatPrice = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatQty = (value: number) => value >= 1 ? value.toFixed(4) : value.toFixed(8);
 
-const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
+const OrderBook: React.FC<OrderBookProps> = React.memo(({ symbol }) => {
   const { priceData } = useSignalRPriceData([symbol]);
   const { orderBookData, loading, error, isConnected } = useSignalROrderBook(symbol);
   const { tickerData } = useSignalRTicker(symbol);
@@ -237,6 +237,6 @@ const OrderBook: React.FC<OrderBookProps> = ({ symbol }) => {
       </Content>
     </Container>
   );
-};
+});
 
 export default OrderBook;

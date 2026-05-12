@@ -86,9 +86,9 @@ export class SignalRClient {
 
         await this.connection.start();
         const cost = Date.now() - startTime;
-  // connected
         this.reconnectAttempts = 0;
         this.isConnecting = false;
+        this.connectPromise = null; // 成功连接后清除 promise，断开后可重新连接
         const ok = true; resolve(ok);
       } catch (error: any) {
         const msg = error?.message || String(error);
@@ -257,12 +257,15 @@ export class SignalRClient {
         throw new Error('SignalR连接状态异常');
       }
 
-      // 设置订单簿数据接收处理器
-      this.connection.off('OrderBookData');
-      this.connection.off('OrderBookUpdate');
-      
-      this.connection.on('OrderBookData', (response: any) => { onOrderBookData(response); });
-      this.connection.on('OrderBookUpdate', (response: any) => { onOrderBookData(response); });
+      // 命名 handler，精确移除，防止影响其他组件的订阅
+      const dataHandler = (response: any) => { onOrderBookData(response); };
+      const updateHandler = (response: any) => { onOrderBookData(response); };
+
+      this.connection.off('OrderBookData', dataHandler);
+      this.connection.off('OrderBookUpdate', updateHandler);
+
+      this.connection.on('OrderBookData', dataHandler);
+      this.connection.on('OrderBookUpdate', updateHandler);
 
       // 发送订阅请求
       await this.connection.invoke('SubscribeOrderBook', symbol, 20);

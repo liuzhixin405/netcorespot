@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
-using CryptoSpot.Application.Abstractions.Repositories; // updated namespace
+using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -9,8 +9,8 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace CryptoSpot.Persistence.Repositories;
 
 /// <summary>
-/// 工作单元 - 使用 IDbContextFactory 延迟创建 DbContext
-/// 优势：支持 Scoped 生命周期，可在请求范围内共享 DbContext 和事务
+/// 工作单元 - 维护共享 DbContext，Repository 可通过 SharedContext 属性复用
+/// 当 SharedContext 被设置时，Repository 跳过内部 SaveChangesAsync 调用
 /// </summary>
 public class UnitOfWork : IUnitOfWork
 {
@@ -26,9 +26,9 @@ public class UnitOfWork : IUnitOfWork
     }
 
     /// <summary>
-    /// 延迟获取或创建 DbContext（请求范围内复用）
+    /// 延迟获取或创建共享 DbContext
     /// </summary>
-    private async Task<ApplicationDbContext> GetOrCreateContextAsync()
+    public async Task<ApplicationDbContext> GetOrCreateContextAsync()
     {
         if (_context == null)
         {
@@ -42,16 +42,18 @@ public class UnitOfWork : IUnitOfWork
         var type = typeof(T);
         if (!_repositories.TryGetValue(type, out var repo))
         {
-            // Repository 使用 factory 创建，不依赖 UnitOfWork 的 context
             repo = new BaseRepository<T>(_dbContextFactory);
             _repositories[type] = repo;
         }
         return (IRepository<T>)repo;
     }
 
+    /// <summary>
+    /// 保存所有变更（仅在通过 Repository 且 SharedContext 已设置时有效）
+    /// </summary>
     public async Task<int> SaveChangesAsync()
     {
-        if (_context == null) return 0; // 如果没有创建过 context，无需保存
+        if (_context == null) return 0;
         return await _context.SaveChangesAsync();
     }
 
@@ -126,11 +128,11 @@ public class UnitOfWork : IUnitOfWork
     public void Dispose()
     {
         if (_disposed) return;
-        
+
         _transaction?.Dispose();
         _context?.Dispose();
         _repositories.Clear();
-        
+
         _disposed = true;
     }
 }

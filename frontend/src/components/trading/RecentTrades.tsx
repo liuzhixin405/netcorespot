@@ -131,7 +131,7 @@ const inferPairMeta = (symbol: string): TradingPairMeta => {
   return { quantityPrecision: 4, minQuantity: 0.0001, pricePrecision: 2 };
 };
 
-const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
+const RecentTrades: React.FC<RecentTradesProps> = React.memo(({ symbol }) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -280,6 +280,6 @@ const RecentTrades: React.FC<RecentTradesProps> = ({ symbol }) => {
       </TradesList>
     </Container>
   );
-};
+});
 
 export default RecentTrades;

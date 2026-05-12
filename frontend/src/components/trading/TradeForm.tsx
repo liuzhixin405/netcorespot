@@ -264,7 +264,7 @@ const formatBalance = (value?: number) => {
   return value >= 1 ? value.toFixed(4) : value.toFixed(8);
 };
 
-const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
+const TradeForm: React.FC<TradeFormProps> = React.memo(({ symbol }) => {
   const { user } = useAuth();
   const [side, setSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'limit' | 'market'>('limit');
@@ -506,6 +506,6 @@ const TradeForm: React.FC<TradeFormProps> = ({ symbol }) => {
       </Form>
     </Container>
   );
-};
+});
 
 export default TradeForm;

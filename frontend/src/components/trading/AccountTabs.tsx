@@ -130,7 +130,7 @@ const COL_HISTORY = '0.8fr 0.65fr 0.7fr 0.85fr 0.8fr';
 const COL_TRADES = '0.9fr 0.6fr 0.9fr 0.8fr';
 const COL_ASSETS = '1fr 1fr 1fr 1fr';
 
-const AccountTabs: React.FC = () => {
+const AccountTabs: React.FC = React.memo(() => {
   const [activeTab, setActiveTab] = useState<'current' | 'history' | 'trades' | 'assets'>('current');
   const { user } = useAuth();
   const { currentOrders, historyOrders, userTrades, assets, isSubscribed } = useUserDataStream();
@@ -343,6 +343,6 @@ const AccountTabs: React.FC = () => {
       </TabContent>
     </Container>
   );
-};
+});
 
 export default AccountTabs;

@@ -215,7 +215,7 @@ const formatCompact = (value?: number) => {
   return Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(value);
 };
 
-const TradingHeader: React.FC<TradingHeaderProps> = ({ symbol, onSymbolChange }) => {
+const TradingHeader: React.FC<TradingHeaderProps> = React.memo(({ symbol, onSymbolChange }) => {
   const { data, isConnected } = useMergedTickerData(symbol);
   const { user, logout } = useAuth();
   const lastPrice = data?.lastPrice || data?.midPrice;
@@ -290,6 +290,6 @@ const TradingHeader: React.FC<TradingHeaderProps> = ({ symbol, onSymbolChange })
       </Right>
     </Header>
   );
-};
+});
 
 export default TradingHeader;

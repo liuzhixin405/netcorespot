@@ -77,15 +77,18 @@ export function useUserDataStream(): UseUserDataStreamResult {
 
     connectionRef.current = conn;
 
-    // 清理旧监听
-    conn.off('OrderUpdate');
-    conn.off('UserTradeUpdate');
-    conn.off('AssetUpdate');
+    // 命名 handler，精确移除，防止影响其他组件的订阅
+    const orderHandler = (order: any) => { upsertOrder(order as Order); };
+    const tradeHandler = (trade: any) => { addTrade(trade as Trade); };
+    const assetHandler = (assetList: any) => { if (Array.isArray(assetList)) handleAssetSnapshot(assetList as Asset[]); };
 
-    // 注册
-    conn.on('OrderUpdate', (order: any) => { upsertOrder(order as Order); });
-    conn.on('UserTradeUpdate', (trade: any) => { addTrade(trade as Trade); });
-    conn.on('AssetUpdate', (assetList: any) => { if (Array.isArray(assetList)) handleAssetSnapshot(assetList as Asset[]); });
+    conn.off('OrderUpdate', orderHandler);
+    conn.off('UserTradeUpdate', tradeHandler);
+    conn.off('AssetUpdate', assetHandler);
+
+    conn.on('OrderUpdate', orderHandler);
+    conn.on('UserTradeUpdate', tradeHandler);
+    conn.on('AssetUpdate', assetHandler);
 
     try {
       await conn.invoke('SubscribeUserData');

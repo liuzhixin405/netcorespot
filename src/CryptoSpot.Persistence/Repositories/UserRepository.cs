@@ -12,19 +12,19 @@ public class UserRepository : BaseRepository<User>, IUserRepository
     public async Task<User?> GetByUsernameAsync(string username)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<User>().FirstOrDefaultAsync(u => u.Username == username);
+        return await context.Set<User>().AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
     }
 
     public async Task<User?> GetByEmailAsync(string email)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<User>().FirstOrDefaultAsync(u => u.Email == email);
+        return await context.Set<User>().AsNoTracking().FirstOrDefaultAsync(u => u.Email == email);
     }
 
     public async Task<User?> ValidateCredentialsAsync(string username, string password)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<User>().FirstOrDefaultAsync(u => (u.Username == username || u.Email == username) && u.PasswordHash == password);
+        return await context.Set<User>().AsNoTracking().FirstOrDefaultAsync(u => (u.Username == username || u.Email == username) && u.PasswordHash == password);
     }
 
     public async Task<bool> UsernameExistsAsync(string username)

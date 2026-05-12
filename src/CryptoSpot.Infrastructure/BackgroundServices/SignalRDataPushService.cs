@@ -46,7 +46,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
 
                 await _hubContext.Clients.Group(groupName).SendAsync("KLineUpdate", klineUpdate, isNewKLine);
                 
-                _logger.LogDebug($"Pushed KLine data for {symbol} {interval}: {klineData.Close}");
+                _logger.LogDebug("Pushed KLine data for {Symbol} {Interval}: {Close}", symbol, interval, klineData.Close);
             }
             catch (Exception ex)
             {
@@ -62,7 +62,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                 
                 await _hubContext.Clients.Group(groupName).SendAsync("PriceUpdate", priceData);
                 
-                _logger.LogDebug($"Pushed price data for {symbol}");
+                _logger.LogDebug("Pushed price data for {Symbol}", symbol);
             }
             catch (Exception ex)
             {
@@ -82,7 +82,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
 
                 await Task.WhenAll(tasks);
                 
-                _logger.LogDebug($"Pushed price data for {priceUpdates.Count} symbols");
+                _logger.LogDebug("Pushed price data for {Count} symbols", priceUpdates.Count);
             }
             catch (Exception ex)
             {
@@ -118,7 +118,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
 
                 await _hubContext.Clients.Group(groupName).SendAsync("OrderBookData", orderBookData);
                 
-                _logger.LogDebug($"Pushed order book snapshot for {symbol}: Bids={orderBookDepth.Bids.Count}, Asks={orderBookDepth.Asks.Count}");
+                _logger.LogDebug("Pushed order book snapshot for {Symbol}: Bids={BidCount}, Asks={AskCount}", symbol, orderBookDepth.Bids.Count, orderBookDepth.Asks.Count);
             }
             catch (Exception ex)
             {
@@ -153,7 +153,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
 
                 await _hubContext.Clients.Group(groupName).SendAsync("OrderBookUpdate", deltaData);
                 
-                _logger.LogDebug($"Pushed order book delta for {symbol}: {bidChanges?.Count ?? 0} bids, {askChanges?.Count ?? 0} asks");
+                _logger.LogDebug("Pushed order book delta for {Symbol}: {Bids} bids, {Asks} asks", symbol, bidChanges?.Count ?? 0, askChanges?.Count ?? 0);
             }
             catch (Exception ex)
             {
@@ -222,8 +222,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                     timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 };
                 await _hubContext.Clients.Group(groupName).SendAsync("TradeUpdate", tradeData);
-                _logger.LogInformation("✅ [SignalR] 推送成交到组 {GroupName}: TradeId={TradeId}, Price={Price}, Quantity={Quantity}", 
-                    groupName, trade.Id, trade.Price, trade.Quantity);
+                _logger.LogDebug("Pushed trade to group {GroupName}: TradeId={TradeId}", groupName, trade.Id);
             }
             catch (Exception ex)
             {
@@ -237,8 +236,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             {
                 var userGroup = $"user_{userId}";
                 await _hubContext.Clients.Group(userGroup).SendAsync("OrderUpdate", order);
-                _logger.LogInformation("✅ [SignalR] 推送订单更新到用户 {UserId}: OrderId={OrderId}, Status={Status}", 
-                    userId, order.OrderId, order.Status);
+                _logger.LogDebug("Pushed order update to user {UserId}: OrderId={OrderId}", userId, order.OrderId);
             }
             catch (Exception ex)
             {
@@ -252,7 +250,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             {
                 var userGroup = $"user_{userId}";
                 await _hubContext.Clients.Group(userGroup).SendAsync("UserTradeUpdate", trade);
-                _logger.LogInformation("✅ [SignalR] 推送用户成交到用户 {UserId}: TradeId={TradeId}", userId, trade.TradeId);
+                _logger.LogDebug("Pushed user trade to user {UserId}: TradeId={TradeId}", userId, trade.TradeId);
             }
             catch (Exception ex)
             {
@@ -266,7 +264,7 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             {
                 var userGroup = $"user_{userId}";
                 await _hubContext.Clients.Group(userGroup).SendAsync("AssetUpdate", assets);
-                _logger.LogInformation("✅ [SignalR] 推送资产更新到用户 {UserId}: {Count} 个资产", userId, assets.Count());
+                _logger.LogDebug("Pushed asset update to user {UserId}: {Count} assets", userId, assets.Count());
             }
             catch (Exception ex)
             {

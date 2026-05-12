@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useAuth } from './contexts/AuthContext';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Trading from './pages/Trading';
+
+const Login = React.lazy(() => import('./pages/Login'));
+const Register = React.lazy(() => import('./pages/Register'));
+const Trading = React.lazy(() => import('./pages/Trading'));
 
 const AppContainer = styled.div`
   height: 100vh;
@@ -32,21 +33,22 @@ const Footer = styled.footer`
   flex-shrink: 0;
 `;
 
+const LoadingFallback = styled.div`
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-size: 18px;
+  color: #7d8590;
+`;
+
 function App() {
   const { user, loading } = useAuth();
 
   if (loading) {
     return (
       <AppContainer>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          height: '100vh',
-          fontSize: '18px'
-        }}>
-          Loading...
-        </div>
+        <LoadingFallback>Loading...</LoadingFallback>
       </AppContainer>
     );
   }
@@ -54,24 +56,26 @@ function App() {
   return (
     <AppContainer>
       <MainContent>
-        <Routes>
-          <Route 
-            path="/login" 
-            element={user ? <Navigate to="/trading" /> : <Login />} 
-          />
-          <Route 
-            path="/register" 
-            element={user ? <Navigate to="/trading" /> : <Register />} 
-          />
-          <Route 
-            path="/trading" 
-            element={user ? <Trading /> : <Navigate to="/login" />} 
-          />
-          <Route 
-            path="/" 
-            element={<Navigate to={user ? "/trading" : "/login"} />} 
-          />
-        </Routes>
+        <Suspense fallback={<LoadingFallback>Loading...</LoadingFallback>}>
+          <Routes>
+            <Route
+              path="/login"
+              element={user ? <Navigate to="/trading" /> : <Login />}
+            />
+            <Route
+              path="/register"
+              element={user ? <Navigate to="/trading" /> : <Register />}
+            />
+            <Route
+              path="/trading"
+              element={user ? <Trading /> : <Navigate to="/login" />}
+            />
+            <Route
+              path="/"
+              element={<Navigate to={user ? "/trading" : "/login"} />}
+            />
+          </Routes>
+        </Suspense>
       </MainContent>
       <Footer>
         CryptoSpot v1.0.0

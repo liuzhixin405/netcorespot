@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Threading.Channels;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
@@ -136,29 +137,37 @@ public class PriceUpdateBatchService : BackgroundService
             var db = scope.ServiceProvider.GetRequiredService<CryptoSpot.Persistence.Data.ApplicationDbContext>();
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
+            // 批量构建 CASE WHEN SQL，单次数据库往返更新所有交易对
+            if (latestUpdates.Count > 0)
+            {
+                var symbols = latestUpdates.Select(u => u.Symbol).ToList();
+
+                var priceCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.Price}")));
+                var changeCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.Change24h}")));
+                var volumeCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.Volume24h}")));
+                var highCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.High24h}")));
+                var lowCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.Low24h}")));
+                var symbolList = string.Join(", ", symbols.Select(s => $"'{s}'"));
+
+                var batchSql = $"""
+                    UPDATE TradingPairs SET
+                        Price = CASE Symbol {priceCases} END,
+                        Change24h = CASE Symbol {changeCases} END,
+                        Volume24h = CASE Symbol {volumeCases} END,
+                        High24h = CASE Symbol {highCases} END,
+                        Low24h = CASE Symbol {lowCases} END,
+                        UpdatedAt = {now},
+                        LastUpdated = {now}
+                    WHERE Symbol IN ({symbolList}) AND IsDeleted = 0
+                """;
+
+                await db.Database.ExecuteSqlRawAsync(batchSql, ct);
+            }
+
             foreach (var update in latestUpdates)
             {
-                try
-                {
-                    await db.Database.ExecuteSqlInterpolatedAsync($"""
-                        UPDATE TradingPairs SET
-                            Price = {update.Price},
-                            Change24h = {update.Change24h},
-                            Volume24h = {update.Volume24h},
-                            High24h = {update.High24h},
-                            Low24h = {update.Low24h},
-                            UpdatedAt = {now},
-                            LastUpdated = {now}
-                        WHERE Symbol = {update.Symbol} AND IsDeleted = 0
-                    """, ct);
-
-                    await _pushService.PushLastTradeAndMidPriceAsync(
-                        update.Symbol, update.Price, null, null, null, null, now);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "⚠️ 更新 {Symbol} 价格失败", update.Symbol);
-                }
+                await _pushService.PushLastTradeAndMidPriceAsync(
+                    update.Symbol, update.Price, null, null, null, null, now);
             }
 
             _logger.LogDebug("✅ 批处理完成: {Count} 个交易对已更新", latestUpdates.Count);
