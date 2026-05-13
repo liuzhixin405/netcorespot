@@ -12,7 +12,10 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
     private readonly IMemoryCache _cache;
     private static readonly string TradingPairCachePrefix = "TradingPairId:";
 
-    public TradeRepository(IDbContextFactory<ApplicationDbContext> dbContextFactory, ITradingPairRepository tradingPairRepository, IMemoryCache cache) : base(dbContextFactory)
+    public TradeRepository(
+        ApplicationDbContext dbContext,
+        ITradingPairRepository tradingPairRepository,
+        IMemoryCache cache) : base(dbContext)
     {
         _tradingPairRepository = tradingPairRepository;
         _cache = cache;
@@ -20,8 +23,8 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
 
     public async Task<IEnumerable<Trade>> GetTradeHistoryAsync(long userId, string? symbol = null, int limit = 100)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var query = context.Set<Trade>().AsNoTracking().Where(t => t.BuyerId == userId || t.SellerId == userId);
+        var query = _dbContext.Set<Trade>().AsNoTracking()
+            .Where(t => t.BuyerId == userId || t.SellerId == userId);
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -32,17 +35,19 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
 
     public async Task<IEnumerable<Trade>> GetRecentTradesAsync(string? symbol = null, int limit = 50)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
         if (string.IsNullOrEmpty(symbol))
-            return await context.Set<Trade>().AsNoTracking().OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
+            return await _dbContext.Set<Trade>().AsNoTracking()
+                .OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
+
         var tradingPairId = await ResolveTradingPairIdAsync(symbol);
-        return await context.Set<Trade>().AsNoTracking().Where(t => t.TradingPairId == tradingPairId).OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
+        return await _dbContext.Set<Trade>().AsNoTracking()
+            .Where(t => t.TradingPairId == tradingPairId)
+            .OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
     }
 
     public async Task<IEnumerable<Trade>> GetRecentTradesByPairIdAsync(long tradingPairId, int limit = 50)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<Trade>().AsNoTracking()
+        return await _dbContext.Set<Trade>().AsNoTracking()
             .Where(t => t.TradingPairId == tradingPairId)
             .OrderByDescending(t => t.ExecutedAt)
             .Take(limit)
@@ -51,8 +56,8 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
 
     public async Task<IEnumerable<Trade>> GetTradesByUserIdAsync(long userId, string? symbol = null, int limit = 100)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var query = context.Set<Trade>().AsNoTracking().Where(t => t.BuyerId == userId || t.SellerId == userId);
+        var query = _dbContext.Set<Trade>().AsNoTracking()
+            .Where(t => t.BuyerId == userId || t.SellerId == userId);
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -63,16 +68,17 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
 
     public async Task<IEnumerable<Trade>> GetTradesByTradingPairIdAsync(long tradingPairId, int limit = 100)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<Trade>().AsNoTracking().Where(t => t.TradingPairId == tradingPairId).OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
+        return await _dbContext.Set<Trade>().AsNoTracking()
+            .Where(t => t.TradingPairId == tradingPairId)
+            .OrderByDescending(t => t.ExecutedAt).Take(limit).ToListAsync();
     }
 
     public async Task<IEnumerable<Trade>> GetTradesByTimeRangeAsync(DateTime startTime, DateTime endTime, string? symbol = null)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var startMs = ((DateTimeOffset)startTime).ToUnixTimeMilliseconds();
         var endMs = ((DateTimeOffset)endTime).ToUnixTimeMilliseconds();
-        var query = context.Set<Trade>().AsNoTracking().Where(t => t.ExecutedAt >= startMs && t.ExecutedAt <= endMs);
+        var query = _dbContext.Set<Trade>().AsNoTracking()
+            .Where(t => t.ExecutedAt >= startMs && t.ExecutedAt <= endMs);
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -83,8 +89,7 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
 
     public async Task<TradeStatistics> GetTradeStatisticsAsync(long? userId = null, string? symbol = null, DateTime? startTime = null, DateTime? endTime = null)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var query = context.Set<Trade>().AsNoTracking().AsQueryable();
+        var query = _dbContext.Set<Trade>().AsNoTracking().AsQueryable();
         if (userId.HasValue)
             query = query.Where(t => t.BuyerId == userId.Value || t.SellerId == userId.Value);
         if (!string.IsNullOrEmpty(symbol))
@@ -96,8 +101,10 @@ public class TradeRepository : BaseRepository<Trade>, ITradeRepository
             query = query.Where(t => t.ExecutedAt >= ((DateTimeOffset)startTime.Value).ToUnixTimeMilliseconds());
         if (endTime.HasValue)
             query = query.Where(t => t.ExecutedAt <= ((DateTimeOffset)endTime.Value).ToUnixTimeMilliseconds());
+
         var count = await query.CountAsync();
         if (count == 0) return new TradeStatistics();
+
         return new TradeStatistics
         {
             TotalTrades = count,

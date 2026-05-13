@@ -1,9 +1,9 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Persistence.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
-using CryptoSpot.Application.Abstractions.Services.Trading;
 
 namespace CryptoSpot.Persistence.Repositories;
 
@@ -13,7 +13,10 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
     private readonly IMemoryCache _cache;
     private static readonly string TradingPairCachePrefix = "TradingPairId:";
 
-    public OrderRepository(IDbContextFactory<ApplicationDbContext> dbContextFactory, ITradingPairRepository tradingPairRepository, IMemoryCache cache) : base(dbContextFactory)
+    public OrderRepository(
+        ApplicationDbContext dbContext,
+        ITradingPairRepository tradingPairRepository,
+        IMemoryCache cache) : base(dbContext)
     {
         _tradingPairRepository = tradingPairRepository;
         _cache = cache;
@@ -21,11 +24,11 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
 
     public async Task<IEnumerable<Order>> GetActiveOrdersAsync(string? symbol = null)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        IQueryable<Order> query = context.Set<Order>()
-            .AsNoTracking() // 不跟踪实体,避免并发冲突
+        IQueryable<Order> query = _dbContext.Set<Order>()
+            .AsNoTracking()
             .Include(o => o.TradingPair)
             .Where(o => o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled || o.Status == OrderStatus.Pending);
+
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -36,8 +39,7 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
 
     public async Task<IEnumerable<Order>> GetUserOrdersAsync(long userId, string? symbol = null, OrderStatus? status = null, int limit = 100)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var query = context.Set<Order>().AsNoTracking().Include(o => o.TradingPair).Where(o => o.UserId == userId);
+        var query = _dbContext.Set<Order>().AsNoTracking().Include(o => o.TradingPair).Where(o => o.UserId == userId);
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -49,22 +51,22 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
 
     public async Task<Order?> GetOrderByOrderIdStringAsync(string orderIdString)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<Order>().AsNoTracking().Include(o => o.TradingPair).FirstOrDefaultAsync(o => o.OrderId == orderIdString);
+        return await _dbContext.Set<Order>().AsNoTracking().Include(o => o.TradingPair)
+            .FirstOrDefaultAsync(o => o.OrderId == orderIdString);
     }
 
     public async Task<IEnumerable<Order>> GetOrdersForOrderBookAsync(string symbol, OrderSide side, int depth)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var tradingPairId = await ResolveTradingPairIdAsync(symbol);
-        return await context.Set<Order>().AsNoTracking().Where(o => o.TradingPairId == tradingPairId && o.Side == side && o.Status == OrderStatus.Active)
-            .OrderBy(o => side == OrderSide.Buy ? o.Price : -o.Price).Take(depth).ToListAsync();
+        return await _dbContext.Set<Order>().AsNoTracking()
+            .Where(o => o.TradingPairId == tradingPairId && o.Side == side && o.Status == OrderStatus.Active)
+            .OrderBy(o => side == OrderSide.Buy ? o.Price : -o.Price)
+            .Take(depth).ToListAsync();
     }
 
     public async Task<IEnumerable<Order>> GetOrdersByUserIdAsync(long userId, string? symbol = null, OrderStatus? status = null)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var query = context.Set<Order>().AsNoTracking().Include(o => o.TradingPair).Where(o => o.UserId == userId);
+        var query = _dbContext.Set<Order>().AsNoTracking().Include(o => o.TradingPair).Where(o => o.UserId == userId);
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);
@@ -76,17 +78,14 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
 
     public async Task<IEnumerable<Order>> GetActiveOrdersByTradingPairIdAsync(long tradingPairId)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<Order>().AsNoTracking()
+        return await _dbContext.Set<Order>().AsNoTracking()
             .Where(o => o.TradingPairId == tradingPairId && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled))
             .OrderBy(o => o.Side == OrderSide.Buy ? o.Price : -o.Price).ToListAsync();
     }
 
     public async Task<OrderBookDepth> GetOrderBookDepthAsync(long tradingPairId, int depth = 20)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-
-        var bids = await context.Set<Order>()
+        var bids = await _dbContext.Set<Order>()
             .Where(o => o.TradingPairId == tradingPairId && o.Side == OrderSide.Buy
                      && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled))
             .GroupBy(o => o.Price)
@@ -100,7 +99,7 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
             .Take(depth)
             .ToListAsync();
 
-        var asks = await context.Set<Order>()
+        var asks = await _dbContext.Set<Order>()
             .Where(o => o.TradingPairId == tradingPairId && o.Side == OrderSide.Sell
                      && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled))
             .GroupBy(o => o.Price)
@@ -119,22 +118,20 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
 
     public async Task<bool> UpdateOrderStatusAsync(long orderId, OrderStatus status, decimal? filledQuantity = null, decimal? averagePrice = null)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var order = await context.Set<Order>().FindAsync(orderId);
-        if (order == null) return false;
-        order.Status = status;
-        order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        if (filledQuantity.HasValue) order.FilledQuantity = filledQuantity.Value;
-        if (averagePrice.HasValue) order.AveragePrice = averagePrice.Value;
-        context.Set<Order>().Update(order);
-        await context.SaveChangesAsync();
-        return true;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var rows = await _dbContext.Set<Order>()
+            .Where(o => o.Id == orderId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(o => o.Status, status)
+                .SetProperty(o => o.FilledQuantity, o => filledQuantity ?? o.FilledQuantity)
+                .SetProperty(o => o.AveragePrice, o => averagePrice ?? o.AveragePrice)
+                .SetProperty(o => o.UpdatedAt, now));
+        return rows > 0;
     }
 
     public async Task<IEnumerable<Order>> GetUserOrderHistoryAsync(long userId, string? symbol = null, int limit = 100)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var query = context.Set<Order>().AsNoTracking().Include(o => o.TradingPair).Where(o => o.UserId == userId);
+        var query = _dbContext.Set<Order>().AsNoTracking().Include(o => o.TradingPair).Where(o => o.UserId == userId);
         if (!string.IsNullOrEmpty(symbol))
         {
             var tradingPairId = await ResolveTradingPairIdAsync(symbol);

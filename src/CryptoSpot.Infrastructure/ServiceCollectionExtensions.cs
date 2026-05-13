@@ -66,15 +66,12 @@ namespace CryptoSpot.Infrastructure
                 options.EnableThreadSafetyChecks(false);
             };
             
-            // DbContext 工厂
+            // Pooled DbContext factory（后台服务用）
             services.AddPooledDbContextFactory<ApplicationDbContext>(configureDbContext, poolSize: 128);
-            
-            // Scoped DbContext
+
+            // Scoped DbContext（Repository、UnitOfWork 直接注入，同一请求共享实例）
             services.AddScoped<ApplicationDbContext>(sp =>
-            {
-                var factory = sp.GetRequiredService<IDbContextFactory<ApplicationDbContext>>();
-                return factory.CreateDbContext();
-            });
+                sp.GetRequiredService<IDbContextFactory<ApplicationDbContext>>().CreateDbContext());
 
             // Repositories & UoW
             services.AddScoped<IUserRepository, UserRepository>();
@@ -152,40 +149,35 @@ namespace CryptoSpot.Infrastructure
         /// </summary>
         public static async Task InitDbContext(this IServiceProvider serviceProvider)
         {
-            var dbContextFactory = serviceProvider.GetRequiredService<IDbContextFactory<ApplicationDbContext>>();
-            
-            await using (var context = await dbContextFactory.CreateDbContextAsync())
+            using var dbScope = serviceProvider.CreateScope();
+            var context = dbScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+            try
             {
-                try
-                {
-                    // 获取已应用的迁移列表，只执行未应用的迁移
-                    var appliedMigrations = await context.Database.GetAppliedMigrationsAsync();
-                    var pendingMigrations = (await context.Database.GetPendingMigrationsAsync()).ToList();
+                var appliedMigrations = await context.Database.GetAppliedMigrationsAsync();
+                var pendingMigrations = (await context.Database.GetPendingMigrationsAsync()).ToList();
 
-                    if (pendingMigrations.Any())
-                    {
-                        Console.WriteLine($"Applying {pendingMigrations.Count} pending migrations...");
-                        context.Database.Migrate();
-                        Console.WriteLine("Database migration completed successfully");
-                    }
-                    else
-                    {
-                        Console.WriteLine("No pending migrations");
-                    }
+                if (pendingMigrations.Any())
+                {
+                    Console.WriteLine($"Applying {pendingMigrations.Count} pending migrations...");
+                    await context.Database.MigrateAsync();
+                    Console.WriteLine("Database migration completed successfully");
+                }
+                else
+                {
+                    Console.WriteLine("No pending migrations");
+                }
 
-                    var userCount = await context.Users.CountAsync();
-                    Console.WriteLine($"Current user count: {userCount}");
-                }
-                catch (Exception ex) when (ex.Message.Contains("Duplicate key", StringComparison.OrdinalIgnoreCase))
-                {
-                    // 索引已存在，可能是手动创建或部分应用，跳过
-                    Console.WriteLine($"Migration skipped (indexes already exist): {ex.Message}");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Database setup warning (app will continue): {ex.Message}");
-                    // 不再 throw，让应用继续启动
-                }
+                var userCount = await context.Users.CountAsync();
+                Console.WriteLine($"Current user count: {userCount}");
+            }
+            catch (Exception ex) when (ex.Message.Contains("Duplicate key", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine($"Migration skipped (indexes already exist): {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Database setup warning (app will continue): {ex.Message}");
             }
 
             using (var scope = serviceProvider.CreateScope())

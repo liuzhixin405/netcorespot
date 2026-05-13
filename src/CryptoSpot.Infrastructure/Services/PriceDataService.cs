@@ -13,18 +13,18 @@ namespace CryptoSpot.Infrastructure.Services
     {
         private readonly ITradingPairRepository _tradingPairRepository;
         private readonly IDtoMappingService _mappingService;
-        private readonly IDbContextFactory<ApplicationDbContext> _dbContextFactory;
+        private readonly ApplicationDbContext _dbContext;
         private readonly ILogger<PriceDataService> _logger;
 
         public PriceDataService(
             ITradingPairRepository tradingPairRepository,
             IDtoMappingService mappingService,
-            IDbContextFactory<ApplicationDbContext> dbContextFactory,
+            ApplicationDbContext dbContext,
             ILogger<PriceDataService> logger)
         {
             _tradingPairRepository = tradingPairRepository;
             _mappingService = mappingService;
-            _dbContextFactory = dbContextFactory;
+            _dbContext = dbContext;
             _logger = logger;
         }
 
@@ -59,8 +59,7 @@ namespace CryptoSpot.Infrastructure.Services
             if (normalized.Length == 0)
                 return Enumerable.Empty<TradingPairDto>();
 
-            await using var context = await _dbContextFactory.CreateDbContextAsync();
-            var pairs = await context.Set<TradingPair>()
+            var pairs = await _dbContext.Set<TradingPair>()
                 .AsNoTracking()
                 .Where(tp => normalized.Contains(tp.Symbol))
                 .ToListAsync();
