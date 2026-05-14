@@ -1,4 +1,3 @@
-// filepath: g:\github\netcorespot\src\CryptoSpot.Persistence\Repositories\KLineDataRepository.cs
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Persistence.Data;
@@ -13,22 +12,10 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
     private readonly IMemoryCache _cache;
     private static readonly string TradingPairCachePrefix = "TradingPairId:";
 
-    private static readonly Func<ApplicationDbContext, long, string, int, CancellationToken, Task<List<KLineData>>>
-        s_getKLineData = EF.CompileAsyncQuery(
-            (ApplicationDbContext db, long tradingPairId, string interval, int limit, CancellationToken ct) =>
-                db.Set<KLineData>().AsNoTracking()
-                    .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
-                    .OrderByDescending(k => k.OpenTime).Take(limit).ToList());
-
-    private static readonly Func<ApplicationDbContext, long, string, long, CancellationToken, Task<KLineData?>>
-        s_firstByKey = EF.CompileAsyncQuery(
-            (ApplicationDbContext db, long tradingPairId, string interval, long openTime, CancellationToken ct) =>
-                db.Set<KLineData>().AsNoTracking()
-                    .FirstOrDefault(k => k.TradingPairId == tradingPairId
-                                      && k.TimeFrame == interval
-                                      && k.OpenTime == openTime));
-
-    public KLineDataRepository(IDbContextFactory<ApplicationDbContext> dbContextFactory, ITradingPairRepository tradingPairRepository, IMemoryCache cache) : base(dbContextFactory)
+    public KLineDataRepository(
+        ApplicationDbContext dbContext,
+        ITradingPairRepository tradingPairRepository,
+        IMemoryCache cache) : base(dbContext)
     {
         _tradingPairRepository = tradingPairRepository;
         _cache = cache;
@@ -37,35 +24,37 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
     public async Task<IEnumerable<KLineData>> GetKLineDataAsync(string symbol, string interval, int limit = 100)
     {
         var tradingPairId = await ResolveTradingPairIdAsync(symbol);
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await s_getKLineData(context, tradingPairId, interval, limit, CancellationToken.None);
+        return await _dbContext.Set<KLineData>().AsNoTracking()
+            .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
+            .OrderByDescending(k => k.OpenTime).Take(limit).ToListAsync();
     }
 
     public async Task<IEnumerable<KLineData>> GetKLineDataByTradingPairIdAsync(long tradingPairId, string interval, int limit = 100)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<KLineData>().Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
+        return await _dbContext.Set<KLineData>().AsNoTracking()
+            .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
             .OrderByDescending(k => k.OpenTime).Take(limit).ToListAsync();
     }
 
     public async Task<IEnumerable<KLineData>> GetKLineDataByTimeRangeAsync(long tradingPairId, string interval, DateTime startTime, DateTime endTime)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var startMs = ((DateTimeOffset)startTime).ToUnixTimeMilliseconds();
         var endMs = ((DateTimeOffset)endTime).ToUnixTimeMilliseconds();
-        return await context.Set<KLineData>().Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval && k.OpenTime >= startMs && k.CloseTime <= endMs)
+        return await _dbContext.Set<KLineData>().AsNoTracking()
+            .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval
+                     && k.OpenTime >= startMs && k.CloseTime <= endMs)
             .OrderBy(k => k.OpenTime).ToListAsync();
     }
 
     public async Task<IEnumerable<KLineData>> GetKLineDataByTimeRangeAsync(long tradingPairId, string interval, DateTime startTime, DateTime endTime, int limit)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var startMs = ((DateTimeOffset)startTime).ToUnixTimeMilliseconds();
         var endMs = ((DateTimeOffset)endTime).ToUnixTimeMilliseconds();
-
         var sanitizedLimit = Math.Max(1, limit);
-        var latest = await context.Set<KLineData>()
-            .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval && k.OpenTime >= startMs && k.CloseTime <= endMs)
+
+        var latest = await _dbContext.Set<KLineData>().AsNoTracking()
+            .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval
+                     && k.OpenTime >= startMs && k.CloseTime <= endMs)
             .OrderByDescending(k => k.OpenTime)
             .Take(sanitizedLimit)
             .ToListAsync();
@@ -75,14 +64,13 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
 
     public async Task<KLineData?> GetLatestKLineDataAsync(long tradingPairId, string interval)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        return await context.Set<KLineData>().Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
+        return await _dbContext.Set<KLineData>().AsNoTracking()
+            .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
             .OrderByDescending(k => k.OpenTime).FirstOrDefaultAsync();
     }
 
     public async Task<int> SaveKLineDataBatchAsync(IEnumerable<KLineData> klineDataList)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var list = klineDataList.ToList();
         if (!list.Any()) return 0;
 
@@ -91,7 +79,7 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
 
         foreach (var item in list)
         {
-            var rows = await context.Set<KLineData>()
+            var rows = await _dbContext.Set<KLineData>()
                 .Where(k => k.TradingPairId == item.TradingPairId
                          && k.TimeFrame == item.TimeFrame
                          && k.OpenTime == item.OpenTime)
@@ -106,46 +94,52 @@ public class KLineDataRepository : BaseRepository<KLineData>, IKLineDataReposito
             if (rows == 0)
             {
                 item.UpdatedAt = now;
-                context.Set<KLineData>().Add(item);
+                _dbContext.Set<KLineData>().Add(item);
             }
 
             count++;
         }
 
-        await context.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return count;
     }
 
     public async Task<bool> UpsertKLineDataAsync(KLineData klineData)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var existing = await s_firstByKey(context, klineData.TradingPairId, klineData.TimeFrame, klineData.OpenTime, CancellationToken.None);
+        var existing = await _dbContext.Set<KLineData>().AsNoTracking()
+            .FirstOrDefaultAsync(k => k.TradingPairId == klineData.TradingPairId
+                                   && k.TimeFrame == klineData.TimeFrame
+                                   && k.OpenTime == klineData.OpenTime);
+
         if (existing != null)
         {
-            existing.Open = klineData.Open; existing.High = klineData.High; existing.Low = klineData.Low; existing.Close = klineData.Close; existing.Volume = klineData.Volume; existing.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            context.Set<KLineData>().Update(existing);
+            existing.Open = klineData.Open;
+            existing.High = klineData.High;
+            existing.Low = klineData.Low;
+            existing.Close = klineData.Close;
+            existing.Volume = klineData.Volume;
+            existing.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            _dbContext.Set<KLineData>().Update(existing);
         }
         else
         {
-            await context.Set<KLineData>().AddAsync(klineData);
+            await _dbContext.Set<KLineData>().AddAsync(klineData);
         }
-        await context.SaveChangesAsync();
+        await _dbContext.SaveChangesAsync();
         return true;
     }
 
     public async Task<int> DeleteExpiredKLineDataAsync(long tradingPairId, string interval, int keepDays = 30)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var cutoff = DateTimeOffset.UtcNow.AddDays(-keepDays).ToUnixTimeMilliseconds();
-        return await context.Set<KLineData>()
+        return await _dbContext.Set<KLineData>()
             .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval && k.OpenTime < cutoff)
             .ExecuteDeleteAsync();
     }
 
     public async Task<KLineDataStatistics> GetKLineDataStatisticsAsync(long tradingPairId, string interval)
     {
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var result = await context.Set<KLineData>()
+        var result = await _dbContext.Set<KLineData>().AsNoTracking()
             .Where(k => k.TradingPairId == tradingPairId && k.TimeFrame == interval)
             .GroupBy(_ => 1)
             .Select(g => new

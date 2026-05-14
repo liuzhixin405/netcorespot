@@ -97,7 +97,6 @@ namespace CryptoSpot.Infrastructure.Services
                 try
                 {
                     var createdOrder = await _orderRepository.AddAsync(order);
-                    await _unitOfWork.SaveChangesAsync();
                     _logger.LogInformation(
                         "Order created: {OrderId} Symbol={Symbol} Status={Status} Frozen={Amount} {Asset}",
                         order.OrderId,
@@ -219,7 +218,6 @@ namespace CryptoSpot.Infrastructure.Services
             order.Status = status;
             order.UpdatedAt = now;
             await _orderRepository.UpdateAsync(order);
-            await _unitOfWork.SaveChangesAsync();
         }
 
         private static (string Symbol, decimal Amount) GetRequiredFrozenAsset(

@@ -39,10 +39,9 @@ namespace CryptoSpot.Domain.Entities
         public long? DeletedAt { get; set; }
 
         /// <summary>
-        /// 版本号 (乐观锁)，默认 null 让数据库自动生成，避免显式空字节覆盖 DEFAULT CURRENT_TIMESTAMP
+        /// 版本号 (乐观锁)
         /// </summary>
-        [Timestamp]
-        public byte[]? Version { get; set; }
+        public DateTime? Version { get; set; }
 
         /// <summary>
         /// 构造函数 - 自动设置创建时间戳
@@ -52,6 +51,7 @@ namespace CryptoSpot.Domain.Entities
             var now = DateTimeExtensions.GetCurrentUnixTimeMilliseconds();
             CreatedAt = now;
             UpdatedAt = now;
+            Version = DateTime.UtcNow;
         }
 
         /// <summary>
