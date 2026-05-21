@@ -137,17 +137,19 @@ public class PriceUpdateBatchService : BackgroundService
             var db = scope.ServiceProvider.GetRequiredService<CryptoSpot.Persistence.Data.ApplicationDbContext>();
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-            // 批量构建 CASE WHEN SQL，单次数据库往返更新所有交易对
+            // 批量 CASE WHEN 更新，单次数据库往返
             if (latestUpdates.Count > 0)
             {
-                var symbols = latestUpdates.Select(u => u.Symbol).ToList();
-
-                var priceCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.Price}")));
-                var changeCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.Change24h}")));
-                var volumeCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.Volume24h}")));
-                var highCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.High24h}")));
-                var lowCases = string.Join(" ", latestUpdates.Select(u => FormattableString.Invariant($"WHEN '{u.Symbol}' THEN {u.Low24h}")));
-                var symbolList = string.Join(", ", symbols.Select(s => $"'{s}'"));
+                var priceCases = string.Join(" ", latestUpdates.Select(u =>
+                    $"WHEN '{u.Symbol}' THEN {u.Price}"));
+                var changeCases = string.Join(" ", latestUpdates.Select(u =>
+                    $"WHEN '{u.Symbol}' THEN {u.Change24h}"));
+                var volumeCases = string.Join(" ", latestUpdates.Select(u =>
+                    $"WHEN '{u.Symbol}' THEN {u.Volume24h}"));
+                var highCases = string.Join(" ", latestUpdates.Select(u =>
+                    $"WHEN '{u.Symbol}' THEN {u.High24h}"));
+                var lowCases = string.Join(" ", latestUpdates.Select(u =>
+                    $"WHEN '{u.Symbol}' THEN {u.Low24h}"));
 
                 var batchSql = $"""
                     UPDATE TradingPairs SET
@@ -158,17 +160,17 @@ public class PriceUpdateBatchService : BackgroundService
                         Low24h = CASE Symbol {lowCases} END,
                         UpdatedAt = {now},
                         LastUpdated = {now}
-                    WHERE Symbol IN ({symbolList}) AND IsDeleted = 0
+                    WHERE IsDeleted = 0
                 """;
 
                 await db.Database.ExecuteSqlRawAsync(batchSql, ct);
             }
 
-            foreach (var update in latestUpdates)
-            {
-                await _pushService.PushLastTradeAndMidPriceAsync(
-                    update.Symbol, update.Price, null, null, null, null, now);
-            }
+            // 并行推送 ticker 数据
+            var pushTasks = latestUpdates.Select(u =>
+                _pushService.PushLastTradeAndMidPriceAsync(
+                    u.Symbol, u.Price, null, null, null, null, now));
+            await Task.WhenAll(pushTasks);
 
             _logger.LogDebug("✅ 批处理完成: {Count} 个交易对已更新", latestUpdates.Count);
         }

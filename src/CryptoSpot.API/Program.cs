@@ -149,6 +149,12 @@ builder.Services.AddCors(options =>
     });
 });
 
+// ==================== Response Compression ====================
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+});
+
 // ==================== OutputCache 配置 ====================
 builder.Services.AddOutputCache();
 
@@ -173,6 +179,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseResponseCompression();
 app.UseHttpsRedirection();
 app.UseCors("AllowReactApp");
 app.UseRouting();

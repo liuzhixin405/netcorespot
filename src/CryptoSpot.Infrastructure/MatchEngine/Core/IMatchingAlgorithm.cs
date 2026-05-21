@@ -3,7 +3,7 @@ using CryptoSpot.Domain.Entities;
 
 namespace CryptoSpot.Infrastructure.MatchEngine.Core
 {
-    public record MatchSlice(Order Maker, Order Taker, decimal Price, decimal Quantity);
+    public readonly record struct MatchSlice(Order Maker, Order Taker, decimal Price, decimal Quantity);
 
     public interface IMatchingAlgorithm
     {

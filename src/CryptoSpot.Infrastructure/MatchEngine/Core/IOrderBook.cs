@@ -13,6 +13,7 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Core
         void Add(Order order);
         Order? GetBestOpposite(OrderSide side);
         void Remove(Order order);
+        bool RemoveById(long orderId);
         IReadOnlyList<(decimal price, decimal quantity)> GetDepth(OrderSide side, int depth);
         object SyncRoot { get; }
     }

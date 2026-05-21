@@ -4,6 +4,7 @@ using CryptoSpot.Application.Abstractions.Services.RealTime;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Domain.Entities;
+using CryptoSpot.Infrastructure.BackgroundServices;
 using CryptoSpot.Infrastructure.MatchEngine.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,7 +23,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IMatchingAlgorithm _matchingAlgorithm;
     private readonly ITradingPairParser _pairParser;
-    private readonly IRealTimeDataPushService _pushService;
+    private readonly IMatchEngineEventQueue _eventQueue;
 
     // 每个交易对一个订单簿和 Channel
     private readonly ConcurrentDictionary<string, IOrderBook> _orderBooks = new();
@@ -40,6 +41,8 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     private const long TradeRetentionMs = 3_600_000; // 1 hour
 
     private readonly CancellationTokenSource _cts = new();
+    private readonly Timer _tradeCleanupTimer;
+    private readonly ConcurrentQueue<Task> _pendingPersistTasks = new();
 
     public ChannelMatchEngineService(
         ILogger<ChannelMatchEngineService> logger,
@@ -47,14 +50,18 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         IMatchingAlgorithm matchingAlgorithm,
         ITradingPairParser pairParser,
         InMemoryAssetStore assetStore,
-        IRealTimeDataPushService pushService)
+        IMatchEngineEventQueue eventQueue)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _assetStore = assetStore;
         _matchingAlgorithm = matchingAlgorithm;
         _pairParser = pairParser;
-        _pushService = pushService;
+        _eventQueue = eventQueue;
+
+        // 每 5 分钟清理过期交易缓存，不再在热路径上扫描
+        _tradeCleanupTimer = new Timer(_ => TryCleanupOldTrades(), null,
+            TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
     }
 
     /// <summary>
@@ -124,7 +131,7 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         order.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        var request = new OrderRequest { Order = order, Symbol = normalizedSymbol };
+        var request = new OrderRequest { Type = OrderRequestType.Place, Order = order, Symbol = normalizedSymbol };
         await channel.Writer.WriteAsync(request, _cts.Token);
 
         return order;
@@ -149,29 +156,52 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             order.CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         order.UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        // 立即持久化 Active 状态（仅当订单仍为 Pending 时，避免覆盖撮合引擎的结果）
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                using var scope = _scopeFactory.CreateScope();
-                var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-                await db.Orders
-                    .Where(o => o.Id == order.Id && o.Status == OrderStatus.Pending)
-                    .ExecuteUpdateAsync(s => s
-                        .SetProperty(o => o.Status, order.Status)
-                        .SetProperty(o => o.UpdatedAt, order.UpdatedAt));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to persist Active status for order {OrderId}", order.OrderId);
-            }
-        });
+        // 立即持久化 Active 状态，跟踪 Task 以便优雅关闭时等待
+        var persistTask = PersistActiveStatusAsync(order);
+        _pendingPersistTasks.Enqueue(persistTask);
+        _ = persistTask.ContinueWith(_ => CleanupPersistTask(persistTask),
+            TaskContinuationOptions.ExecuteSynchronously);
 
-        var request = new OrderRequest { Order = order, Symbol = normalizedSymbol };
+        var request = new OrderRequest { Type = OrderRequestType.Place, Order = order, Symbol = normalizedSymbol };
         await channel.Writer.WriteAsync(request, _cts.Token);
 
         _logger.LogDebug("Order {OrderId} enqueued for {Symbol}", order.OrderId, normalizedSymbol);
+    }
+
+    public async Task<bool> CancelOrderAsync(long orderId, string symbol)
+    {
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        GetOrCreateOrderBook(normalizedSymbol);
+
+        if (!_orderChannels.TryGetValue(normalizedSymbol, out var channel))
+        {
+            throw new InvalidOperationException($"Trading pair {normalizedSymbol} not initialized");
+        }
+
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var request = new OrderRequest
+        {
+            Type = OrderRequestType.Cancel,
+            OrderId = orderId,
+            Symbol = normalizedSymbol,
+            Completion = completion
+        };
+
+        await channel.Writer.WriteAsync(request, _cts.Token);
+        return await completion.Task.WaitAsync(_cts.Token);
+    }
+
+    public void RestoreOpenOrder(Order order, string symbol)
+    {
+        ValidateOrderInput(order, symbol);
+        if (order.FilledQuantity >= order.Quantity)
+        {
+            return;
+        }
+
+        var normalizedSymbol = NormalizeSymbol(symbol);
+        var orderBook = GetOrCreateOrderBook(normalizedSymbol);
+        orderBook.Add(order);
     }
 
     public Task<OrderBookDepthDto?> GetOrderBookAsync(string symbol, int depth = 20)
@@ -212,12 +242,24 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             {
                 try
                 {
+                    if (request.Type == OrderRequestType.Cancel)
+                    {
+                        ProcessCancelOrder(request, orderBook, symbol);
+                        continue;
+                    }
+
+                    if (request.Order == null)
+                    {
+                        _logger.LogWarning("Skipping empty order request for {Symbol}", symbol);
+                        continue;
+                    }
+
                     await ProcessSingleOrderAsync(request.Order, orderBook, symbol, ct);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing order {OrderId} for {Symbol}",
-                        request.Order.Id, symbol);
+                    request.Completion?.TrySetException(ex);
+                    _logger.LogError(ex, "Error processing order request for {Symbol}", symbol);
                 }
             }
         }
@@ -225,6 +267,14 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         {
             _logger.LogInformation("Order processor for {Symbol} stopped", symbol);
         }
+    }
+
+    private void ProcessCancelOrder(OrderRequest request, IOrderBook orderBook, string symbol)
+    {
+        var removed = orderBook.RemoveById(request.OrderId);
+        request.Completion?.TrySetResult(removed);
+        _logger.LogDebug("Cancel request processed for {Symbol}: OrderId={OrderId}, Removed={Removed}",
+            symbol, request.OrderId, removed);
     }
 
     /// <summary>
@@ -244,10 +294,13 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             taker.OrderId, taker.Side, taker.Type, taker.Price, taker.Quantity, taker.UserId);
 
         orderBook.Add(taker);
-        _logger.LogDebug("Order {OrderId} added to book. Bids={Bids}, Asks={Asks}",
-            taker.OrderId,
-            orderBook.GetDepth(OrderSide.Buy, 5).Count,
-            orderBook.GetDepth(OrderSide.Sell, 5).Count);
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogDebug("Order {OrderId} added to book. Bids={Bids}, Asks={Asks}",
+                taker.OrderId,
+                orderBook.GetDepth(OrderSide.Buy, 5).Count,
+                orderBook.GetDepth(OrderSide.Sell, 5).Count);
+        }
 
         int matchCount = 0;
         foreach (var matchSlice in _matchingAlgorithm.Match(orderBook, taker))
@@ -275,7 +328,6 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             trades.Add(trade);
             var memId = Interlocked.Increment(ref _nextTradeId);
             _trades[memId] = trade;
-            TryCleanupOldTrades();
 
             UpdateOrderStatus(matchSlice.Maker);
             UpdateOrderStatus(taker);
@@ -284,6 +336,11 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             await PublishTradeEventsAsync(symbol, trade, matchSlice.Maker, taker);
 
             if (taker.FilledQuantity >= taker.Quantity) break;
+        }
+
+        if (taker.FilledQuantity >= taker.Quantity)
+        {
+            orderBook.Remove(taker);
         }
 
         _logger.LogDebug(
@@ -299,17 +356,10 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         // 持久化 taker
         await PersistToDatabaseAsync(taker, trades, symbol);
 
-        // 持久化所有被修改的 maker
-        foreach (var maker in affectedMakers)
+        // 批量持久化所有被修改的 maker（单次 DB 往返）
+        if (affectedMakers.Count > 0)
         {
-            try
-            {
-                await PersistOrderStatusAsync(maker);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to persist maker {OrderId} status", maker.OrderId);
-            }
+            await PersistOrderStatusBatchAsync(affectedMakers);
         }
     }
 
@@ -412,37 +462,40 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             : (decimal?)null;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        await _pushService.PushLastTradeAndMidPriceAsync(
+        await _eventQueue.EnqueueAsync((push, _) => push.PushLastTradeAndMidPriceAsync(
             symbol, trade.Price, trade.Quantity,
-            bestBid, bestAsk, midPrice, now);
+            bestBid, bestAsk, midPrice, now));
 
         // 推送订单状态更新给用户
         await PushOrderUpdateToUserAsync(maker, symbol);
         await PushOrderUpdateToUserAsync(taker, symbol);
 
         // 推送成交给双方（各自的方向视角）
-        long nowTs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         if (maker.UserId.HasValue)
         {
-            await _pushService.PushUserTradeAsync(maker.UserId.Value, new TradeDto
+            var makerUserId = maker.UserId.Value;
+            var makerTrade = new TradeDto
             {
                 Id = trade.Id, TradeId = trade.TradeId, Symbol = symbol,
                 Price = trade.Price, Quantity = trade.Quantity,
                 Fee = trade.Fee, FeeAsset = trade.FeeAsset,
                 ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.ExecutedAt).DateTime,
                 Side = trade.BuyerId == maker.UserId ? Domain.Entities.OrderSide.Buy : Domain.Entities.OrderSide.Sell
-            });
+            };
+            await _eventQueue.EnqueueAsync((push, _) => push.PushUserTradeAsync(makerUserId, makerTrade));
         }
         if (taker.UserId.HasValue)
         {
-            await _pushService.PushUserTradeAsync(taker.UserId.Value, new TradeDto
+            var takerUserId = taker.UserId.Value;
+            var takerTrade = new TradeDto
             {
                 Id = trade.Id, TradeId = trade.TradeId, Symbol = symbol,
                 Price = trade.Price, Quantity = trade.Quantity,
                 Fee = trade.Fee, FeeAsset = trade.FeeAsset,
                 ExecutedAt = DateTimeOffset.FromUnixTimeMilliseconds(trade.ExecutedAt).DateTime,
                 Side = trade.BuyerId == taker.UserId ? Domain.Entities.OrderSide.Buy : Domain.Entities.OrderSide.Sell
-            });
+            };
+            await _eventQueue.EnqueueAsync((push, _) => push.PushUserTradeAsync(takerUserId, takerTrade));
         }
     }
 
@@ -466,7 +519,8 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
                 CreatedAt = DateTimeOffset.FromUnixTimeMilliseconds(order.CreatedAt).DateTime,
                 UpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(order.UpdatedAt).DateTime
             };
-            await _pushService.PushUserOrderUpdateAsync(order.UserId.Value, dto);
+            var userId = order.UserId.Value;
+            await _eventQueue.EnqueueAsync((push, _) => push.PushUserOrderUpdateAsync(userId, dto));
         }
         catch (Exception ex)
         {
@@ -497,6 +551,52 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
     /// <summary>
     /// 仅持久化订单状态
     /// </summary>
+    private async Task PersistOrderStatusBatchAsync(HashSet<Order> makers)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var ids = makers.Select(m => m.Id).ToList();
+
+            // 按 (Status, FilledQuantity, AveragePrice) 分组，减少 SQL 语句数
+            foreach (var group in makers.GroupBy(m => new { m.Status, m.FilledQuantity, m.AveragePrice }))
+            {
+                var groupIds = group.Select(m => m.Id).ToList();
+                var sample = group.First();
+                await dbContext.Orders
+                    .Where(o => groupIds.Contains(o.Id))
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(o => o.FilledQuantity, sample.FilledQuantity)
+                        .SetProperty(o => o.Status, sample.Status)
+                        .SetProperty(o => o.AveragePrice, sample.AveragePrice)
+                        .SetProperty(o => o.UpdatedAt, sample.UpdatedAt));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to batch persist {Count} maker statuses", makers.Count);
+        }
+    }
+
+    private async Task PersistActiveStatusAsync(Order order)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            await db.Orders
+                .Where(o => o.Id == order.Id && o.Status == OrderStatus.Pending)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(o => o.Status, order.Status)
+                    .SetProperty(o => o.UpdatedAt, order.UpdatedAt));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist Active status for order {OrderId}", order.OrderId);
+        }
+    }
+
     private async Task PersistOrderStatusAsync(Order order)
     {
         try
@@ -635,9 +735,36 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             _logger.LogDebug("Cleaned up {Count} expired trades from memory cache", removed);
     }
 
+    private void CleanupPersistTask(Task t)
+    {
+        // 清理队列中已完成的任务
+        var pending = new List<Task>();
+        while (_pendingPersistTasks.TryDequeue(out var task))
+        {
+            if (!task.IsCompleted)
+                pending.Add(task);
+        }
+        foreach (var task in pending)
+            _pendingPersistTasks.Enqueue(task);
+    }
+
     public async ValueTask DisposeAsync()
     {
+        _tradeCleanupTimer.Dispose();
         _cts.Cancel();
+
+        // 等待所有挂起的持久化任务完成
+        if (!_pendingPersistTasks.IsEmpty)
+        {
+            try
+            {
+                await Task.WhenAll(_pendingPersistTasks).WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Pending persist tasks did not complete within timeout");
+            }
+        }
 
         foreach (var channel in _orderChannels.Values)
         {
@@ -656,9 +783,18 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         _cts.Dispose();
     }
 
+    private enum OrderRequestType
+    {
+        Place,
+        Cancel
+    }
+
     private class OrderRequest
     {
-        public Order Order { get; set; } = null!;
+        public OrderRequestType Type { get; set; }
+        public Order? Order { get; set; }
+        public long OrderId { get; set; }
         public string Symbol { get; set; } = null!;
+        public TaskCompletionSource<bool>? Completion { get; set; }
     }
 }
