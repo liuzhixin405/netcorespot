@@ -145,8 +145,23 @@ namespace CryptoSpot.Infrastructure.Services
                 if (order.Status != OrderStatus.Active && order.Status != OrderStatus.Pending && order.Status != OrderStatus.PartiallyFilled)
                     throw new InvalidOperationException("Order status cannot be cancelled");
 
-                await ReleaseRemainingFrozenAssetAsync(order);
-                await UpdateOrderStatusInternalAsync(order, OrderStatus.Cancelled);
+                var tradingPair = await _tradingPairRepository.GetByIdAsync(order.TradingPairId)
+                    ?? throw new InvalidOperationException("Trading pair does not exist");
+
+                var removedFromBook = await _matchEngine.CancelOrderAsync(order.Id, tradingPair.Symbol);
+                if (!removedFromBook)
+                {
+                    _logger.LogDebug("Order {OrderId} was not present in match engine order book during cancel", order.OrderId);
+                }
+
+                var latestOrder = await _orderRepository.GetByIdAsync(orderId) ?? order;
+                if (latestOrder.Status == OrderStatus.Filled)
+                    throw new InvalidOperationException("Order has already been filled");
+                if (latestOrder.Status == OrderStatus.Cancelled)
+                    return true;
+
+                await ReleaseRemainingFrozenAssetAsync(latestOrder);
+                await UpdateOrderStatusInternalAsync(latestOrder, OrderStatus.Cancelled);
                 return true;
             }, _logger, "Order cancellation failed");
         }

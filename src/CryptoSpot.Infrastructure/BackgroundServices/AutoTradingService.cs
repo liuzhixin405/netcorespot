@@ -5,14 +5,10 @@ using Microsoft.Extensions.Logging;
 
 namespace CryptoSpot.Infrastructure.BackgroundServices
 {
-    /// <summary>
-    /// 自动交易后台服务 - 纯粹的后台服务，只负责生命周期管理
-    /// </summary>
     public class AutoTradingService : BackgroundService
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<AutoTradingService> _logger;
-        private IAutoTradingService? _autoTradingLogicService;
 
         public AutoTradingService(
             IServiceScopeFactory serviceScopeFactory,
@@ -22,29 +18,26 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             _logger = logger;
         }
 
-
-        #region BackgroundService Implementation
-
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            using var scope = _serviceScopeFactory.CreateScope();
-            
+            IAutoTradingService? autoTradingLogicService = null;
+
             try
             {
-                // 获取自动交易逻辑服务
-                _autoTradingLogicService = scope.ServiceProvider.GetRequiredService<IAutoTradingService>();
-                
-                if (_autoTradingLogicService == null)
+                using (var scope = _serviceScopeFactory.CreateScope())
+                {
+                    autoTradingLogicService = scope.ServiceProvider.GetRequiredService<IAutoTradingService>();
+                }
+
+                if (autoTradingLogicService == null)
                 {
                     _logger.LogError("Failed to resolve IAutoTradingService");
                     return;
                 }
 
-                // 启动自动交易
-                await _autoTradingLogicService.StartAutoTradingAsync();
+                await autoTradingLogicService.StartAutoTradingAsync();
                 _logger.LogInformation("Auto trading service started");
 
-                // 保持服务运行直到收到取消请求
                 while (!stoppingToken.IsCancellationRequested)
                 {
                     await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
@@ -56,16 +49,15 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "自动交易服务启动失败: {Message}", ex.Message);
+                _logger.LogError(ex, "Auto trading service startup failed: {Message}", ex.Message);
             }
             finally
             {
-                // 停止自动交易
-                if (_autoTradingLogicService != null)
+                if (autoTradingLogicService != null)
                 {
                     try
                     {
-                        await _autoTradingLogicService.StopAutoTradingAsync();
+                        await autoTradingLogicService.StopAutoTradingAsync();
                         _logger.LogInformation("Auto trading service stopped");
                     }
                     catch (ObjectDisposedException)
@@ -79,7 +71,5 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                 }
             }
         }
-
-        #endregion
     }
 }

@@ -102,8 +102,10 @@ namespace CryptoSpot.Infrastructure
             services.AddSingleton<InMemoryAssetStore>();
             services.AddSingleton<ITradingPairParser, TradingPairParserService>();
             services.AddSingleton<IMatchingAlgorithm, PriceTimePriorityMatchingAlgorithm>();
-            services.AddSingleton<IMatchEngineService, ChannelMatchEngineService>();
+            services.AddSingleton<ChannelMatchEngineService>();
+            services.AddSingleton<IMatchEngineService>(sp => sp.GetRequiredService<ChannelMatchEngineService>());
             services.AddScoped<IOrderMatchingEngine, MatchEngineAdapter>();
+            services.AddHostedService<MatchEngineInitializationService>();
             
             return services;
         }
@@ -131,6 +133,9 @@ namespace CryptoSpot.Infrastructure
             
             // SignalR 数据推送服务（不是后台服务，是普通服务）
             services.AddSingleton<IRealTimeDataPushService, SignalRDataPushService>();
+            services.AddSingleton<MatchEngineEventQueue>();
+            services.AddSingleton<IMatchEngineEventQueue>(sp => sp.GetRequiredService<MatchEngineEventQueue>());
+            services.AddHostedService(sp => sp.GetRequiredService<MatchEngineEventQueue>());
             
             // 市场数据流提供者（OKX WebSocket）
             services.AddSingleton<IMarketDataStreamProvider, OkxMarketDataStreamProvider>();

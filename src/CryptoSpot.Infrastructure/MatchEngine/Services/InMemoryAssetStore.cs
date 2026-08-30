@@ -2,17 +2,20 @@ using System.Collections.Concurrent;
 
 namespace CryptoSpot.Infrastructure.MatchEngine.Services
 {
-    /// <summary>
-    /// 内存资产存储
-    /// </summary>
     public class InMemoryAssetStore
     {
         private readonly ConcurrentDictionary<(long userId, string currency), AssetBalance> _balances = new();
+        private readonly ConcurrentDictionary<long, ConcurrentDictionary<string, AssetBalance>> _userIndex = new();
 
         public Task<bool> FreezeAssetAsync(long userId, string currency, decimal amount)
         {
             var key = (userId, currency);
-            var balance = _balances.GetOrAdd(key, _ => new AssetBalance());
+            var balance = _balances.GetOrAdd(key, _ =>
+            {
+                var b = new AssetBalance();
+                _userIndex.GetOrAdd(userId, _ => new())[currency] = b;
+                return b;
+            });
 
             lock (balance)
             {
@@ -28,7 +31,12 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Services
         public Task UnfreezeAssetAsync(long userId, string currency, decimal amount)
         {
             var key = (userId, currency);
-            var balance = _balances.GetOrAdd(key, _ => new AssetBalance());
+            var balance = _balances.GetOrAdd(key, _ =>
+            {
+                var b = new AssetBalance();
+                _userIndex.GetOrAdd(userId, _ => new())[currency] = b;
+                return b;
+            });
 
             lock (balance)
             {
@@ -42,7 +50,12 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Services
         public Task AddAvailableBalanceAsync(long userId, string currency, decimal amount)
         {
             var key = (userId, currency);
-            var balance = _balances.GetOrAdd(key, _ => new AssetBalance());
+            var balance = _balances.GetOrAdd(key, _ =>
+            {
+                var b = new AssetBalance();
+                _userIndex.GetOrAdd(userId, _ => new())[currency] = b;
+                return b;
+            });
 
             lock (balance)
             {
@@ -55,18 +68,15 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Services
         public Task InitializeBalanceAsync(long userId, string currency, decimal availableBalance)
         {
             var key = (userId, currency);
-            _balances[key] = new AssetBalance
-            {
-                Available = availableBalance,
-                Frozen = 0
-            };
+            var balance = new AssetBalance { Available = availableBalance, Frozen = 0 };
+            _balances[key] = balance;
+
+            var userAssets = _userIndex.GetOrAdd(userId, _ => new());
+            userAssets[currency] = balance;
 
             return Task.CompletedTask;
         }
 
-        /// <summary>
-        /// 获取所有余额（用于持久化到数据库）
-        /// </summary>
         public IEnumerable<(long UserId, string Currency, decimal Available, decimal Frozen)> GetAllBalances()
         {
             foreach (var kvp in _balances)
@@ -81,21 +91,17 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Services
             }
         }
 
-        /// <summary>
-        /// 获取用户的所有资产
-        /// </summary>
         public Dictionary<string, AssetBalance> GetUserAssets(long userId)
         {
             var userAssets = new Dictionary<string, AssetBalance>();
 
-            foreach (var kvp in _balances)
+            if (_userIndex.TryGetValue(userId, out var currencies))
             {
-                if (kvp.Key.userId == userId)
+                foreach (var (currency, balance) in currencies)
                 {
-                    var balance = kvp.Value;
                     lock (balance)
                     {
-                        userAssets[kvp.Key.currency] = new AssetBalance
+                        userAssets[currency] = new AssetBalance
                         {
                             Available = balance.Available,
                             Frozen = balance.Frozen
@@ -107,12 +113,10 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Services
             return userAssets;
         }
 
-        /// <summary>
-        /// 清空所有余额（关闭时使用）
-        /// </summary>
         public void Clear()
         {
             _balances.Clear();
+            _userIndex.Clear();
         }
 
         public class AssetBalance

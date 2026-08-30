@@ -85,7 +85,7 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
 
     public async Task<OrderBookDepth> GetOrderBookDepthAsync(long tradingPairId, int depth = 20)
     {
-        var bids = await _dbContext.Set<Order>()
+        var bidsTask = _dbContext.Set<Order>()
             .Where(o => o.TradingPairId == tradingPairId && o.Side == OrderSide.Buy
                      && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled))
             .GroupBy(o => o.Price)
@@ -99,7 +99,7 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
             .Take(depth)
             .ToListAsync();
 
-        var asks = await _dbContext.Set<Order>()
+        var asksTask = _dbContext.Set<Order>()
             .Where(o => o.TradingPairId == tradingPairId && o.Side == OrderSide.Sell
                      && (o.Status == OrderStatus.Active || o.Status == OrderStatus.PartiallyFilled))
             .GroupBy(o => o.Price)
@@ -113,7 +113,8 @@ public class OrderRepository : BaseRepository<Order>, IOrderRepository
             .Take(depth)
             .ToListAsync();
 
-        return new OrderBookDepth { Bids = bids, Asks = asks };
+        await Task.WhenAll(bidsTask, asksTask);
+        return new OrderBookDepth { Bids = bidsTask.Result, Asks = asksTask.Result };
     }
 
     public async Task<bool> UpdateOrderStatusAsync(long orderId, OrderStatus status, decimal? filledQuantity = null, decimal? averagePrice = null)
