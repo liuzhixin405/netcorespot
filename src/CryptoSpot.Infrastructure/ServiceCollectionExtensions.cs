@@ -1,7 +1,10 @@
 ﻿using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Abstractions.Services.Auth;
+using CryptoSpot.Application.Abstractions.Services.Ai;
+using CryptoSpot.Application.Abstractions.Services.Analytics;
 using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
+using CryptoSpot.Application.Abstractions.Services.Risk;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.Users;
 using CryptoSpot.Application.Common.Interfaces;
@@ -14,6 +17,10 @@ using CryptoSpot.Infrastructure.ExternalServices;
 using CryptoSpot.Persistence.Data;
 using CryptoSpot.Persistence.Repositories;
 using CryptoSpot.Infrastructure.MatchEngine.Core;
+using CryptoSpot.Infrastructure.Ai;
+using CryptoSpot.Infrastructure.Services.MarketMaking;
+using CryptoSpot.Infrastructure.Analytics;
+using CryptoSpot.Infrastructure.Risk;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -94,6 +101,30 @@ namespace CryptoSpot.Infrastructure
             services.AddScoped<DataInitializationService>();
             services.Configure<MarketMakerOptions>(configuration.GetSection("MarketMakers"));
             services.AddSingleton<IMarketMakerRegistry, MarketMakerRegistry>();
+            services.AddSingleton<IMarketMakingStrategy, VolatilityAwareMarketMakingStrategy>();
+
+            services.Configure<AiOptions>(configuration.GetSection("Ai"));
+            services.Configure<AiGuardrailOptions>(configuration.GetSection("AiGuardrail"));
+            services.AddHttpClient<OpenAiCompatAiModel>((sp, client) =>
+            {
+                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiOptions>>().Value;
+                client.BaseAddress = new Uri($"{options.BaseUrl.TrimEnd('/')}/");
+                client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.ApiKey);
+            });
+            services.AddScoped<IAiModel>(sp => sp.GetRequiredService<OpenAiCompatAiModel>());
+            services.AddScoped<IAiAnalyzer, AiAnalyzer>();
+            services.AddScoped<IAiToolExecutor, AiToolExecutor>();
+            services.AddScoped<IAiConversationService, AiConversationService>();
+            services.AddScoped<IAiAuditService, AiAuditService>();
+            services.AddScoped<IAiApprovalService, AiApprovalService>();
+            services.AddScoped<IAiTradeService, AiTradeService>();
+            services.AddScoped<IAiExpansionService, AiExpansionService>();
+            services.AddScoped<IBacktestService, BacktestService>();
+            services.AddScoped<ISignalService, SignalService>();
+            services.AddScoped<IRiskEventService, RiskEventService>();
+            services.Configure<RiskMonitorOptions>(configuration.GetSection("RiskMonitor"));
             
             // 自动交易服务：使用单例，因为内部自己通过 IServiceScopeFactory 创建短生命周期 scope
             services.AddSingleton<IAutoTradingService, AutoTradingLogicService>();
@@ -145,6 +176,7 @@ namespace CryptoSpot.Infrastructure
             
             // 自动交易服务（做市商）
             services.AddHostedService<AutoTradingService>();
+            services.AddHostedService<RiskMonitorService>();
             
             return services;
         }

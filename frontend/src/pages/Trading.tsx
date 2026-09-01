@@ -6,6 +6,7 @@ import OrderBook from '../components/trading/OrderBook';
 import TradeForm from '../components/trading/TradeForm';
 import RecentTrades from '../components/trading/RecentTrades';
 import AccountTabs from '../components/trading/AccountTabs';
+import { AiAssistantPanel } from '../components/ai/AiAssistantPanel';
 import { useAuth } from '../contexts/AuthContext';
 import { signalRClient } from '../services/signalRClient';
 
@@ -134,6 +135,13 @@ const TradesSection = styled.div`
 const TradeFormSection = styled.div`
   flex: 1.3;
   min-height: 320px;
+  display: flex;
+  flex-direction: column;
+`;
+
+const AiSection = styled.div`
+  flex: 0.9;
+  min-height: 220px;
   display: flex;
   flex-direction: column;
 `;
@@ -308,6 +316,11 @@ const Trading: React.FC = () => {
               <TradeForm symbol={selectedSymbol} />
             </Panel>
           </TradeFormSection>
+          <AiSection>
+            <Panel style={{ height: '100%' }}>
+              <AiAssistantPanel symbol={selectedSymbol} />
+            </Panel>
+          </AiSection>
         </RightPanel>
       </MainContent>
     </TradingContainer>

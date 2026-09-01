@@ -217,6 +217,20 @@ namespace CryptoSpot.Infrastructure.Hubs
         }
 
         [Authorize]
+        public async Task SubscribeRiskAlerts()
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, "risk_alerts");
+            await Clients.Caller.SendAsync("RiskAlertsSubscribed");
+        }
+
+        [Authorize]
+        public async Task UnsubscribeRiskAlerts()
+        {
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, "risk_alerts");
+            await Clients.Caller.SendAsync("RiskAlertsUnsubscribed");
+        }
+
+        [Authorize]
         public async Task SubscribeUserData()
         {
             var userId = Context.UserIdentifier
