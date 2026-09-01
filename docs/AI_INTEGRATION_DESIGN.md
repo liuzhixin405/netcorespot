@@ -1,9 +1,9 @@
 # CryptoSpot AI 集成设计文档
 
-> **版本**：v1.0（等待实现）
+> **版本**：v1.1
 > **目标**：为 CryptoSpot 现货交易平台接入真实 LLM（支持本地部署），提供实质性的 AI 实用功能
 > **LLM 方案**：本地部署为主（Ollama / LM Studio / vLLM），通过 OpenAI 兼容 API 统一接入
-> **状态**：🟡 设计完成，待开发
+> **状态**：🟢 一期交易工具编排、确定性风控、回测/信号和最小 AI 扩展已实现
 
 ---
 
@@ -732,6 +732,9 @@ POST /api/ai/approvals/{id}/reject    — 审批拒绝
 GET  /api/ai/conversations            — 会话列表
 GET  /api/ai/conversations/{id}       — 会话消息
 GET  /api/ai/audit                    — 审计日志（当前用户）
+POST /api/ai/assistant                — 基于 docs/ 的文档问答
+POST /api/ai/news/sentiment           — 新闻标题/正文情感分析
+POST /api/ai/portfolio/report         — 当前用户持仓报告
 ```
 
 ### 11.2 流式协议（SSE）
@@ -753,6 +756,19 @@ data: {"finishReason":"stop","auditId":"..."}
 TradingHub 新增方法：
   RiskAlert(riskEvent)      — 风控告警推送
   AiMessage(message)        — AI 消息推送（可选，替代 SSE）
+```
+
+### 11.4 确定性引擎接口
+
+```
+GET  /api/risk/events                  — 当前用户及市场级风险事件
+GET  /api/risk/dashboard               — 风险事件统计与最近告警
+POST /api/risk/events/{id}/handle      — 确认、解决或忽略用户风险事件
+POST /api/backtest                     — 基于历史 K 线同步执行回测
+GET  /api/backtest/{id}                — 获取当前用户的已保存回测结果
+GET  /api/backtest/strategies          — 可用策略与默认参数
+GET  /api/signals/{symbol}             — 基于最近 K 线的最新信号
+GET  /api/signals/{symbol}/history     — 最近可执行信号历史
 ```
 
 ---

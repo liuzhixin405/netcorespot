@@ -9,6 +9,7 @@ using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Application.DTOs.Users; // 新增资产 DTO 引用
 using OrderSide = CryptoSpot.Domain.Entities.OrderSide; // 添加枚举别名
 using OrderType = CryptoSpot.Domain.Entities.OrderType;
+using Microsoft.Extensions.Options;
 
 namespace CryptoSpot.Infrastructure.Services
 {
@@ -19,15 +20,21 @@ namespace CryptoSpot.Infrastructure.Services
     {
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ILogger<AutoTradingLogicService> _logger;
+        private readonly IMarketMakingStrategy _marketMakingStrategy;
+        private readonly MarketMakerOptions _marketMakerOptions;
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private Task? _tradingTask;
 
         public AutoTradingLogicService(
             IServiceScopeFactory serviceScopeFactory,
-            ILogger<AutoTradingLogicService> logger)
+            ILogger<AutoTradingLogicService> logger,
+            IMarketMakingStrategy marketMakingStrategy,
+            IOptions<MarketMakerOptions> marketMakerOptions)
         {
             _serviceScopeFactory = serviceScopeFactory;
             _logger = logger;
+            _marketMakingStrategy = marketMakingStrategy;
+            _marketMakerOptions = marketMakerOptions.Value;
         }        public Task StartAutoTradingAsync()
         {
             _logger.LogInformation("自动交易服务启动");
@@ -69,6 +76,7 @@ namespace CryptoSpot.Infrastructure.Services
 
         private async Task ExecuteTradingCycleAsync()
         {
+            await CancelExpiredSystemOrdersAsync();
             using var scope = _serviceScopeFactory.CreateScope();
             var tradingPairService = scope.ServiceProvider.GetRequiredService<ITradingPairService>();
             var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
@@ -123,6 +131,7 @@ namespace CryptoSpot.Infrastructure.Services
                 using var scope = _serviceScopeFactory.CreateScope();
                 var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
                 var tradingService = scope.ServiceProvider.GetRequiredService<ITradingService>();
+                var assetService = scope.ServiceProvider.GetRequiredService<IAssetService>();
 
                 // 获取当前价格
                 var currentPrice = await priceDataService.GetCurrentPriceAsync(symbol);
@@ -132,10 +141,17 @@ namespace CryptoSpot.Infrastructure.Services
                     return;
                 }
 
-                // 创建买卖订单 - 让价格更接近以便匹配
-                var buyPrice = currentPrice.Price * 0.9995m; // 低于市价0.05%
-                var sellPrice = currentPrice.Price * 1.0005m; // 高于市价0.05%
-                var quantity = (decimal)(Random.Shared.NextDouble() * 0.1 + 0.01); // 随机数量
+                var decision = await GetMarketMakingDecisionAsync(
+                    symbol,
+                    currentPrice.Price,
+                    tradingService,
+                    assetService);
+                var buyPrice = decision.BuyPrice;
+                var sellPrice = decision.SellPrice;
+                var quantity = decision.Quantity;
+                _logger.LogInformation(
+                    "Market-making decision for {Symbol}: buy={BuyPrice}, sell={SellPrice}, quantity={Quantity}. {Rationale}",
+                    symbol, buyPrice, sellPrice, quantity, decision.Rationale);
 
                 // 使用交易服务创建订单（会触发撮合引擎）
                 var buyRequest = new CreateOrderRequestDto
@@ -177,6 +193,67 @@ namespace CryptoSpot.Infrastructure.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "为 {Symbol} 创建做市订单时出错", symbol);
+            }
+        }
+
+        private async Task<MarketMakingDecision> GetMarketMakingDecisionAsync(
+            string symbol,
+            decimal currentPrice,
+            ITradingService tradingService,
+            IAssetService assetService)
+        {
+            try
+            {
+                var pairTask = tradingService.GetTradingPairAsync(symbol);
+                var candlesTask = tradingService.GetKLineDataAsync(symbol, "1m", 30);
+                var orderBookTask = tradingService.GetOrderBookDepthAsync(symbol, 20);
+                var tradesTask = tradingService.GetMarketRecentTradesAsync(symbol, 50);
+                await Task.WhenAll(pairTask, candlesTask, orderBookTask, tradesTask);
+
+                var pair = pairTask.Result.Data;
+                var assets = pair == null
+                    ? null
+                    : await assetService.GetUserAssetsAsync(1);
+                var baseInventory = pair == null || assets == null || !assets.Success || assets.Data == null
+                    ? 0m
+                    : assets.Data.FirstOrDefault(asset =>
+                        string.Equals(asset.Symbol, pair.BaseAsset, StringComparison.OrdinalIgnoreCase))?.Total ?? 0m;
+                var bidDepth = orderBookTask.Result.Success && orderBookTask.Result.Data != null
+                    ? orderBookTask.Result.Data.Bids.Sum(level => level.Quantity)
+                    : 0m;
+                var askDepth = orderBookTask.Result.Success && orderBookTask.Result.Data != null
+                    ? orderBookTask.Result.Data.Asks.Sum(level => level.Quantity)
+                    : 0m;
+                var targetInventory = pair == null || currentPrice <= 0
+                    ? 0m
+                    : _marketMakerOptions.TargetInventoryUsdt / currentPrice;
+
+                return _marketMakingStrategy.Decide(new MarketMakingContext
+                {
+                    Symbol = symbol,
+                    CurrentPrice = currentPrice,
+                    RecentClosePrices = candlesTask.Result.Success && candlesTask.Result.Data != null
+                        ? candlesTask.Result.Data.OrderBy(candle => candle.OpenTime).Select(candle => candle.Close).ToArray()
+                        : Array.Empty<decimal>(),
+                    CurrentInventory = baseInventory,
+                    TargetInventory = targetInventory,
+                    BidDepth = bidDepth,
+                    AskDepth = askDepth,
+                    RecentTradeCount = tradesTask.Result.Success && tradesTask.Result.Data != null
+                        ? tradesTask.Result.Data.Count()
+                        : 0
+                });
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Falling back to fixed market-making quotes for {Symbol}", symbol);
+                return new MarketMakingDecision
+                {
+                    BuyPrice = currentPrice * 0.9995m,
+                    SellPrice = currentPrice * 1.0005m,
+                    Quantity = _marketMakerOptions.BaseOrderSize,
+                    Rationale = "Fallback: strategy inputs were unavailable."
+                };
             }
         }
 
