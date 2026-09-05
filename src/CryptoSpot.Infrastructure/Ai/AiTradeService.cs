@@ -30,7 +30,7 @@ public sealed class AiTradeService : IAiTradeService
     private readonly IAiAuditService _audit;
     private readonly ApplicationDbContext _dbContext;
     private readonly AiGuardrailOptions _guardrails;
-    private readonly AiOptions _options;
+    private readonly IOptionsMonitor<AiOptions> _options;
 
     public AiTradeService(
         IAiModel model,
@@ -40,7 +40,7 @@ public sealed class AiTradeService : IAiTradeService
         IAiAuditService audit,
         ApplicationDbContext dbContext,
         IOptions<AiGuardrailOptions> guardrails,
-        IOptions<AiOptions> options)
+        IOptionsMonitor<AiOptions> options)
     {
         _model = model;
         _trading = trading;
@@ -49,7 +49,7 @@ public sealed class AiTradeService : IAiTradeService
         _audit = audit;
         _dbContext = dbContext;
         _guardrails = guardrails.Value;
-        _options = options.Value;
+        _options = options;
     }
 
     public async Task<AiTradeResult> PlanAndExecuteAsync(
@@ -58,7 +58,7 @@ public sealed class AiTradeService : IAiTradeService
         string defaultSymbol,
         CancellationToken cancellationToken = default)
     {
-        if (!_options.Enabled)
+        if (!_options.CurrentValue.Enabled)
             throw new InvalidOperationException("AI integration is disabled by configuration.");
         if (string.IsNullOrWhiteSpace(instruction) || string.IsNullOrWhiteSpace(defaultSymbol))
             throw new ArgumentException("交易指令和默认交易对不能为空。");

@@ -1,5 +1,7 @@
 import { BaseApi } from './base';
 
+const AI_REQUEST_TIMEOUT_MS = 420000;
+
 export interface AiAnalysisResult {
   analysis: string;
   citations: string[];
@@ -34,11 +36,11 @@ export interface PortfolioReportResult {
 
 class AiApi extends BaseApi {
   async analyze(question: string, symbol: string): Promise<AiAnalysisResult> {
-    return this.post<AiAnalysisResult>('/ai/analyze', { question, symbol });
+    return this.post<AiAnalysisResult>('/ai/analyze', { question, symbol }, { timeout: AI_REQUEST_TIMEOUT_MS });
   }
 
   async planTrade(instruction: string, symbol: string): Promise<AiTradeResult> {
-    return this.post<AiTradeResult>('/ai/trade', { instruction, symbol });
+    return this.post<AiTradeResult>('/ai/trade', { instruction, symbol }, { timeout: AI_REQUEST_TIMEOUT_MS });
   }
 
   async approve(approvalId: number): Promise<AiTradeResult> {
@@ -50,15 +52,15 @@ class AiApi extends BaseApi {
   }
 
   async answerDocumentation(question: string): Promise<DocumentAssistantResult> {
-    return this.post<DocumentAssistantResult>('/ai/assistant', { question });
+    return this.post<DocumentAssistantResult>('/ai/assistant', { question }, { timeout: AI_REQUEST_TIMEOUT_MS });
   }
 
   async analyzeNewsSentiment(headline: string, content?: string, symbol?: string): Promise<NewsSentimentResult> {
-    return this.post<NewsSentimentResult>('/ai/news/sentiment', { headline, content, symbol });
+    return this.post<NewsSentimentResult>('/ai/news/sentiment', { headline, content, symbol }, { timeout: AI_REQUEST_TIMEOUT_MS });
   }
 
   async getPortfolioReport(): Promise<PortfolioReportResult> {
-    return this.post<PortfolioReportResult>('/ai/portfolio/report');
+    return this.post<PortfolioReportResult>('/ai/portfolio/report', undefined, { timeout: AI_REQUEST_TIMEOUT_MS });
   }
 }
 

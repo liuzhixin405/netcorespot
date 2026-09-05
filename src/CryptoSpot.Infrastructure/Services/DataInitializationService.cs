@@ -1,5 +1,6 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Common.Interfaces;
 using Microsoft.Extensions.Logging;
 
 using Microsoft.Extensions.Options; // 读取 MarketMakerOptions
@@ -14,19 +15,23 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly ITradingPairRepository _tradingPairRepository;
         private readonly IUserRepository _userRepository;
         private readonly IAssetRepository _assetRepository;
+        private readonly IPasswordHasher _passwordHasher;
         private readonly ILogger<DataInitializationService> _logger;
         private readonly IOptions<MarketMakerOptions>? _mmOptions; // 可为空以兼容旧构造
+        private const string TestUserPassword = "test123";
 
         public DataInitializationService(
            ITradingPairRepository tradingPairRepository,
            IUserRepository userRepository,
            IAssetRepository assetRepository,
+            IPasswordHasher passwordHasher,
             ILogger<DataInitializationService> logger,
             IOptions<MarketMakerOptions>? mmOptions = null)
         {
             _tradingPairRepository = tradingPairRepository;
             _userRepository = userRepository;
             _assetRepository = assetRepository;
+            _passwordHasher = passwordHasher;
             _logger = logger;
             _mmOptions = mmOptions;
         }
@@ -215,6 +220,8 @@ namespace CryptoSpot.Infrastructure.Services
                 new User
                 {
                     Username = "test_user_1",
+                    Email = "test1@example.com",
+                    PasswordHash = _passwordHasher.Hash(TestUserPassword),
                     Type = UserType.Regular,
                     Description = "测试用户1",
                     IsActive = true,
@@ -226,6 +233,8 @@ namespace CryptoSpot.Infrastructure.Services
                 new User
                 {
                     Username = "test_user_2",
+                    Email = "test2@example.com",
+                    PasswordHash = _passwordHasher.Hash(TestUserPassword),
                     Type = UserType.Regular,
                     Description = "测试用户2",
                     IsActive = true,
@@ -237,6 +246,8 @@ namespace CryptoSpot.Infrastructure.Services
                 new User
                 {
                     Username = "test_user_3",
+                    Email = "test3@example.com",
+                    PasswordHash = _passwordHasher.Hash(TestUserPassword),
                     Type = UserType.Regular,
                     Description = "测试用户3",
                     IsActive = true,
@@ -249,11 +260,21 @@ namespace CryptoSpot.Infrastructure.Services
 
             foreach (var user in testUsers)
             {
-                var existing = await _userRepository.FindAsync(u => u.Username == user.Username);
-                if (!existing.Any())
+                var existing = (await _userRepository.FindAsync(u => u.Username == user.Username)).FirstOrDefault();
+                if (existing == null)
                 {
                     await _userRepository.AddAsync(user);
                     _logger.LogInformation("创建测试用户: {Username}", user.Username);
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(existing.Email) || string.IsNullOrEmpty(existing.PasswordHash))
+                {
+                    existing.Email ??= user.Email;
+                    existing.PasswordHash = user.PasswordHash;
+                    existing.Touch();
+                    await _userRepository.UpdateAsync(existing);
+                    _logger.LogInformation("补全测试用户登录信息: {Username}", user.Username);
                 }
             }
         }
@@ -339,8 +360,12 @@ namespace CryptoSpot.Infrastructure.Services
         {
             var tradingPairsExist = (await _tradingPairRepository.FindAsync(tp => tp.IsActive)).Any();
             var systemUsersExist = (await _userRepository.FindAsync(u => u.Type != UserType.Regular)).Any();
+            var testUserNames = new[] { "test_user_1", "test_user_2", "test_user_3" };
+            var testUsers = await _userRepository.FindAsync(u => testUserNames.Contains(u.Username));
+            var testUsersNeedLoginInfo = testUsers.Count() < testUserNames.Length
+                || testUsers.Any(u => string.IsNullOrEmpty(u.Email) || string.IsNullOrEmpty(u.PasswordHash));
             
-            return !tradingPairsExist || !systemUsersExist;
+            return !tradingPairsExist || !systemUsersExist || testUsersNeedLoginInfo;
         }
     }
 }

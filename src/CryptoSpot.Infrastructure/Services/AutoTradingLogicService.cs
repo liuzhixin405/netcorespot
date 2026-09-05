@@ -204,13 +204,12 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                var pairTask = tradingService.GetTradingPairAsync(symbol);
-                var candlesTask = tradingService.GetKLineDataAsync(symbol, "1m", 30);
-                var orderBookTask = tradingService.GetOrderBookDepthAsync(symbol, 20);
-                var tradesTask = tradingService.GetMarketRecentTradesAsync(symbol, 50);
-                await Task.WhenAll(pairTask, candlesTask, orderBookTask, tradesTask);
+                var pairResponse = await tradingService.GetTradingPairAsync(symbol);
+                var candlesResponse = await tradingService.GetKLineDataAsync(symbol, "1m", 30);
+                var orderBookResponse = await tradingService.GetOrderBookDepthAsync(symbol, 20);
+                var tradesResponse = await tradingService.GetMarketRecentTradesAsync(symbol, 50);
 
-                var pair = pairTask.Result.Data;
+                var pair = pairResponse.Data;
                 var assets = pair == null
                     ? null
                     : await assetService.GetUserAssetsAsync(1);
@@ -218,11 +217,11 @@ namespace CryptoSpot.Infrastructure.Services
                     ? 0m
                     : assets.Data.FirstOrDefault(asset =>
                         string.Equals(asset.Symbol, pair.BaseAsset, StringComparison.OrdinalIgnoreCase))?.Total ?? 0m;
-                var bidDepth = orderBookTask.Result.Success && orderBookTask.Result.Data != null
-                    ? orderBookTask.Result.Data.Bids.Sum(level => level.Quantity)
+                var bidDepth = orderBookResponse.Success && orderBookResponse.Data != null
+                    ? orderBookResponse.Data.Bids.Sum(level => level.Quantity)
                     : 0m;
-                var askDepth = orderBookTask.Result.Success && orderBookTask.Result.Data != null
-                    ? orderBookTask.Result.Data.Asks.Sum(level => level.Quantity)
+                var askDepth = orderBookResponse.Success && orderBookResponse.Data != null
+                    ? orderBookResponse.Data.Asks.Sum(level => level.Quantity)
                     : 0m;
                 var targetInventory = pair == null || currentPrice <= 0
                     ? 0m
@@ -232,15 +231,15 @@ namespace CryptoSpot.Infrastructure.Services
                 {
                     Symbol = symbol,
                     CurrentPrice = currentPrice,
-                    RecentClosePrices = candlesTask.Result.Success && candlesTask.Result.Data != null
-                        ? candlesTask.Result.Data.OrderBy(candle => candle.OpenTime).Select(candle => candle.Close).ToArray()
+                    RecentClosePrices = candlesResponse.Success && candlesResponse.Data != null
+                        ? candlesResponse.Data.OrderBy(candle => candle.OpenTime).Select(candle => candle.Close).ToArray()
                         : Array.Empty<decimal>(),
                     CurrentInventory = baseInventory,
                     TargetInventory = targetInventory,
                     BidDepth = bidDepth,
                     AskDepth = askDepth,
-                    RecentTradeCount = tradesTask.Result.Success && tradesTask.Result.Data != null
-                        ? tradesTask.Result.Data.Count()
+                    RecentTradeCount = tradesResponse.Success && tradesResponse.Data != null
+                        ? tradesResponse.Data.Count()
                         : 0
                 });
             }

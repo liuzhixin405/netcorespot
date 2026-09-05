@@ -104,7 +104,7 @@ public class TradeController : ControllerBase
 
         var list = orders.ToList();
         var total = list.Count;
-        var paged = list.Skip((page - 1) * pageSize).Take(pageSize);
+        var paged = list.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
         return Ok(new
         {
@@ -148,7 +148,7 @@ public class TradeController : ControllerBase
 
         var list = trades.ToList();
         var total = list.Count;
-        var paged = list.Skip((page - 1) * pageSize).Take(pageSize);
+        var paged = list.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
         return Ok(new
         {
@@ -161,7 +161,7 @@ public class TradeController : ControllerBase
                 symbol = t.Symbol,
                 price = t.Price,
                 quantity = t.Quantity,
-                side = t.Side.ToString().ToLower(),
+                side = t.Side?.ToString().ToLower() ?? string.Empty,
                 role = "participant",
                 tradeTime = t.ExecutedAt
             })

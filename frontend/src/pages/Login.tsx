@@ -1,9 +1,9 @@
 import React from 'react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import styled from 'styled-components';
-import { Eye, EyeOff, LogIn } from 'lucide-react';
+import { Eye, EyeOff, LogIn, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const LoginContainer = styled.div`
@@ -106,6 +106,59 @@ const Button = styled.button`
   }
 `;
 
+const TestAccountPanel = styled.div`
+  margin-top: 1.25rem;
+  padding: 1rem;
+  background: rgba(0, 212, 255, 0.08);
+  border: 1px solid rgba(0, 212, 255, 0.22);
+  border-radius: 8px;
+`;
+
+const TestAccountTitle = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  color: #d8f7ff;
+  font-size: 0.9rem;
+  font-weight: 600;
+`;
+
+const TestAccountList = styled.div`
+  display: grid;
+  gap: 0.5rem;
+`;
+
+const TestAccountButton = styled.button`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: #f0f6fc;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: border-color 0.2s, background 0.2s;
+
+  &:hover:not(:disabled) {
+    background: rgba(0, 212, 255, 0.12);
+    border-color: rgba(0, 212, 255, 0.36);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+`;
+
+const TestAccountPassword = styled.span`
+  color: #8b949e;
+`;
+
 const LinkText = styled.div`
   text-align: center;
   margin-top: 1rem;
@@ -128,6 +181,13 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  const testAccounts = ['test_user_1', 'test_user_2', 'test_user_3'];
+
+  const fillTestAccount = (account: string) => {
+    setUsername(account);
+    setPassword('test123');
+  };
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -194,6 +254,27 @@ const Login: React.FC = () => {
             {loading ? 'Signing In...' : 'Sign In'}
           </Button>
         </Form>
+
+        <TestAccountPanel>
+          <TestAccountTitle>
+            <User size={16} />
+            测试账号
+          </TestAccountTitle>
+          <TestAccountList>
+            {testAccounts.map((account) => (
+              <TestAccountButton
+                key={account}
+                type="button"
+                onClick={() => fillTestAccount(account)}
+                disabled={loading}
+                title="点击填入测试账号"
+              >
+                <span>{account}</span>
+                <TestAccountPassword>test123</TestAccountPassword>
+              </TestAccountButton>
+            ))}
+          </TestAccountList>
+        </TestAccountPanel>
 
         <LinkText>
           Don't have an account? <Link to="/register">Sign up</Link>

@@ -17,15 +17,15 @@ public sealed class AiAnalyzer : IAiAnalyzer
     private readonly ITradingService _tradingService;
     private readonly IAiToolExecutor _tools;
     private readonly IAiAuditService _audit;
-    private readonly AiOptions _options;
+    private readonly IOptionsMonitor<AiOptions> _options;
 
-    public AiAnalyzer(IAiModel model, ITradingService tradingService, IAiToolExecutor tools, IAiAuditService audit, IOptions<AiOptions> options)
+    public AiAnalyzer(IAiModel model, ITradingService tradingService, IAiToolExecutor tools, IAiAuditService audit, IOptionsMonitor<AiOptions> options)
     {
         _model = model;
         _tradingService = tradingService;
         _tools = tools;
         _audit = audit;
-        _options = options.Value;
+        _options = options;
     }
 
     public async Task<AiAnalysisResult> AnalyzeAsync(long userId, string question, string symbol, CancellationToken cancellationToken = default)
@@ -34,7 +34,8 @@ public sealed class AiAnalyzer : IAiAnalyzer
             throw new ArgumentException("Question is required.", nameof(question));
         if (string.IsNullOrWhiteSpace(symbol))
             throw new ArgumentException("Symbol is required.", nameof(symbol));
-        if (!_options.Enabled)
+        var options = _options.CurrentValue;
+        if (!options.Enabled)
             throw new InvalidOperationException("AI integration is disabled by configuration.");
 
         symbol = symbol.Trim().ToUpperInvariant();
@@ -51,8 +52,8 @@ public sealed class AiAnalyzer : IAiAnalyzer
             {
                 Messages = messages,
                 Tools = _tools.Definitions,
-                Temperature = _options.Temperature,
-                MaxTokens = _options.MaxTokens
+                Temperature = options.Temperature,
+                MaxTokens = options.MaxTokens
             }, cancellationToken);
             if (response.ToolCalls is not { Count: > 0 })
                 return new AiAnalysisResult(response.Content, citations);

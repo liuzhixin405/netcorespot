@@ -291,17 +291,14 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                     return;
                 }
 
-                var tasks = new List<Task>();
                 foreach (var kvp in _priceCache)
                 {
                     var symbol = kvp.Key;
                     var (price, change24h, volume24h, high24h, low24h) = kvp.Value;
                     
-                    tasks.Add(priceDataService.UpdateTradingPairPriceAsync(
-                        symbol, price, change24h, volume24h, high24h, low24h));
+                    await priceDataService.UpdateTradingPairPriceAsync(
+                        symbol, price, change24h, volume24h, high24h, low24h);
                 }
-
-                await Task.WhenAll(tasks);
                 
                 _logger.LogInformation("💾 保存缓存价格数据到数据库: {Count} 个交易对, 时间: {Minute}", 
                     _priceCache.Count, currentMinute.ToString("HH:mm"));
@@ -357,7 +354,6 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                 using var scope = _serviceScopeFactory.CreateScope();
                 var klineDataRepository = scope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
 
-                var tasks = new List<Task>();
                 foreach (var kvp in _klineCache)
                 {
                     var klineData = kvp.Value;
@@ -375,10 +371,8 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                     };
 
                     // Redis cache removed - save directly to database
-                    tasks.Add(klineDataRepository.UpsertKLineDataAsync(entity));
+                    await klineDataRepository.UpsertKLineDataAsync(entity);
                 }
-
-                await Task.WhenAll(tasks);
                 
                 _logger.LogInformation("💾 保存缓存K线数据到数据库: {Count} 条记录, 时间: {Minute}", 
                     _klineCache.Count, currentMinute.ToString("HH:mm"));

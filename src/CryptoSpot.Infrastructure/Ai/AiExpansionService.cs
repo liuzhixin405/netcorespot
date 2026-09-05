@@ -14,7 +14,7 @@ public sealed class AiExpansionService : IAiExpansionService
     private readonly IAiModel _model;
     private readonly ITradingService _tradingService;
     private readonly IAiAuditService _audit;
-    private readonly AiOptions _options;
+    private readonly IOptionsMonitor<AiOptions> _options;
     private readonly Lazy<IReadOnlyList<DocumentChunk>> _documents;
 
     public AiExpansionService(
@@ -22,12 +22,12 @@ public sealed class AiExpansionService : IAiExpansionService
         ITradingService tradingService,
         IAiAuditService audit,
         IHostEnvironment hostEnvironment,
-        IOptions<AiOptions> options)
+        IOptionsMonitor<AiOptions> options)
     {
         _model = model;
         _tradingService = tradingService;
         _audit = audit;
-        _options = options.Value;
+        _options = options;
         _documents = new Lazy<IReadOnlyList<DocumentChunk>>(() => LoadDocuments(hostEnvironment.ContentRootPath));
     }
 
@@ -49,7 +49,7 @@ public sealed class AiExpansionService : IAiExpansionService
         var fallback = BuildExtractiveAnswer(matches);
         var answer = fallback;
         var status = "fallback";
-        if (_options.Enabled)
+        if (_options.CurrentValue.Enabled)
         {
             try
             {
@@ -94,7 +94,7 @@ public sealed class AiExpansionService : IAiExpansionService
         var text = $"{request.Headline}\n{request.Content}".Trim();
         var result = AnalyzeLexically(text, request.Symbol);
         var status = "fallback";
-        if (_options.Enabled)
+        if (_options.CurrentValue.Enabled)
         {
             try
             {
@@ -106,7 +106,7 @@ public sealed class AiExpansionService : IAiExpansionService
                         new AiMessage("user", $"交易对：{request.Symbol ?? "未指定"}\n新闻：{text}")
                     ],
                     Temperature = 0,
-                    MaxTokens = 250
+                    MaxTokens = 512
                 }, cancellationToken);
                 result = ParseSentiment(response.Content, request.Symbol);
                 status = "success";
@@ -141,7 +141,7 @@ public sealed class AiExpansionService : IAiExpansionService
         var fallback = BuildPortfolioFallback(assets, trades.Count, totalValue);
         var report = fallback;
         var status = "fallback";
-        if (_options.Enabled)
+        if (_options.CurrentValue.Enabled)
         {
             try
             {

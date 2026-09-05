@@ -105,13 +105,9 @@ namespace CryptoSpot.Infrastructure
 
             services.Configure<AiOptions>(configuration.GetSection("Ai"));
             services.Configure<AiGuardrailOptions>(configuration.GetSection("AiGuardrail"));
-            services.AddHttpClient<OpenAiCompatAiModel>((sp, client) =>
+            services.AddHttpClient<OpenAiCompatAiModel>(client =>
             {
-                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiOptions>>().Value;
-                client.BaseAddress = new Uri($"{options.BaseUrl.TrimEnd('/')}/");
-                client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
-                client.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.ApiKey);
+                client.Timeout = Timeout.InfiniteTimeSpan;
             });
             services.AddScoped<IAiModel>(sp => sp.GetRequiredService<OpenAiCompatAiModel>());
             services.AddScoped<IAiAnalyzer, AiAnalyzer>();
