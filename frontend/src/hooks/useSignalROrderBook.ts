@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { signalRClient } from '../services/signalRClient';
+import { API_BASE_URL } from '../api/base';
 
 export interface OrderBookLevel {
   price: number;
@@ -36,6 +37,7 @@ export const useSignalROrderBook = (
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const receivedSnapshotRef = useRef(false);
   const maxReconnectAttempts = 5;
   
   // 本地订单簿缓存，用于增量更新
@@ -49,6 +51,7 @@ export const useSignalROrderBook = (
 
   // 处理订单簿数据更新
   const handleOrderBookData = useCallback((data: any) => {
+    receivedSnapshotRef.current = true;
     // 如果是快照数据（首次加载或重新同步），立即处理
     if (data.type === 'snapshot') {
       const orderBook: OrderBookData = {
@@ -57,7 +60,6 @@ export const useSignalROrderBook = (
         asks: data.asks || [],
         timestamp: data.timestamp
       };
-      
       // 更新本地缓存
       localOrderBookRef.current.bids.clear();
       localOrderBookRef.current.asks.clear();
@@ -81,6 +83,36 @@ export const useSignalROrderBook = (
     setError(null);
     setIsConnected(true);
   }, []); // 移除 orderBookData 依赖
+
+  const fetchOrderBookSnapshot = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/v2/trade/orderbook/${symbol}?depth=${depth}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      const normalizeLevels = (levels: any[] | undefined) => (levels || [])
+        .map((level) => Array.isArray(level)
+          ? { price: Number(level[0]), amount: Number(level[1]), total: Number(level[0]) * Number(level[1]) }
+          : { price: Number(level.price), amount: Number(level.amount ?? level.quantity), total: Number(level.total) })
+        .filter((level) => Number.isFinite(level.price) && Number.isFinite(level.amount) && level.amount > 0);
+
+      const snapshot = {
+        type: 'snapshot',
+        symbol: data.symbol ?? symbol,
+        bids: normalizeLevels(data.bids),
+        asks: normalizeLevels(data.asks),
+        timestamp: data.timestamp ?? Date.now()
+      };
+
+      if (snapshot.bids.length > 0 || snapshot.asks.length > 0) {
+        handleOrderBookData(snapshot);
+      } else {
+        setLoading(false);
+      }
+    } catch {
+      setLoading(false);
+    }
+  }, [depth, handleOrderBookData, symbol]);
+
   // 增量更新订单簿
   const updateOrderBookIncremental = useCallback((data: any) => {
     const { bids, asks } = data;
@@ -218,6 +250,7 @@ export const useSignalROrderBook = (
     setError(null);
     setIsConnected(false);
     setOrderBookData(null);
+    receivedSnapshotRef.current = false;
     
     try {
       // 取消之前的订阅
@@ -257,11 +290,17 @@ export const useSignalROrderBook = (
 
       // 订阅后500ms若未收到数据仍结束loading, 以避免UI长时间加载
       setTimeout(() => {
-        if (loading) {
+        if (!receivedSnapshotRef.current) {
           setLoading(false);
           setIsConnected(signalRClient.isConnected());
         }
       }, 500);
+
+      setTimeout(() => {
+        if (!receivedSnapshotRef.current) {
+          fetchOrderBookSnapshot();
+        }
+      }, 1200);
       
       // 连接成功，重置重连计数器
       resetReconnectAttempts();
@@ -275,7 +314,7 @@ export const useSignalROrderBook = (
       // 连接失败，尝试重连
       scheduleReconnect();
     }
-  }, [symbol, handleOrderBookData, handleError, resetReconnectAttempts, scheduleReconnect, depth]);
+  }, [symbol, handleOrderBookData, handleError, resetReconnectAttempts, scheduleReconnect, depth, fetchOrderBookSnapshot]);
 
   // 手动重连
   const reconnect = useCallback(() => {
