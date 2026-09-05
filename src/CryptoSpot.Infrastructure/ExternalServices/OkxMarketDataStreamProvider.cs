@@ -57,28 +57,36 @@ namespace CryptoSpot.Infrastructure.ExternalServices
 
         public async Task ConnectAsync(CancellationToken cancellationToken = default)
         {
-            if (IsConnected) return;
+            if (_ws?.State == WebSocketState.Open && _businessWs?.State == WebSocketState.Open) return;
             _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
             // public ws
-            _ws = new ClientWebSocket();
-            await _ws.ConnectAsync(_publicUrl, cancellationToken);
-            _logger.LogInformation("OKX Public WS 已连接: {Url}", _publicUrl);
-            _recvLoop = Task.Run(() => ReceiveLoop(_ws, false, _cts.Token));
-            _pingLoop = Task.Run(() => PingLoop(_ws, _cts.Token));
+            if (_ws?.State != WebSocketState.Open)
+            {
+                _ws?.Dispose();
+                _ws = new ClientWebSocket();
+                await _ws.ConnectAsync(_publicUrl, cancellationToken);
+                _logger.LogInformation("OKX Public WS 已连接: {Url}", _publicUrl);
+                _recvLoop = Task.Run(() => ReceiveLoop(_ws, false, _cts.Token));
+                _pingLoop = Task.Run(() => PingLoop(_ws, _cts.Token));
+            }
 
             // business ws (专门用于 mark-price-candle，避免与公共频道互相影响)
-            _businessWs = new ClientWebSocket();
-            try
+            if (_businessWs?.State != WebSocketState.Open)
             {
-                await _businessWs.ConnectAsync(_businessUrl, cancellationToken);
-                _logger.LogInformation("OKX Business WS 已连接: {Url}", _businessUrl);
-                _recvBusinessLoop = Task.Run(() => ReceiveLoop(_businessWs, true, _cts.Token));
-                _pingBusinessLoop = Task.Run(() => PingLoop(_businessWs, _cts.Token));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "业务端点连接失败(可延后重试) {Url}", _businessUrl);
+                _businessWs?.Dispose();
+                _businessWs = new ClientWebSocket();
+                try
+                {
+                    await _businessWs.ConnectAsync(_businessUrl, cancellationToken);
+                    _logger.LogInformation("OKX Business WS 已连接: {Url}", _businessUrl);
+                    _recvBusinessLoop = Task.Run(() => ReceiveLoop(_businessWs, true, _cts.Token));
+                    _pingBusinessLoop = Task.Run(() => PingLoop(_businessWs, _cts.Token));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "业务端点连接失败(可延后重试) {Url}", _businessUrl);
+                }
             }
 
             await ResubscribeAllAsync(cancellationToken);
@@ -135,6 +143,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
         public async Task SubscribeTickerAsync(string symbol, CancellationToken cancellationToken = default)
         {
             _subTickers[symbol] = true;
+            await EnsurePublicConnectedAsync(cancellationToken);
             await SendPublicAsync(new { op = "subscribe", args = new[] { new { channel = "tickers", instId = ToOkxSymbol(symbol) } } }, cancellationToken);
         }
 
@@ -142,12 +151,14 @@ namespace CryptoSpot.Infrastructure.ExternalServices
         {
             _subBooks[symbol] = true;
             var channel = depth <= 5 ? "books5" : "books";
+            await EnsurePublicConnectedAsync(cancellationToken);
             await SendPublicAsync(new { op = "subscribe", args = new[] { new { channel, instId = ToOkxSymbol(symbol) } } }, cancellationToken);
         }
 
         public async Task SubscribeTradesAsync(string symbol, CancellationToken cancellationToken = default)
         {
             _subTrades[symbol] = true;
+            await EnsurePublicConnectedAsync(cancellationToken);
             await SendPublicAsync(new { op = "subscribe", args = new[] { new { channel = "trades", instId = ToOkxSymbol(symbol) } } }, cancellationToken);
         }
 
@@ -157,6 +168,7 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             interval = NormalizeInterval(interval);
             _subMarkPriceKLines[(symbol, interval)] = true; // 使用 mark-price 记录
             var ch = $"mark-price-candle{interval}";
+            await EnsureBusinessConnectedAsync(cancellationToken);
             await SendBusinessAsync(new { op = "subscribe", args = new[] { new { channel = ch, instId = ToOkxSymbol(symbol) } } }, cancellationToken);
             _logger.LogInformation("OKX 直接订阅 mark-price-kline {Symbol} {Interval}", symbol, interval);
         }
@@ -166,7 +178,32 @@ namespace CryptoSpot.Infrastructure.ExternalServices
             interval = NormalizeInterval(interval);
             _subMarkPriceKLines[(symbol, interval)] = true;
             var ch = $"mark-price-candle{interval}";
+            await EnsureBusinessConnectedAsync(ct);
             await SendBusinessAsync(new { op = "subscribe", args = new[] { new { channel = ch, instId = ToOkxSymbol(symbol) } } }, ct);
+        }
+
+        private async Task EnsurePublicConnectedAsync(CancellationToken ct)
+        {
+            if (_ws?.State == WebSocketState.Open) return;
+            _ws?.Dispose();
+            _cts ??= CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _ws = new ClientWebSocket();
+            await _ws.ConnectAsync(_publicUrl, ct);
+            _logger.LogInformation("OKX Public WS 已重连: {Url}", _publicUrl);
+            _recvLoop = Task.Run(() => ReceiveLoop(_ws, false, _cts.Token));
+            _pingLoop = Task.Run(() => PingLoop(_ws, _cts.Token));
+        }
+
+        private async Task EnsureBusinessConnectedAsync(CancellationToken ct)
+        {
+            if (_businessWs?.State == WebSocketState.Open) return;
+            _businessWs?.Dispose();
+            _cts ??= CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _businessWs = new ClientWebSocket();
+            await _businessWs.ConnectAsync(_businessUrl, ct);
+            _logger.LogInformation("OKX Business WS 已重连: {Url}", _businessUrl);
+            _recvBusinessLoop = Task.Run(() => ReceiveLoop(_businessWs, true, _cts.Token));
+            _pingBusinessLoop = Task.Run(() => PingLoop(_businessWs, _cts.Token));
         }
 
         private string ToOkxSymbol(string symbol)

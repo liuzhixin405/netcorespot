@@ -41,7 +41,7 @@ const Tab = styled.button<{ active: boolean }>`
 
 const TabContent = styled.div`
   flex: 1;
-  padding: 0.38rem;
+  padding: 0.28rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -121,8 +121,8 @@ const EmptyState = styled.div`
   flex: 1;
   color: #7d8590;
   text-align: center;
-  min-height: 120px;
-  gap: 0.5rem;
+  min-height: 52px;
+  gap: 0.28rem;
 `;
 
 const COL_CURRENT = '0.7fr 0.55fr 0.65fr 0.75fr 0.55fr 0.7fr';

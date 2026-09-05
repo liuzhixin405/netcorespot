@@ -1,9 +1,11 @@
 using CryptoSpot.Application.Abstractions.Services.Ai;
 using CryptoSpot.Application.Common.Interfaces;
+using CryptoSpot.Infrastructure.Ai;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace CryptoSpot.API.Controllers;
 
@@ -20,6 +22,7 @@ public sealed class AiController : ControllerBase
     private readonly IAiTradeService _tradeService;
     private readonly IAiExpansionService _expansionService;
     private readonly IAiModel _model;
+    private readonly IOptionsMonitor<AiOptions> _aiOptions;
 
     public AiController(
         IAiAnalyzer analyzer,
@@ -29,7 +32,8 @@ public sealed class AiController : ControllerBase
         IAiApprovalService approvals,
         IAiTradeService tradeService,
         IAiExpansionService expansionService,
-        IAiModel model)
+        IAiModel model,
+        IOptionsMonitor<AiOptions> aiOptions)
     {
         _analyzer = analyzer;
         _currentUser = currentUser;
@@ -39,6 +43,7 @@ public sealed class AiController : ControllerBase
         _tradeService = tradeService;
         _expansionService = expansionService;
         _model = model;
+        _aiOptions = aiOptions;
     }
 
     [HttpPost("analyze")]
@@ -71,6 +76,14 @@ public sealed class AiController : ControllerBase
     [HttpGet("audit")]
     public async Task<IActionResult> Audit(CancellationToken cancellationToken) =>
         Ok(new { success = true, data = await _audit.ListAsync(_currentUser.UserId, cancellationToken) });
+
+    [HttpGet("approvals")]
+    public async Task<IActionResult> Approvals(CancellationToken cancellationToken) =>
+        Ok(new { success = true, data = await _approvals.ListAsync(_currentUser.UserId, cancellationToken) });
+
+    [HttpGet("status")]
+    public IActionResult Status() =>
+        Ok(new { success = true, data = new { enabled = _aiOptions.CurrentValue.Enabled, modelId = _model.ModelId, protocol = "OpenAI compatible", checkedAt = DateTime.UtcNow } });
 
     [HttpPost("trade")]
     public async Task<IActionResult> Trade([FromBody] AiTradeRequest request, CancellationToken cancellationToken)

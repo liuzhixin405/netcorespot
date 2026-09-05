@@ -29,6 +29,16 @@ public sealed class AiApprovalService : IAiApprovalService
         return ToDto(approval);
     }
 
+    public async Task<IReadOnlyList<AiApprovalDto>> ListAsync(long userId, CancellationToken cancellationToken = default)
+    {
+        var approvals = await _dbContext.AiApprovals.AsNoTracking()
+            .Where(value => value.UserId == userId && !value.IsDeleted)
+            .OrderByDescending(value => value.CreatedAt)
+            .Take(20)
+            .ToListAsync(cancellationToken);
+        return approvals.Select(ToDto).ToArray();
+    }
+
     public async Task<AiApprovalDto> DecideAsync(long userId, long approvalId, bool approved, CancellationToken cancellationToken = default)
     {
         var approval = await _dbContext.AiApprovals.SingleOrDefaultAsync(value =>
