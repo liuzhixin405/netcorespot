@@ -141,26 +141,27 @@ public class PriceUpdateBatchService : BackgroundService
             if (latestUpdates.Count > 0)
             {
                 var priceCases = string.Join(" ", latestUpdates.Select(u =>
-                    $"WHEN '{u.Symbol}' THEN {u.Price}"));
+                    $"WHEN {QuoteSqlString(u.Symbol)} THEN {FormatDecimal(u.Price)}"));
                 var changeCases = string.Join(" ", latestUpdates.Select(u =>
-                    $"WHEN '{u.Symbol}' THEN {u.Change24h}"));
+                    $"WHEN {QuoteSqlString(u.Symbol)} THEN {FormatDecimal(u.Change24h)}"));
                 var volumeCases = string.Join(" ", latestUpdates.Select(u =>
-                    $"WHEN '{u.Symbol}' THEN {u.Volume24h}"));
+                    $"WHEN {QuoteSqlString(u.Symbol)} THEN {FormatDecimal(u.Volume24h)}"));
                 var highCases = string.Join(" ", latestUpdates.Select(u =>
-                    $"WHEN '{u.Symbol}' THEN {u.High24h}"));
+                    $"WHEN {QuoteSqlString(u.Symbol)} THEN {FormatDecimal(u.High24h)}"));
                 var lowCases = string.Join(" ", latestUpdates.Select(u =>
-                    $"WHEN '{u.Symbol}' THEN {u.Low24h}"));
+                    $"WHEN {QuoteSqlString(u.Symbol)} THEN {FormatDecimal(u.Low24h)}"));
+                var symbols = string.Join(", ", latestUpdates.Select(u => QuoteSqlString(u.Symbol)));
 
                 var batchSql = $"""
                     UPDATE TradingPairs SET
-                        Price = CASE Symbol {priceCases} END,
-                        Change24h = CASE Symbol {changeCases} END,
-                        Volume24h = CASE Symbol {volumeCases} END,
-                        High24h = CASE Symbol {highCases} END,
-                        Low24h = CASE Symbol {lowCases} END,
+                        Price = CASE Symbol {priceCases} ELSE Price END,
+                        Change24h = CASE Symbol {changeCases} ELSE Change24h END,
+                        Volume24h = CASE Symbol {volumeCases} ELSE Volume24h END,
+                        High24h = CASE Symbol {highCases} ELSE High24h END,
+                        Low24h = CASE Symbol {lowCases} ELSE Low24h END,
                         UpdatedAt = {now},
                         LastUpdated = {now}
-                    WHERE IsDeleted = 0
+                    WHERE IsDeleted = 0 AND Symbol IN ({symbols})
                 """;
 
                 await db.Database.ExecuteSqlRawAsync(batchSql, ct);
@@ -179,6 +180,12 @@ public class PriceUpdateBatchService : BackgroundService
             _logger.LogError(ex, "❌ 批处理执行失败，批次大小: {Count}", batch.Count);
         }
     }
+
+    private static string FormatDecimal(decimal value)
+        => value.ToString(CultureInfo.InvariantCulture);
+
+    private static string QuoteSqlString(string value)
+        => $"'{value.Replace("'", "''")}'";
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {

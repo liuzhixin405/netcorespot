@@ -28,6 +28,10 @@ namespace CryptoSpot.API.Middleware
             {
                 await _next(context);
             }
+            catch (OperationCanceledException ex) when (context.RequestAborted.IsCancellationRequested)
+            {
+                _logger.LogInformation(ex, "Request was canceled by the client: {Path}", context.Request.Path);
+            }
             catch (Exception ex)
             {
                 await HandleExceptionAsync(context, ex);
@@ -44,6 +48,8 @@ namespace CryptoSpot.API.Middleware
                 UnauthorizedException unauthorizedEx => HandleUnauthorizedException(unauthorizedEx),
                 BusinessException businessEx => HandleBusinessException(businessEx),
                 UnauthorizedAccessException _ => HandleUnauthorizedAccess(),
+                TaskCanceledException timeoutEx => HandleRequestTimeout(timeoutEx),
+                HttpRequestException httpRequestEx => HandleUpstreamUnavailable(httpRequestEx),
                 _ => HandleUnknownException(exception)
             };
 
@@ -130,6 +136,24 @@ namespace CryptoSpot.API.Middleware
             return (
                 (int)HttpStatusCode.Unauthorized,
                 ApiResponseDto<object>.CreateError("未授权访问", "UNAUTHORIZED_ACCESS")
+            );
+        }
+
+        private (int statusCode, ApiResponseDto<object> response) HandleRequestTimeout(
+            TaskCanceledException exception)
+        {
+            return (
+                (int)HttpStatusCode.GatewayTimeout,
+                ApiResponseDto<object>.CreateError("上游服务响应超时，请稍后重试", "UPSTREAM_TIMEOUT")
+            );
+        }
+
+        private (int statusCode, ApiResponseDto<object> response) HandleUpstreamUnavailable(
+            HttpRequestException exception)
+        {
+            return (
+                (int)HttpStatusCode.ServiceUnavailable,
+                ApiResponseDto<object>.CreateError("上游服务暂不可用，请检查依赖服务状态", "UPSTREAM_UNAVAILABLE")
             );
         }
 

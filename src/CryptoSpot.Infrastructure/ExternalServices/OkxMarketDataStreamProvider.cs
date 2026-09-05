@@ -225,6 +225,12 @@ namespace CryptoSpot.Infrastructure.ExternalServices
                     HandleMessage(text);
                 }
                 catch (OperationCanceledException) { }
+                catch (WebSocketException ex)
+                {
+                    _logger.LogWarning(ex, "OKX WebSocket 已断开({Type})，准备重连", business ? "BUS" : "PUB");
+                    await ConnectRetryAsync(ct);
+                    return;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "OKX 接收循环异常({Type})，准备重连", business ? "BUS" : "PUB");

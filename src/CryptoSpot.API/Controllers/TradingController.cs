@@ -131,10 +131,9 @@ namespace CryptoSpot.API.Controllers
                 var validationErrors = ModelState.Where(kv => kv.Value != null && kv.Value.Errors != null && kv.Value.Errors.Count > 0)
                     .ToDictionary(kv => kv.Key ?? string.Empty, kv => kv.Value!.Errors.Select(e => string.IsNullOrEmpty(e.ErrorMessage) ? (e.Exception?.Message ?? string.Empty) : e.ErrorMessage).Where(s => !string.IsNullOrEmpty(s)).ToArray());
 
-                var op = CryptoSpot.Application.DTOs.Common.OperationResultDto.CreateValidationFailure(validationErrors);
                 // 将结构化验证错误信息放在 ApiResponseDto 的 Error 字段并返回 400，便于前端解析
-                var apiResp = ApiResponseDto<OrderDto?>.CreateError(op.Message ?? "请求参数验证失败");
-                apiResp.Error = op.ValidationErrors != null && op.ValidationErrors.Any() ? string.Join("; ", op.ValidationErrors.Select(kv => $"{kv.Key}:{string.Join(',', kv.Value)}")) : op.Message;
+                var apiResp = ApiResponseDto<OrderDto?>.CreateError("请求参数验证失败");
+                apiResp.Error = validationErrors.Any() ? string.Join("; ", validationErrors.Select(kv => $"{kv.Key}:{string.Join(',', kv.Value)}")) : "请求参数验证失败";
                 // 记录详细日志，包含序列化的请求体与字段级错误，便于排查
                 try
                 {

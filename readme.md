@@ -117,41 +117,43 @@ dotnet run --project src/CryptoSpot.API
 2. 若库中无活跃交易对或系统用户（`NeedsInitializationAsync`），自动初始化种子数据：
    - 交易对：BTCUSDT、ETHUSDT、SOLUSDT
    - 系统用户：SystemMarketMaker（做市商）、SystemAdmin（管理员）
-   - 测试用户：test_user_1 / test_user_2 / test_user_3（Regular，各带 USDT 10,000 / BTC 1 / ETH 10 / SOL 100 初始资产）
+  - 测试用户：test_user_1 / test_user_2 / test_user_3（Regular，默认密码 `test123`，各带 USDT 10,000 / BTC 1 / ETH 10 / SOL 100 初始资产）
    - 做市商系统资产：USDT 1,000,000 / BTC 100 / ETH 5,000 / SOL 50,000
 
-> ⚠️ 首次启动自动创建的用户**不包含 Email 与密码哈希**（`Users` 表历史缺列，详见 [`docs/fix-password-hash-error.md`](docs/fix-password-hash-error.md)）。若要直接登录测试账号，请先执行一次修复脚本（与官方文档一致，脚本内含 `USE cryptospot;`，如开发库名为 `CryptoSpotDb_Dev` 请先改脚本首行或改用 `scripts/init-database.sql` 全量初始化）：
+> 旧库如果已经存在缺少 Email 或密码哈希的测试用户，启动初始化会自动补齐；也可手动执行修复脚本（脚本内含 `USE cryptospot;`，如开发库名为 `CryptoSpotDb_Dev` 请先改脚本首行或改用 `scripts/init-database.sql` 全量初始化）：
 > ```bash
 > mysql -u root -p cryptospot < scripts/fix-user-table.sql
 > # 或（全量重建示例库）mysql -u root -p < scripts/init-database.sql
 > ```
 > 脚本为账号补齐 Email/密码哈希（哈希格式为 PBKDF2-SHA256 100k 迭代 Base64）。
-> **DEBUG 构建中密码校验恒为通过**（`PasswordHasher.Verify` 在 `#if DEBUG` 下直接返回 `true`），因此本地调试时只需保证密码哈希非空即可登录；正式（Release）构建必须使用脚本中的真实哈希。
 
-- 测试账号（fix 脚本写入的密码）：`test_user_1 / test123`、`SystemAdmin / admin123`、`SystemMarketMaker / maker123`。
+- 测试账号：`test_user_1 / test123`、`test_user_2 / test123`、`test_user_3 / test123`。
 - 也可以直接调用 `POST /api/auth/register` 注册新账号（注册用户无初始资产，可通过内部接口 `POST /api/internal/assets/batch-update` 充值体验）。
 
 ### 2. 配置 AI 模型
 
-默认配置指向本机 Ollama（OpenAI 兼容端点）：
+默认配置指向 OpenAI 兼容端点；开发环境已对齐本机 llama.cpp 服务：
 
 ```jsonc
 "Ai": {
   "Enabled": true,
-  "BaseUrl": "http://localhost:11434/v1",   // OpenAI 兼容 /v1
-  "ApiKey": "ollama",
-  "Model": "qwen2.5:7b",
+  "BaseUrl": "http://127.0.0.1:8080/v1",    // llama.cpp server OpenAI 兼容 /v1
+  "ApiKey": "llama.cpp",
+  "Model": "gemma-4-12B-it-Q4_K_M.gguf",
   "Temperature": 0.2,
-  "MaxTokens": 2048,
-  "TimeoutSeconds": 120,
+  "MaxTokens": 768,
+  "TimeoutSeconds": 420,
   "CircuitBreakerFailureThreshold": 3,     // 连续失败 3 次进入熔断
   "CircuitBreakerCooldownSeconds": 60,     // 熔断冷却 60 秒
   "FallbackModels": []                     // 备用模型列表（可选）
 }
 ```
 
-- 本地 Ollama：`ollama pull qwen2.5:7b`，保持服务运行（默认 11434）。
+- 本地 llama.cpp：保持 server 运行在 `http://127.0.0.1:8080`，`/v1/models` 中的 `id` 需要与 `Ai:Model` 一致。当前本地模型为 `gemma-4-12B-it-Q4_K_M.gguf`。
+- 本地 Ollama：可改回 `BaseUrl=http://localhost:11434/v1`、`ApiKey=ollama`、`Model=qwen2.5:7b`，并先执行 `ollama pull qwen2.5:7b`。
 - 也可改为任意 OpenAI 兼容服务：把 `BaseUrl` 指向 `https://api.deepseek.com/v1`（`ApiKey` 填 DeepSeek Key）、或 GLM/Qwen 等 /v1 端点。
+- 如果 llama.cpp 日志显示 `n_ctx_seq = 2048`，不要把 `MaxTokens` 设得过大；Gemma thinking 会消耗输出 token，本地开发推荐 `512` 到 `768`。
+- 后端 AI 客户端不绑定具体厂商；地址、模型、密钥、超时和备用模型都从 `Ai` 配置节读取。修改配置文件后，新请求会读取当前配置值。
 - 不启动 AI 时，将 `Ai.Enabled` 置为 `false`，其余交易/行情功能不受影响。
 
 ### 3. 启动前端
@@ -161,8 +163,6 @@ cd frontend
 npm install
 npm start          # http://localhost:3000
 ```
-
-> 前端 `package.json` 的 `proxy` 默认指向 `https://localhost:5001`。若你按上面方式将 API 跑在 `http://localhost:5000`，请同步把 proxy 改为 `http://localhost:5000`（或用 `dotnet run --urls https://localhost:5001` 启动 API，并信任开发证书）。
 
 ### 4. 体验 AI
 

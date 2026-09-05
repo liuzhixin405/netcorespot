@@ -12,7 +12,7 @@ public sealed record AiChatRequest
     public required IReadOnlyList<AiMessage> Messages { get; init; }
     public IReadOnlyList<AiToolDefinition>? Tools { get; init; }
     public double Temperature { get; init; } = 0.2;
-    public int MaxTokens { get; init; } = 2048;
+    public int MaxTokens { get; init; } = 512;
 }
 
 public sealed record AiMessage(string Role, string Content, string? ToolCallId = null, IReadOnlyList<AiToolCall>? ToolCalls = null);

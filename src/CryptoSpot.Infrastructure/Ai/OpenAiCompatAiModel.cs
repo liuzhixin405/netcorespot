@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using CryptoSpot.Application.Abstractions.Services.Ai;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
@@ -11,16 +12,20 @@ namespace CryptoSpot.Infrastructure.Ai;
 public sealed class OpenAiCompatAiModel : IAiModel
 {
     private readonly HttpClient _httpClient;
-    private readonly AiOptions _options;
+    private readonly IOptionsMonitor<AiOptions> _options;
     private readonly ConcurrentDictionary<string, CircuitState> _circuits = new();
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
-    public OpenAiCompatAiModel(HttpClient httpClient, IOptions<AiOptions> options)
+    public OpenAiCompatAiModel(HttpClient httpClient, IOptionsMonitor<AiOptions> options)
     {
         _httpClient = httpClient;
-        _options = options.Value;
+        _options = options;
     }
 
-    public string ModelId => _options.Model;
+    public string ModelId => _options.CurrentValue.Model;
 
     public async Task<AiChatResponse> ChatAsync(AiChatRequest request, CancellationToken cancellationToken = default)
     {
@@ -48,6 +53,7 @@ public sealed class OpenAiCompatAiModel : IAiModel
 
     private async Task<AiChatResponse> SendChatAsync(AiModelEndpoint endpoint, AiChatRequest request, CancellationToken cancellationToken)
     {
+        using var timeoutCts = CreateTimeoutTokenSource(cancellationToken);
         using var message = new HttpRequestMessage(HttpMethod.Post, $"{endpoint.BaseUrl.TrimEnd('/')}/chat/completions")
         {
             Content = JsonContent.Create(new
@@ -62,14 +68,15 @@ public sealed class OpenAiCompatAiModel : IAiModel
                 temperature = request.Temperature,
                 max_tokens = request.MaxTokens,
                 stream = false
-            })
+            }, options: JsonOptions)
         };
-        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.ApiKey);
-        using var response = await _httpClient.SendAsync(message, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(endpoint.ApiKey))
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.ApiKey);
+        using var response = await _httpClient.SendAsync(message, timeoutCts.Token);
         response.EnsureSuccessStatusCode();
 
-        await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var document = await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
+        await using var body = await response.Content.ReadAsStreamAsync(timeoutCts.Token);
+        using var document = await JsonDocument.ParseAsync(body, cancellationToken: timeoutCts.Token);
         var choices = document.RootElement.GetProperty("choices");
         if (choices.GetArrayLength() == 0)
             throw new InvalidOperationException("The AI provider returned no choices.");
@@ -95,8 +102,9 @@ public sealed class OpenAiCompatAiModel : IAiModel
 
     private IEnumerable<AiModelEndpoint> Endpoints()
     {
-        yield return new AiModelEndpoint { BaseUrl = _options.BaseUrl, ApiKey = _options.ApiKey, Model = _options.Model };
-        foreach (var endpoint in _options.FallbackModels.Where(value =>
+        var options = _options.CurrentValue;
+        yield return new AiModelEndpoint { BaseUrl = options.BaseUrl, ApiKey = options.ApiKey, Model = options.Model };
+        foreach (var endpoint in options.FallbackModels.Where(value =>
                      !string.IsNullOrWhiteSpace(value.BaseUrl) && !string.IsNullOrWhiteSpace(value.Model)))
             yield return endpoint;
     }
@@ -114,10 +122,19 @@ public sealed class OpenAiCompatAiModel : IAiModel
             (_, state) =>
             {
                 var failures = state.Failures + 1;
-                return failures >= _options.CircuitBreakerFailureThreshold
-                    ? new CircuitState(failures, DateTimeOffset.UtcNow.AddSeconds(_options.CircuitBreakerCooldownSeconds))
+                var options = _options.CurrentValue;
+                return failures >= options.CircuitBreakerFailureThreshold
+                    ? new CircuitState(failures, DateTimeOffset.UtcNow.AddSeconds(options.CircuitBreakerCooldownSeconds))
                     : new CircuitState(failures, state.OpenUntil);
             });
+    }
+
+    private CancellationTokenSource CreateTimeoutTokenSource(CancellationToken cancellationToken)
+    {
+        var timeoutSeconds = Math.Max(1, _options.CurrentValue.TimeoutSeconds);
+        var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+        return timeoutCts;
     }
 
     private sealed record CircuitState(int Failures, DateTimeOffset OpenUntil);
@@ -126,23 +143,61 @@ public sealed class OpenAiCompatAiModel : IAiModel
         AiChatRequest request,
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        using var message = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+        foreach (var endpoint in Endpoints())
+        {
+            if (IsOpen(endpoint))
+                continue;
+
+            IAsyncEnumerable<AiChatChunk> stream;
+            try
+            {
+                stream = SendChatStreamAsync(endpoint, request, cancellationToken);
+            }
+            catch (HttpRequestException)
+            {
+                RecordFailure(endpoint);
+                continue;
+            }
+            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                RecordFailure(endpoint);
+                continue;
+            }
+
+            await foreach (var chunk in stream.WithCancellation(cancellationToken))
+                yield return chunk;
+            RecordSuccess(endpoint);
+            yield break;
+        }
+
+        throw new HttpRequestException("All configured AI model endpoints are unavailable.");
+    }
+
+    private async IAsyncEnumerable<AiChatChunk> SendChatStreamAsync(
+        AiModelEndpoint endpoint,
+        AiChatRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        using var timeoutCts = CreateTimeoutTokenSource(cancellationToken);
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"{endpoint.BaseUrl.TrimEnd('/')}/chat/completions")
         {
             Content = JsonContent.Create(new
             {
-                model = _options.Model,
+                model = endpoint.Model,
                 messages = request.Messages.Select(value => new { role = value.Role, content = value.Content }),
                 temperature = request.Temperature,
                 max_tokens = request.MaxTokens,
                 stream = true
-            })
+            }, options: JsonOptions)
         };
-        using var response = await _httpClient.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!string.IsNullOrWhiteSpace(endpoint.ApiKey))
+            message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.ApiKey);
+        using var response = await _httpClient.SendAsync(message, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
         response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(timeoutCts.Token);
         using var reader = new StreamReader(stream, Encoding.UTF8);
         var toolCalls = new Dictionary<int, StreamingToolCall>();
-        while (await reader.ReadLineAsync(cancellationToken) is { } line)
+        while (await reader.ReadLineAsync(timeoutCts.Token) is { } line)
         {
             if (!line.StartsWith("data: ", StringComparison.Ordinal))
                 continue;

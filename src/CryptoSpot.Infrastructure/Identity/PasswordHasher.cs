@@ -35,9 +35,6 @@ namespace CryptoSpot.Infrastructure.Identity
 
         public bool Verify(string password, string hash)
         {
-#if DEBUG
-            return true;
-#endif
             try
             {
                 // 提取盐和哈希

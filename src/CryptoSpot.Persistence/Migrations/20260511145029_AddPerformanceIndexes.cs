@@ -9,47 +9,75 @@ namespace CryptoSpot.Persistence.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             // Orders table
-            migrationBuilder.CreateIndex(
-                name: "IX_Orders_TradingPairId_Status_Side_Price",
-                table: "Orders",
-                columns: new[] { "TradingPairId", "Status", "Side", "Price" });
+            CreateIndexIfMissing(
+                migrationBuilder,
+                "IX_Orders_TradingPairId_Status_Side_Price",
+                "Orders",
+                "`TradingPairId`, `Status`, `Side`, `Price`");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_Orders_UserId_CreatedAt",
-                table: "Orders",
-                columns: new[] { "UserId", "CreatedAt" });
+            CreateIndexIfMissing(
+                migrationBuilder,
+                "IX_Orders_UserId_CreatedAt",
+                "Orders",
+                "`UserId`, `CreatedAt`");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_Orders_Status_CreatedAt",
-                table: "Orders",
-                columns: new[] { "Status", "CreatedAt" });
+            CreateIndexIfMissing(
+                migrationBuilder,
+                "IX_Orders_Status_CreatedAt",
+                "Orders",
+                "`Status`, `CreatedAt`");
 
             // Trades table
-            migrationBuilder.CreateIndex(
-                name: "IX_Trades_TradingPairId_ExecutedAt",
-                table: "Trades",
-                columns: new[] { "TradingPairId", "ExecutedAt" });
+            CreateIndexIfMissing(
+                migrationBuilder,
+                "IX_Trades_TradingPairId_ExecutedAt",
+                "Trades",
+                "`TradingPairId`, `ExecutedAt`");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_Trades_BuyerId_ExecutedAt",
-                table: "Trades",
-                columns: new[] { "BuyerId", "ExecutedAt" });
+            CreateIndexIfMissing(
+                migrationBuilder,
+                "IX_Trades_BuyerId_ExecutedAt",
+                "Trades",
+                "`BuyerId`, `ExecutedAt`");
 
-            migrationBuilder.CreateIndex(
-                name: "IX_Trades_SellerId_ExecutedAt",
-                table: "Trades",
-                columns: new[] { "SellerId", "ExecutedAt" });
+            CreateIndexIfMissing(
+                migrationBuilder,
+                "IX_Trades_SellerId_ExecutedAt",
+                "Trades",
+                "`SellerId`, `ExecutedAt`");
 
-            // KLineData: change existing index to unique
-            migrationBuilder.DropIndex(
-                name: "IX_KLineData_TradingPairId_TimeFrame_OpenTime",
-                table: "KLineData");
+            CreateIndexIfMissing(
+                migrationBuilder,
+                "IX_KLineData_TradingPairId_TimeFrame_OpenTime",
+                "KLineData",
+                "`TradingPairId`, `TimeFrame`, `OpenTime`");
+        }
 
-            migrationBuilder.CreateIndex(
-                name: "IX_KLineData_TradingPairId_TimeFrame_OpenTime",
-                table: "KLineData",
-                columns: new[] { "TradingPairId", "TimeFrame", "OpenTime" },
-                unique: true);
+        private static void CreateIndexIfMissing(
+            MigrationBuilder migrationBuilder,
+            string indexName,
+            string tableName,
+            string columns,
+            bool unique = false)
+        {
+            var uniqueKeyword = unique ? "UNIQUE " : string.Empty;
+            migrationBuilder.Sql($"""
+                SET @indexExists := (
+                    SELECT COUNT(1)
+                    FROM INFORMATION_SCHEMA.STATISTICS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                      AND TABLE_NAME = '{tableName}'
+                      AND INDEX_NAME = '{indexName}'
+                );
+                SET @sql := IF(
+                    @indexExists = 0,
+                    'CREATE {uniqueKeyword}INDEX `{indexName}` ON `{tableName}` ({columns})',
+                    'SELECT 1'
+                );
+                PREPARE stmt FROM @sql;
+                EXECUTE stmt;
+                DEALLOCATE PREPARE stmt;
+                """);
         }
 
         protected override void Down(MigrationBuilder migrationBuilder)
