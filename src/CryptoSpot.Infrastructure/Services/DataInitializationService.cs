@@ -1,6 +1,7 @@
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Application.Abstractions.Repositories;
 using CryptoSpot.Application.Common.Interfaces;
+using CryptoSpot.Infrastructure.MarketData;
 using Microsoft.Extensions.Logging;
 
 using Microsoft.Extensions.Options; // 读取 MarketMakerOptions
@@ -19,6 +20,38 @@ namespace CryptoSpot.Infrastructure.Services
         private readonly ILogger<DataInitializationService> _logger;
         private readonly IOptions<MarketMakerOptions>? _mmOptions; // 可为空以兼容旧构造
         private const string TestUserPassword = "test123";
+
+        private static readonly IReadOnlyDictionary<string, decimal> MarketMakerAssetAmounts =
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["USDT"] = 1_000_000m,
+                ["BTC"] = 100m,
+                ["ETH"] = 5_000m,
+                ["BNB"] = 5_000m,
+                ["XRP"] = 500_000m,
+                ["ADA"] = 500_000m,
+                ["DOGE"] = 10_000_000m,
+                ["SOL"] = 50_000m,
+                ["DOT"] = 100_000m,
+                ["LINK"] = 50_000m,
+                ["LTC"] = 5_000m
+            };
+
+        private static readonly IReadOnlyDictionary<string, decimal> TestUserAssetAmounts =
+            new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["USDT"] = 10_000m,
+                ["BTC"] = 1m,
+                ["ETH"] = 10m,
+                ["BNB"] = 50m,
+                ["XRP"] = 5_000m,
+                ["ADA"] = 5_000m,
+                ["DOGE"] = 100_000m,
+                ["SOL"] = 100m,
+                ["DOT"] = 1_000m,
+                ["LINK"] = 500m,
+                ["LTC"] = 50m
+            };
 
         public DataInitializationService(
            ITradingPairRepository tradingPairRepository,
@@ -65,53 +98,51 @@ namespace CryptoSpot.Infrastructure.Services
         /// </summary>
         private async Task InitializeTradingPairsAsync()
         {
-            var tradingPairs = new[]
+            var tradingPairs = LocalMarketCatalog.Pairs.Select(pair => new TradingPair
             {
-                new TradingPair
-                {
-                    Symbol = "BTCUSDT",
-                    BaseAsset = "BTC",
-                    QuoteAsset = "USDT",
-                    MinQuantity = 0.00001m,
-                    MaxQuantity = 1000m,
-                    PricePrecision = 2,
-                    QuantityPrecision = 5,
-                    IsActive = true,
-                    LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                },
-                new TradingPair
-                {
-                    Symbol = "ETHUSDT",
-                    BaseAsset = "ETH",
-                    QuoteAsset = "USDT",
-                    MinQuantity = 0.001m,
-                    MaxQuantity = 10000m,
-                    PricePrecision = 2,
-                    QuantityPrecision = 3,
-                    IsActive = true,
-                    LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                },
-                new TradingPair
-                {
-                    Symbol = "SOLUSDT",
-                    BaseAsset = "SOL",
-                    QuoteAsset = "USDT",
-                    MinQuantity = 0.01m,
-                    MaxQuantity = 100000m,
-                    PricePrecision = 3,
-                    QuantityPrecision = 2,
-                    IsActive = true,
-                    LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                }
-            };
+                Symbol = pair.Symbol,
+                BaseAsset = pair.BaseAsset,
+                QuoteAsset = "USDT",
+                MinQuantity = pair.MinQuantity,
+                MaxQuantity = pair.MaxQuantity,
+                PricePrecision = pair.PricePrecision,
+                QuantityPrecision = pair.QuantityPrecision,
+                IsActive = true,
+                LastUpdated = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            }).ToArray();
 
             foreach (var tradingPair in tradingPairs)
             {
-                var existing = await _tradingPairRepository.FindAsync(tp => tp.Symbol == tradingPair.Symbol);
-                if (!existing.Any())
+                var existing = (await _tradingPairRepository.FindAsync(tp => tp.Symbol == tradingPair.Symbol))
+                    .FirstOrDefault();
+                if (existing is null)
                 {
                     await _tradingPairRepository.AddAsync(tradingPair);
                     _logger.LogInformation("创建交易对: {Symbol}", tradingPair.Symbol);
+                    continue;
+                }
+
+                existing.BaseAsset = tradingPair.BaseAsset;
+                existing.QuoteAsset = tradingPair.QuoteAsset;
+                existing.MinQuantity = tradingPair.MinQuantity;
+                existing.MaxQuantity = tradingPair.MaxQuantity;
+                existing.PricePrecision = tradingPair.PricePrecision;
+                existing.QuantityPrecision = tradingPair.QuantityPrecision;
+                existing.IsActive = true;
+                existing.LastUpdated = tradingPair.LastUpdated;
+                existing.Touch();
+                await _tradingPairRepository.UpdateAsync(existing);
+            }
+
+            foreach (var symbol in LocalMarketCatalog.ObsoleteSymbols)
+            {
+                var obsolete = await _tradingPairRepository.FindAsync(tp => tp.Symbol == symbol && tp.IsActive);
+                foreach (var pair in obsolete)
+                {
+                    pair.IsActive = false;
+                    pair.Touch();
+                    await _tradingPairRepository.UpdateAsync(pair);
+                    _logger.LogInformation("停用已下架交易对: {Symbol}", pair.Symbol);
                 }
             }
         }
@@ -187,13 +218,7 @@ namespace CryptoSpot.Infrastructure.Services
                     continue;
                 }
 
-                var systemAssets = new[]
-                {
-                    new Asset { UserId = makerId, Symbol = "USDT", Available = 1000000m, Frozen = 0m, MinReserve = 100000m, TargetBalance = 1000000m, AutoRefillEnabled = true },
-                    new Asset { UserId = makerId, Symbol = "BTC",  Available = 100m,     Frozen = 0m, MinReserve = 10m,     TargetBalance = 100m,     AutoRefillEnabled = true },
-                    new Asset { UserId = makerId, Symbol = "ETH",  Available = 5000m,    Frozen = 0m, MinReserve = 500m,    TargetBalance = 5000m,    AutoRefillEnabled = true },
-                    new Asset { UserId = makerId, Symbol = "SOL",  Available = 50000m,   Frozen = 0m, MinReserve = 5000m,   TargetBalance = 50000m,   AutoRefillEnabled = true }
-                };
+                var systemAssets = BuildAssets(makerId, MarketMakerAssetAmounts, autoRefill: true).ToArray();
 
                 foreach (var asset in systemAssets)
                 {
@@ -201,9 +226,6 @@ namespace CryptoSpot.Infrastructure.Services
                     if (!existing.Any())
                     {
                         await _assetRepository.AddAsync(asset);
-                        // 同步到 Redis 缓存（可选）
-
-
                         _logger.LogInformation("创建做市商 {MakerId} 系统资产: {Symbol} - {Amount}", makerId, asset.Symbol, asset.Available);
                     }
                 }
@@ -295,49 +317,7 @@ namespace CryptoSpot.Infrastructure.Services
                     continue;
                 }
 
-                var testAssets = new[]
-                {
-                    new Asset 
-                    { 
-                        UserId = user.Id, 
-                        Symbol = "USDT", 
-                        Available = 10000m, 
-                        Frozen = 0m, 
-                        MinReserve = 0m, 
-                        TargetBalance = 10000m, 
-                        AutoRefillEnabled = false 
-                    },
-                    new Asset 
-                    { 
-                        UserId = user.Id, 
-                        Symbol = "BTC", 
-                        Available = 1m, 
-                        Frozen = 0m, 
-                        MinReserve = 0m, 
-                        TargetBalance = 1m, 
-                        AutoRefillEnabled = false 
-                    },
-                    new Asset 
-                    { 
-                        UserId = user.Id, 
-                        Symbol = "ETH", 
-                        Available = 10m, 
-                        Frozen = 0m, 
-                        MinReserve = 0m, 
-                        TargetBalance = 10m, 
-                        AutoRefillEnabled = false 
-                    },
-                    new Asset 
-                    { 
-                        UserId = user.Id, 
-                        Symbol = "SOL", 
-                        Available = 100m, 
-                        Frozen = 0m, 
-                        MinReserve = 0m, 
-                        TargetBalance = 100m, 
-                        AutoRefillEnabled = false 
-                    }
-                };
+                var testAssets = BuildAssets(user.Id, TestUserAssetAmounts, autoRefill: false).ToArray();
 
                 foreach (var asset in testAssets)
                 {
@@ -345,11 +325,29 @@ namespace CryptoSpot.Infrastructure.Services
                     if (!existing.Any())
                     {
                         await _assetRepository.AddAsync(asset);
-
-
                         _logger.LogInformation("创建测试用户 {Username} 资产: {Symbol} - {Amount}", username, asset.Symbol, asset.Available);
                     }
                 }
+            }
+        }
+
+        private static IEnumerable<Asset> BuildAssets(
+            long userId,
+            IReadOnlyDictionary<string, decimal> amounts,
+            bool autoRefill)
+        {
+            foreach (var (symbol, amount) in amounts)
+            {
+                yield return new Asset
+                {
+                    UserId = userId,
+                    Symbol = symbol,
+                    Available = amount,
+                    Frozen = 0m,
+                    MinReserve = autoRefill ? amount * 0.1m : 0m,
+                    TargetBalance = amount,
+                    AutoRefillEnabled = autoRefill
+                };
             }
         }
 
@@ -358,14 +356,57 @@ namespace CryptoSpot.Infrastructure.Services
         /// </summary>
         public async Task<bool> NeedsInitializationAsync()
         {
-            var tradingPairsExist = (await _tradingPairRepository.FindAsync(tp => tp.IsActive)).Any();
-            var systemUsersExist = (await _userRepository.FindAsync(u => u.Type != UserType.Regular)).Any();
-            var testUserNames = new[] { "test_user_1", "test_user_2", "test_user_3" };
-            var testUsers = await _userRepository.FindAsync(u => testUserNames.Contains(u.Username));
-            var testUsersNeedLoginInfo = testUsers.Count() < testUserNames.Length
+            var activePairs = (await _tradingPairRepository.FindAsync(tp => tp.IsActive)).ToList();
+            var activeSymbols = activePairs
+                .Select(tp => tp.Symbol)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var allPairsConfigured = LocalMarketCatalog.Pairs.All(definition =>
+            {
+                var pair = activePairs.FirstOrDefault(value =>
+                    string.Equals(value.Symbol, definition.Symbol, StringComparison.OrdinalIgnoreCase));
+                return pair is not null
+                    && pair.MinQuantity == definition.MinQuantity
+                    && pair.MaxQuantity == definition.MaxQuantity
+                    && pair.PricePrecision == definition.PricePrecision
+                    && pair.QuantityPrecision == definition.QuantityPrecision;
+            });
+            var hasObsoletePairs = LocalMarketCatalog.ObsoleteSymbols.Any(activeSymbols.Contains);
+
+            var systemUsers = (await _userRepository.FindAsync(
+                u => u.Username == "SystemMarketMaker" || u.Username == "SystemAdmin")).ToList();
+            var systemUsersExist = systemUsers.Any(u => u.Username == "SystemMarketMaker")
+                && systemUsers.Any(u => u.Username == "SystemAdmin");
+            var testUserNames = new List<string> { "test_user_1", "test_user_2", "test_user_3" };
+            var testUsers = (await _userRepository.FindAsync(u => testUserNames.Contains(u.Username))).ToList();
+            var testUsersNeedLoginInfo = testUsers.Count < testUserNames.Count
                 || testUsers.Any(u => string.IsNullOrEmpty(u.Email) || string.IsNullOrEmpty(u.PasswordHash));
-            
-            return !tradingPairsExist || !systemUsersExist || testUsersNeedLoginInfo;
+
+            var maker = (await _userRepository.FindAsync(u => u.Type == UserType.MarketMaker)).FirstOrDefault();
+            var usersToCheck = new List<long>();
+            if (maker is not null)
+            {
+                usersToCheck.Add(maker.Id);
+            }
+            usersToCheck.AddRange(testUsers.Select(u => u.Id));
+
+            var assetsIncomplete = false;
+            foreach (var userId in usersToCheck)
+            {
+                var existingAssets = (await _assetRepository.FindAsync(a => a.UserId == userId))
+                    .Select(a => a.Symbol)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var expected = userId == maker?.Id
+                    ? MarketMakerAssetAmounts.Keys
+                    : TestUserAssetAmounts.Keys;
+
+                if (expected.Any(symbol => !existingAssets.Contains(symbol)))
+                {
+                    assetsIncomplete = true;
+                    break;
+                }
+            }
+
+            return !allPairsConfigured || hasObsoletePairs || !systemUsersExist || testUsersNeedLoginInfo || assetsIncomplete;
         }
     }
 }

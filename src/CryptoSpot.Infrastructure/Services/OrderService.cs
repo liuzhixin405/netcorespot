@@ -77,7 +77,14 @@ namespace CryptoSpot.Infrastructure.Services
                 });
 
                 if (!freezeResult.Success)
-                    throw new InvalidOperationException(freezeResult.Error ?? $"Insufficient {freezeSymbol} balance");
+                {
+                    var currentAsset = await _assetService.GetUserAssetAsync(userId, freezeSymbol);
+                    var available = currentAsset.Success && currentAsset.Data is not null
+                        ? currentAsset.Data.Available
+                        : 0m;
+                    throw new InvalidOperationException(
+                        $"可用 {freezeSymbol} 余额不足：需要 {freezeAmount} {freezeSymbol}，当前可用 {available} {freezeSymbol}");
+                }
 
                 var order = new Order
                 {
@@ -87,7 +94,9 @@ namespace CryptoSpot.Infrastructure.Services
                     Side = side,
                     Type = type,
                     Quantity = quantity,
-                    Price = price,
+                    Price = type == OrderType.Limit
+                        ? price
+                        : (side == OrderSide.Buy ? tradingPair.Price : null),
                     Status = OrderStatus.Pending,
                     ClientOrderId = ServiceHelper.GenerateId("ORD"),
                     CreatedAt = ServiceHelper.NowMs(),
@@ -268,6 +277,19 @@ namespace CryptoSpot.Infrastructure.Services
             var (assetSymbol, amount) = order.Side == OrderSide.Sell
                 ? (tradingPair.BaseAsset, remainingQuantity)
                 : (tradingPair.QuoteAsset, remainingQuantity * (order.Price ?? tradingPair.Price));
+
+            if (order.Side == OrderSide.Buy &&
+                order.FilledQuantity > 0 &&
+                order.Price.HasValue &&
+                order.AveragePrice > 0)
+            {
+                var filledExcess = order.FilledQuantity * order.Price.Value -
+                                   order.FilledQuantity * order.AveragePrice;
+                if (filledExcess > 0)
+                {
+                    amount += filledExcess;
+                }
+            }
 
             if (amount <= 0)
             {

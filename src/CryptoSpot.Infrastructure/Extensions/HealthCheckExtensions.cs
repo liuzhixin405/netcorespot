@@ -1,4 +1,5 @@
 using CryptoSpot.Infrastructure.HealthChecks;
+using CryptoSpot.Infrastructure.MarketData;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http;
@@ -28,6 +29,12 @@ namespace CryptoSpot.Infrastructure.Extensions
                 .AddCheck<DatabaseHealthCheck>(
                     "database",
                     tags: new[] { "db", "sql", "ready" });
+
+            // 行情数据源健康检查
+            healthChecksBuilder
+                .AddCheck<MarketDataHealthCheck>(
+                    "market-data",
+                    tags: new[] { "market", "ready" });
 
             // Redis and MatchEngine health checks removed (Redis dependency removed)
 

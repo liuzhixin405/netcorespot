@@ -116,7 +116,21 @@ export class KLineApiService {
   }
 
   static async getSupportedSymbols() {
-    return { success: true, data: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT'] };
+    return {
+      success: true,
+      data: [
+        'BTCUSDT',
+        'ETHUSDT',
+        'BNBUSDT',
+        'XRPUSDT',
+        'ADAUSDT',
+        'DOGEUSDT',
+        'SOLUSDT',
+        'DOTUSDT',
+        'LINKUSDT',
+        'LTCUSDT',
+      ],
+    };
   }
 
   static async getSupportedIntervals() {

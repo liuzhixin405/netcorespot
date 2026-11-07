@@ -39,9 +39,9 @@ const LeftPanel = styled.div`
 
 const RightPanel = styled.div<{ width: number }>`
   width: ${({ width }) => width}px;
-  min-width: 280px;
-  display: flex;
-  flex-direction: column;
+  min-width: 420px;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.92fr) minmax(230px, 1.08fr);
   gap: 8px;
   min-height: 0;
   flex-shrink: 0;
@@ -49,7 +49,16 @@ const RightPanel = styled.div<{ width: number }>`
   @media (max-width: 920px) {
     width: 100% !important;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
+`;
+
+const RightColumn = styled.div`
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 `;
 
 const ResizeHandle = styled.div<{ isHorizontal: boolean; isDragging: boolean }>`
@@ -102,46 +111,34 @@ const ChartPanel = styled(Panel)`
 
 const AccountPanel = styled(Panel)<{ height: number }>`
   height: ${({ height }) => height}px;
-  min-height: 140px;
+  min-height: 190px;
   flex-shrink: 0;
 `;
 
-const ResizableSection = styled.div<{ height: number }>`
-  height: ${({ height }) => height}px;
-  min-height: 140px;
-  display: flex;
-  flex-direction: column;
-
-  @media (max-width: 920px) {
-    height: auto !important;
-    min-height: 220px;
-  }
-`;
-
 const OrderBookSection = styled.div`
-  flex: 0.88;
-  min-height: 180px;
+  flex: 1.35;
+  min-height: 260px;
   display: flex;
   flex-direction: column;
 `;
 
 const TradesSection = styled.div`
-  flex: 0.52;
+  flex: 0.55;
   min-height: 120px;
   display: flex;
   flex-direction: column;
 `;
 
 const TradeFormSection = styled.div`
-  flex: 1.3;
-  min-height: 320px;
+  flex: 1;
+  min-height: 290px;
   display: flex;
   flex-direction: column;
 `;
 
 const AiSection = styled.div`
-  flex: 0.9;
-  min-height: 220px;
+  flex: 1.08;
+  min-height: 320px;
   display: flex;
   flex-direction: column;
 `;
@@ -194,12 +191,12 @@ const useResizeHandle = (
   return { size, isDragging, onMouseDown, onMouseDownY };
 };
 
-const RIGHT_PANEL_MIN = 280;
-const RIGHT_PANEL_MAX = 520;
-const RIGHT_PANEL_DEFAULT = 360;
+const RIGHT_PANEL_MIN = 420;
+const RIGHT_PANEL_MAX = 860;
+const RIGHT_PANEL_DEFAULT = 640;
 
-const ACCOUNT_MIN = 140;
-const ACCOUNT_MAX = 400;
+const ACCOUNT_MIN = 190;
+const ACCOUNT_MAX = 320;
 const ACCOUNT_DEFAULT = 220;
 
 const Trading: React.FC = () => {
@@ -301,26 +298,30 @@ const Trading: React.FC = () => {
         <ResizeHandle isHorizontal={true} isDragging={rightPanel.isDragging} onMouseDown={rightPanel.onMouseDown} />
 
         <RightPanel width={rightPanel.size}>
-          <OrderBookSection>
-            <Panel style={{ height: '100%' }}>
-              <OrderBook symbol={selectedSymbol} />
-            </Panel>
-          </OrderBookSection>
-          <TradesSection>
-            <Panel style={{ height: '100%' }}>
-              <RecentTrades symbol={selectedSymbol} />
-            </Panel>
-          </TradesSection>
-          <TradeFormSection>
-            <Panel style={{ height: '100%' }}>
-              <TradeForm symbol={selectedSymbol} />
-            </Panel>
-          </TradeFormSection>
-          <AiSection>
-            <Panel style={{ height: '100%' }}>
-              <AiAssistantPanel symbol={selectedSymbol} />
-            </Panel>
-          </AiSection>
+          <RightColumn>
+            <OrderBookSection>
+              <Panel style={{ height: '100%' }}>
+                <OrderBook symbol={selectedSymbol} />
+              </Panel>
+            </OrderBookSection>
+            <TradesSection>
+              <Panel style={{ height: '100%' }}>
+                <RecentTrades symbol={selectedSymbol} />
+              </Panel>
+            </TradesSection>
+          </RightColumn>
+          <RightColumn>
+            <TradeFormSection>
+              <Panel style={{ height: '100%' }}>
+                <TradeForm symbol={selectedSymbol} />
+              </Panel>
+            </TradeFormSection>
+            <AiSection>
+              <Panel style={{ height: '100%' }}>
+                <AiAssistantPanel symbol={selectedSymbol} />
+              </Panel>
+            </AiSection>
+          </RightColumn>
         </RightPanel>
       </MainContent>
     </TradingContainer>

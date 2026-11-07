@@ -69,7 +69,10 @@ namespace CryptoSpot.Infrastructure.Services
             return ServiceHelper.ExecuteAsync(async () =>
             {
                 var success = await _assetRepository.FreezeAssetAsync((int)userId, request.Symbol, request.Amount);
-                return success ? true : throw new InvalidOperationException("资产冻结失败");
+                return success
+                    ? true
+                    : throw new InvalidOperationException(
+                        $"可用 {request.Symbol} 余额不足，无法冻结 {request.Amount} {request.Symbol}");
             }, _logger, "资产冻结失败");
         }
 

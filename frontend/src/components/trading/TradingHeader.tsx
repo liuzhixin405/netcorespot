@@ -200,7 +200,18 @@ interface TradingHeaderProps {
   onSymbolChange: (symbol: string) => void;
 }
 
-const availableSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
+const availableSymbols = [
+  'BTCUSDT',
+  'ETHUSDT',
+  'BNBUSDT',
+  'XRPUSDT',
+  'ADAUSDT',
+  'DOGEUSDT',
+  'SOLUSDT',
+  'DOTUSDT',
+  'LINKUSDT',
+  'LTCUSDT',
+];
 
 const formatNumber = (value?: number, digits = 2) => {
   if (value === undefined || !Number.isFinite(value)) return '--';

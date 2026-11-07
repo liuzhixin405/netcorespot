@@ -29,7 +29,7 @@ CryptoSpot 是一个模拟数字资产现货交易平台：
 | **平台文档助手** | `POST /api/ai/assistant`：基于仓库文档回答产品/平台问题。 |
 | **新闻情绪分析** | `POST /api/ai/news/sentiment`：对标题/正文给出利好/利空/中性判断与评分。 |
 | **持仓报告** | `POST /api/ai/portfolio/report`：基于真实资产与成交生成中文持仓报告。 |
-| **模型容错** | OpenAI 兼容协议（默认 Ollama `qwen2.5:7b`），支持故障熔断（连续失败 3 次熔断 60 秒）与备用模型（`FallbackModels`）。 |
+| **模型容错** | OpenAI 兼容协议（默认本机 llama.cpp `Qwen3-4B`），支持故障熔断（连续失败 3 次熔断 60 秒）与备用模型（`FallbackModels`）。 |
 
 ### 2. 交易功能
 
@@ -66,9 +66,9 @@ CryptoSpot 是一个模拟数字资产现货交易平台：
 
 | 层 | 技术 |
 | --- | --- |
-| 后端 | .NET 9 / ASP.NET Core，EF Core 9 + Pomelo MySQL，JWT 认证 |
+| 后端 | .NET 10 / ASP.NET Core，EF Core 9 + Pomelo MySQL，JWT 认证 |
 | 实时 | SignalR + MessagePack（`/tradingHub`） |
-| AI | OpenAI 兼容 `chat/completions`（Ollama / DeepSeek / 其它 /v1 端点），函数调用（tools） |
+| AI | OpenAI 兼容 `chat/completions`（默认本机 llama.cpp，也支持 Ollama / DeepSeek / 其它 /v1 端点），函数调用（tools） |
 | 中间件 | Swagger、响应压缩、输出缓存、限流（RateLimiter）、健康检查、全局异常处理 |
 | 前端 | React 18 + TypeScript（CRA），styled-components，lightweight-charts，axios，@microsoft/signalr |
 | 数据库 | MySQL 8（默认库 `CryptoSpotDb`，开发库 `CryptoSpotDb_Dev`） |
@@ -99,7 +99,7 @@ CryptoSpot 是一个模拟数字资产现货交易平台：
 
 ### 环境要求
 
-- .NET 9 SDK
+- .NET 10 SDK
 - MySQL 8.x（默认连接 `Server=localhost;Database=CryptoSpotDb_Dev;Uid=root;Pwd=123456;`，开发环境在 `appsettings.Development.json` 中为 `CryptoSpotDb_Dev`，正式配置为 `CryptoSpotDb`）
 - Node.js 18+（仅前端需要）
 
@@ -114,13 +114,14 @@ dotnet run --project src/CryptoSpot.API
 首次启动会自动：
 
 1. 应用 EF Core 迁移（`InitDbContext`，失败仅告警不阻断）。
-2. 若库中无活跃交易对或系统用户（`NeedsInitializationAsync`），自动初始化种子数据：
-   - 交易对：BTCUSDT、ETHUSDT、SOLUSDT
+2. 若库中缺少 10 个活跃交易对、系统用户或基础资产（`NeedsInitializationAsync`），自动补齐种子数据：
+   - 交易对（10 个）：BTCUSDT、ETHUSDT、BNBUSDT、XRPUSDT、ADAUSDT、DOGEUSDT、SOLUSDT、DOTUSDT、LINKUSDT、LTCUSDT
    - 系统用户：SystemMarketMaker（做市商）、SystemAdmin（管理员）
-  - 测试用户：test_user_1 / test_user_2 / test_user_3（Regular，默认密码 `test123`，各带 USDT 10,000 / BTC 1 / ETH 10 / SOL 100 初始资产）
-   - 做市商系统资产：USDT 1,000,000 / BTC 100 / ETH 5,000 / SOL 50,000
+   - 测试用户：test_user_1 / test_user_2 / test_user_3（Regular，默认密码 `test123`）
+   - 测试用户资产：USDT 10,000 + 上述 10 个基础币种各一份
+   - 做市商系统资产：USDT 1,000,000 + 上述 10 个基础币种各一份
 
-> 旧库如果已经存在缺少 Email 或密码哈希的测试用户，启动初始化会自动补齐；也可手动执行修复脚本（脚本内含 `USE cryptospot;`，如开发库名为 `CryptoSpotDb_Dev` 请先改脚本首行或改用 `scripts/init-database.sql` 全量初始化）：
+> 旧库如果已经存在缺少 Email 或密码哈希的测试用户，启动初始化会自动补齐；也可手动执行修复脚本（脚本内含 `USE cryptospot;`，如开发库名为 `CryptoSpotDb_Dev` 请先改脚本首行或改用 `scripts/init-database.sql`）。手动脚本只负责账号/基础表，10 个交易对和资产仍会在应用启动时自动补齐。
 > ```bash
 > mysql -u root -p cryptospot < scripts/fix-user-table.sql
 > # 或（全量重建示例库）mysql -u root -p < scripts/init-database.sql
@@ -132,27 +133,32 @@ dotnet run --project src/CryptoSpot.API
 
 ### 2. 配置 AI 模型
 
-默认配置指向 OpenAI 兼容端点；开发环境已对齐本机 llama.cpp 服务：
+默认配置指向本机 llama.cpp 的 OpenAI 兼容端点：
 
 ```jsonc
 "Ai": {
   "Enabled": true,
-  "BaseUrl": "http://127.0.0.1:8080/v1",    // llama.cpp server OpenAI 兼容 /v1
-  "ApiKey": "llama.cpp",
-  "Model": "gemma-4-12B-it-Q4_K_M.gguf",
+  "BaseUrl": "http://127.0.0.1:9931/v1",   // llama.cpp server OpenAI 兼容 /v1
+  "ApiKey": "",                            // llama-server 默认不鉴权；启用 --api-key 时再填
+  "Model": "Qwen3-4B",
   "Temperature": 0.2,
   "MaxTokens": 768,
   "TimeoutSeconds": 420,
+  "DisableThinking": true,                  // llama.cpp/Qwen3: 发送 enable_thinking=false
   "CircuitBreakerFailureThreshold": 3,     // 连续失败 3 次进入熔断
   "CircuitBreakerCooldownSeconds": 60,     // 熔断冷却 60 秒
   "FallbackModels": []                     // 备用模型列表（可选）
 }
 ```
 
-- 本地 llama.cpp：保持 server 运行在 `http://127.0.0.1:8080`，`/v1/models` 中的 `id` 需要与 `Ai:Model` 一致。当前本地模型为 `gemma-4-12B-it-Q4_K_M.gguf`。
+- 启动本机 llama.cpp：运行 `D:\llama-b9542-bin-win-cuda-12.4-x64\start-server.bat`，选择 `Qwen3-4B`（4 GB 显存可全量 offload）或 `Qwythos-9B-v2`（自动分层放 GPU/CPU）；选后者时把 `Ai:Model` 改成 `Qwythos-9B-v2`。
+- 该脚本固定监听 `127.0.0.1:9931`，所以 `Ai:BaseUrl` 使用 `http://127.0.0.1:9931/v1`。
+- `DisableThinking=true` 会向 llama.cpp/Qwen3 发送 `chat_template_kwargs.enable_thinking=false`，避免 4 GB 显存下 Qwen3 把几百个 token 全花在思考上导致等待数分钟；如果换成不支持该字段的云端 OpenAI 兼容服务，把它设为 `false`。
+- 本地启动脚本里也可以直接选 `D - Fast`（thinking OFF）；配合 `DisableThinking=true`，AI 助手响应会明显更快。
+- 模型名说明：llama-server 是单模型服务，`Ai:Model` 不参与路由；如果 `/v1/models` 返回的 `id` 与配置不同，可把 `Ai:Model` 改成该 id，或在 `start-server.bat` 的 `llama-server.exe` 命令加 `-a Qwen3-4B`。
 - 本地 Ollama：可改回 `BaseUrl=http://localhost:11434/v1`、`ApiKey=ollama`、`Model=qwen2.5:7b`，并先执行 `ollama pull qwen2.5:7b`。
 - 也可改为任意 OpenAI 兼容服务：把 `BaseUrl` 指向 `https://api.deepseek.com/v1`（`ApiKey` 填 DeepSeek Key）、或 GLM/Qwen 等 /v1 端点。
-- 如果 llama.cpp 日志显示 `n_ctx_seq = 2048`，不要把 `MaxTokens` 设得过大；Gemma thinking 会消耗输出 token，本地开发推荐 `512` 到 `768`。
+- 如果 llama.cpp 日志显示 `n_ctx_seq = 2048`，不要把 `MaxTokens` 设得过大；Qwen3 thinking 会消耗输出 token，本地开发推荐 `512` 到 `768`。
 - 后端 AI 客户端不绑定具体厂商；地址、模型、密钥、超时和备用模型都从 `Ai` 配置节读取。修改配置文件后，新请求会读取当前配置值。
 - 不启动 AI 时，将 `Ai.Enabled` 置为 `false`，其余交易/行情功能不受影响。
 
@@ -163,6 +169,16 @@ cd frontend
 npm install
 npm start          # http://localhost:3000
 ```
+
+本地三件套启动顺序：
+
+```text
+1) D:\llama-b9542-bin-win-cuda-12.4-x64\start-server.bat   # 选 Qwen3-4B，监听 127.0.0.1:9931
+2) dotnet run --project src/CryptoSpot.API                  # http://localhost:5000
+3) cd frontend && npm start                                 # http://localhost:3000
+```
+
+后端启动时会自动补齐 10 个 USDT 交易对和对应基础资产；前端交易页下拉框也同步为这 10 个币种。行情订阅会读取数据库中的活跃交易对，OKX WebSocket 默认一次批量订阅全部 10 个。
 
 ### 4. 体验 AI
 
@@ -328,7 +344,7 @@ Hub 路径：`/tradingHub`（MessagePack 协议，需携带 JWT）。
 ## 常见问题
 
 1. **登录提示“用户名或密码错误”**：种子用户无密码哈希，先执行 `scripts/fix-user-table.sql`（见上）。
-2. **AI 无响应/报错**：确认 Ollama 已启动且模型已 pull；或检查 `Ai:BaseUrl`/`ApiKey`；连续失败会触发熔断，等待 60 秒冷却自动恢复。
+2. **AI 无响应/报错**：确认 `D:\llama-b9542-bin-win-cuda-12.4-x64\start-server.bat` 已启动并监听 `127.0.0.1:9931`；检查 `Ai:BaseUrl`/`Ai:Model`；连续失败会触发熔断，等待 60 秒冷却自动恢复。
 3. **没有实时行情**：检查网络能否访问 OKX WebSocket；行情兜底走 Binance REST，可配置代理 `Binance:ProxyUrl`。
 4. **前端 502 / 连接失败**：核对前端 `proxy` 与 API 实际监听地址（5000 http vs 5001 https）。
 5. **端口冲突**：用 `dotnet run --project src/CryptoSpot.API --urls http://localhost:5000` 指定端口。

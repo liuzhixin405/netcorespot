@@ -3,6 +3,7 @@ namespace CryptoSpot.Application.Abstractions.Services.Ai;
 public interface IAiApprovalService
 {
     Task<AiApprovalDto> CreateAsync(long userId, string actionType, string payloadJson, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AiApprovalDto>> ListAsync(long userId, CancellationToken cancellationToken = default);
     Task<AiApprovalDto> DecideAsync(long userId, long approvalId, bool approved, CancellationToken cancellationToken = default);
 }
 

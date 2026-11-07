@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { Layers, Wifi, WifiOff } from 'lucide-react';
 import { useSignalRPriceData } from '../../hooks/useSignalRPriceData';
@@ -18,7 +18,7 @@ const Header = styled.div`
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid rgba(87, 100, 122, 0.34);
 `;
 
@@ -44,7 +44,7 @@ const HeaderRow = styled.div`
   display: grid;
   grid-template-columns: 1.1fr 0.95fr 1fr;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 4px 10px;
   color: #6e7681;
   font-size: 11px;
   font-weight: 800;
@@ -72,9 +72,9 @@ const PriceRow = styled.div<{ side: 'buy' | 'sell' }>`
   grid-template-columns: 1.1fr 0.95fr 1fr;
   gap: 8px;
   align-items: center;
-  height: 22px;
+  height: 20px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   overflow: hidden;
 
@@ -117,9 +117,9 @@ const TotalCell = styled.div`
 
 const CurrentPrice = styled.div<{ positive: boolean }>`
   display: grid;
-  gap: 3px;
+  gap: 2px;
   place-items: center;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-block: 1px solid rgba(87, 100, 122, 0.34);
   background:
     linear-gradient(90deg, rgba(248, 81, 73, 0.08), transparent 35%, transparent 65%, rgba(63, 185, 80, 0.08)),
@@ -128,7 +128,7 @@ const CurrentPrice = styled.div<{ positive: boolean }>`
 
 const PriceValue = styled.div<{ positive: boolean }>`
   color: ${({ positive }) => (positive ? '#3fb950' : '#f85149')};
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
@@ -157,18 +157,53 @@ interface OrderBookProps {
 const formatPrice = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatQty = (value: number) => value >= 1 ? value.toFixed(4) : value.toFixed(8);
 
-const OrderBook: React.FC<OrderBookProps> = React.memo(({ symbol }) => {
-  const { priceData } = useSignalRPriceData([symbol]);
-  const { orderBookData, loading, error, isConnected } = useSignalROrderBook(symbol);
-  const { tickerData } = useSignalRTicker(symbol);
+interface BookRowsProps {
+  orders: OrderBookLevel[];
+  side: 'buy' | 'sell';
+  maxTotal: number;
+  rows?: number;
+}
 
-  const { buyOrders, sellOrders } = useMemo(() => {
-    if (!orderBookData) return { buyOrders: [], sellOrders: [] };
-    return {
-      buyOrders: (orderBookData.bids || []).slice(0, 16),
-      sellOrders: (orderBookData.asks || []).slice(0, 16),
-    };
-  }, [orderBookData]);
+const BookRows = React.memo(({ orders, side, maxTotal, rows = 10 }: BookRowsProps) => {
+  // 固定渲染 10 行，用行号作为 key：价格/数量变化时只更新单元格，
+  // 不让 React 因价格 key 变化而整行卸载重建，避免盘口看起来整体刷新。
+  const levels = Array.from({ length: rows }, (_, index) => orders[index] ?? null);
+  const fixedRows = side === 'sell' ? levels.reverse() : levels;
+
+  return (
+    <>
+      {fixedRows.map((order, index) => (
+        <PriceRow key={`${side}-${index}`} side={side}>
+          {order ? (
+            <>
+              <DepthBar side={side} percentage={Math.min(100, order.total / maxTotal * 100)} />
+              <PriceCell side={side}>{formatPrice(order.price)}</PriceCell>
+              <AmountCell>{formatQty(order.amount)}</AmountCell>
+              <TotalCell>{formatQty(order.total)}</TotalCell>
+            </>
+          ) : (
+            <>
+              <PriceCell side={side}>&nbsp;</PriceCell>
+              <AmountCell>&nbsp;</AmountCell>
+              <TotalCell>&nbsp;</TotalCell>
+            </>
+          )}
+        </PriceRow>
+      ))}
+    </>
+  );
+});
+
+interface CurrentPricePanelProps {
+  symbol: string;
+  buyOrders: OrderBookLevel[];
+  sellOrders: OrderBookLevel[];
+}
+
+const CurrentPricePanel = React.memo(({ symbol, buyOrders, sellOrders }: CurrentPricePanelProps) => {
+  const symbols = useMemo(() => [symbol], [symbol]);
+  const { priceData } = useSignalRPriceData(symbols);
+  const { tickerData } = useSignalRTicker(symbol);
 
   const currentPrice = useMemo(() => {
     const basePrice = priceData[symbol]?.price || 0;
@@ -180,25 +215,34 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({ symbol }) => {
   }, [buyOrders, priceData, sellOrders, symbol, tickerData]);
 
   const spread = sellOrders[0] && buyOrders[0] ? sellOrders[0].price - buyOrders[0].price : 0;
+  const positive = true;
+
+  return (
+    <CurrentPrice positive={positive}>
+      <PriceValue positive={positive}>{currentPrice > 0 ? formatPrice(currentPrice) : '--'}</PriceValue>
+      <SpreadValue>Spread {spread > 0 ? formatPrice(spread) : '--'}</SpreadValue>
+    </CurrentPrice>
+  );
+});
+
+const OrderBook: React.FC<OrderBookProps> = React.memo(({ symbol }) => {
+  const [paused, setPaused] = useState(false);
+  const { orderBookData, loading, error, isConnected } = useSignalROrderBook(symbol, 10, paused);
+
+  const { buyOrders, sellOrders } = useMemo(() => {
+    if (!orderBookData) return { buyOrders: [], sellOrders: [] };
+    return {
+      buyOrders: (orderBookData.bids || []).slice(0, 10),
+      sellOrders: (orderBookData.asks || []).slice(0, 10),
+    };
+  }, [orderBookData]);
+
   const maxTotal = Math.max(
     ...buyOrders.map(order => order.total),
     ...sellOrders.map(order => order.total),
     1
   );
   const hasData = buyOrders.length > 0 || sellOrders.length > 0;
-  const positive = true;
-
-  const renderRows = (orders: OrderBookLevel[], side: 'buy' | 'sell') => {
-    const ordered = side === 'sell' ? [...orders].reverse() : orders;
-    return ordered.map(order => (
-      <PriceRow key={`${side}-${order.price}`} side={side}>
-        <DepthBar side={side} percentage={Math.min(100, order.total / maxTotal * 100)} />
-        <PriceCell side={side}>{formatPrice(order.price)}</PriceCell>
-        <AmountCell>{formatQty(order.amount)}</AmountCell>
-        <TotalCell>{formatQty(order.total)}</TotalCell>
-      </PriceRow>
-    ));
-  };
 
   return (
     <Container>
@@ -209,7 +253,7 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({ symbol }) => {
         </Title>
         <Status connected={isConnected}>
           {isConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
-          {isConnected ? '实时' : '等待'}
+          {paused ? '已暂停' : isConnected ? '实时' : '等待'}
         </Status>
       </Header>
 
@@ -219,15 +263,19 @@ const OrderBook: React.FC<OrderBookProps> = React.memo(({ symbol }) => {
         <div style={{ textAlign: 'right' }}>累计</div>
       </HeaderRow>
 
-      <Content>
+      <Content
+        onMouseEnter={() => setPaused(true)}
+        onMouseLeave={() => setPaused(false)}
+      >
         {hasData ? (
           <>
-            <BookSide>{renderRows(sellOrders, 'sell')}</BookSide>
-            <CurrentPrice positive={positive}>
-              <PriceValue positive={positive}>{currentPrice > 0 ? formatPrice(currentPrice) : '--'}</PriceValue>
-              <SpreadValue>Spread {spread > 0 ? formatPrice(spread) : '--'}</SpreadValue>
-            </CurrentPrice>
-            <BookSide>{renderRows(buyOrders, 'buy')}</BookSide>
+            <BookSide>
+              <BookRows orders={sellOrders} side="sell" maxTotal={maxTotal} />
+            </BookSide>
+            <CurrentPricePanel symbol={symbol} buyOrders={buyOrders} sellOrders={sellOrders} />
+            <BookSide>
+              <BookRows orders={buyOrders} side="buy" maxTotal={maxTotal} />
+            </BookSide>
           </>
         ) : (
           <EmptyState>

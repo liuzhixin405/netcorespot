@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Threading.Channels;
-using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.RealTime;
+using CryptoSpot.Infrastructure.MarketData;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -10,13 +10,15 @@ using Microsoft.Extensions.Logging;
 namespace CryptoSpot.Infrastructure.BackgroundServices;
 
 /// <summary>
-/// 批量处理价格更新，避免高频并发数据库操作
-/// 解决 "ServerSession is not connected" 和并发冲突问题
+/// 批量处理价格更新：有界队列、单批数据库更新、一次批量 SignalR 推送。
 /// </summary>
 public class PriceUpdateBatchService : BackgroundService
 {
     private readonly ILogger<PriceUpdateBatchService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IRealTimeDataPushService _pushService;
+    private readonly MarketDataMetrics _metrics;
+    private readonly MarketDataFeedOptions _options;
     private readonly Channel<PriceUpdateRequest> _channel;
 
     private record PriceUpdateRequest(
@@ -27,41 +29,45 @@ public class PriceUpdateBatchService : BackgroundService
         decimal High24h,
         decimal Low24h);
 
-    private readonly IRealTimeDataPushService _pushService;
-
     public PriceUpdateBatchService(
         ILogger<PriceUpdateBatchService> logger,
         IServiceScopeFactory scopeFactory,
-        IRealTimeDataPushService pushService)
+        IRealTimeDataPushService pushService,
+        MarketDataMetrics metrics,
+        MarketDataFeedOptions options)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
         _pushService = pushService;
-        
-        // 无界队列，单读多写
-        _channel = Channel.CreateUnbounded<PriceUpdateRequest>(new UnboundedChannelOptions
+        _metrics = metrics;
+        _options = options;
+
+        // [联网-官方: https://learn.microsoft.com/en-us/dotnet/api/system.threading.channels.boundedchanneloptions]
+        _channel = Channel.CreateBounded<PriceUpdateRequest>(new BoundedChannelOptions(options.PriceQueueCapacity)
         {
             SingleReader = true,
-            SingleWriter = false
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropOldest
         });
     }
 
     /// <summary>
-    /// 异步提交价格更新请求（非阻塞）
+    /// 异步提交价格更新请求（非阻塞；队列满时丢弃最旧数据）。
     /// </summary>
     public bool TryEnqueue(string symbol, decimal price, decimal change, decimal volume, decimal high, decimal low)
     {
-        var success = _channel.Writer.TryWrite(new PriceUpdateRequest(symbol, price, change, volume, high, low));
-        if (!success)
+        if (!_channel.Writer.TryWrite(new PriceUpdateRequest(symbol, price, change, volume, high, low)))
         {
-            _logger.LogWarning("⚠️ 价格更新队列已满，丢弃 {Symbol} 数据", symbol);
+            _metrics.QueueDropped();
+            return false;
         }
-        return success;
+
+        return true;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("✅ PriceUpdateBatchService 已启动");
+        _logger.LogInformation("PriceUpdateBatchService 已启动");
 
         var buffer = new List<PriceUpdateRequest>(100);
 
@@ -71,11 +77,9 @@ public class PriceUpdateBatchService : BackgroundService
             {
                 buffer.Clear();
 
-                // 等待第一个请求
                 await _channel.Reader.WaitToReadAsync(stoppingToken);
 
-                // 收集批次（最多等待 100ms 或收集到 50 个）
-                var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
                 timeoutCts.CancelAfter(100);
 
                 try
@@ -88,7 +92,6 @@ public class PriceUpdateBatchService : BackgroundService
                         }
                         else
                         {
-                            // 等待新数据或超时
                             await _channel.Reader.WaitToReadAsync(timeoutCts.Token);
                         }
                     }
@@ -96,10 +99,6 @@ public class PriceUpdateBatchService : BackgroundService
                 catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !stoppingToken.IsCancellationRequested)
                 {
                     // 超时，处理当前批次
-                }
-                finally
-                {
-                    timeoutCts.Dispose();
                 }
 
                 if (buffer.Count > 0)
@@ -113,12 +112,12 @@ public class PriceUpdateBatchService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "❌ PriceUpdateBatchService 批处理异常");
-                await Task.Delay(1000, stoppingToken); // 错误后延迟
+                _logger.LogError(ex, "PriceUpdateBatchService 批处理异常");
+                await Task.Delay(1000, stoppingToken);
             }
         }
 
-        _logger.LogInformation("❌ PriceUpdateBatchService 已停止");
+        _logger.LogInformation("PriceUpdateBatchService 已停止");
     }
 
     private async Task ProcessBatchAsync(List<PriceUpdateRequest> batch, CancellationToken ct)
@@ -126,18 +125,17 @@ public class PriceUpdateBatchService : BackgroundService
         try
         {
             var latestUpdates = batch
-                .GroupBy(x => x.Symbol)
+                .GroupBy(x => x.Symbol, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.Last())
                 .ToList();
 
-            _logger.LogDebug("📦 批处理价格更新: {Count} 个请求 -> {Unique} 个唯一交易对",
+            _logger.LogDebug("批处理价格更新: {Count} 个请求 -> {Unique} 个唯一交易对",
                 batch.Count, latestUpdates.Count);
 
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<CryptoSpot.Persistence.Data.ApplicationDbContext>();
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-            // 批量 CASE WHEN 更新，单次数据库往返
             if (latestUpdates.Count > 0)
             {
                 var priceCases = string.Join(" ", latestUpdates.Select(u =>
@@ -167,17 +165,33 @@ public class PriceUpdateBatchService : BackgroundService
                 await db.Database.ExecuteSqlRawAsync(batchSql, ct);
             }
 
-            // 并行推送 ticker 数据
-            var pushTasks = latestUpdates.Select(u =>
-                _pushService.PushLastTradeAndMidPriceAsync(
-                    u.Symbol, u.Price, null, null, null, null, now));
+            // 同一批里为每个 symbol 同时推两类事件，避免逐事件建 scope 和重复排队。
+            var pushTasks = latestUpdates.Select(async u =>
+            {
+                var priceData = new
+                {
+                    symbol = u.Symbol,
+                    price = u.Price,
+                    change24h = u.Change24h,
+                    volume24h = u.Volume24h,
+                    high24h = u.High24h,
+                    low24h = u.Low24h,
+                    timestamp = now
+                };
+
+                await _pushService.PushPriceDataAsync(u.Symbol, priceData);
+                await _pushService.PushLastTradeAndMidPriceAsync(
+                    u.Symbol, u.Price, null, null, null, null, now);
+                _metrics.TickerPushed();
+            });
+
             await Task.WhenAll(pushTasks);
 
-            _logger.LogDebug("✅ 批处理完成: {Count} 个交易对已更新", latestUpdates.Count);
+            _logger.LogDebug("批处理完成: {Count} 个交易对已更新", latestUpdates.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ 批处理执行失败，批次大小: {Count}", batch.Count);
+            _logger.LogError(ex, "批处理执行失败，批次大小: {Count}", batch.Count);
         }
     }
 
@@ -189,11 +203,8 @@ public class PriceUpdateBatchService : BackgroundService
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        // 完成写入，等待所有待处理数据完成
         _channel.Writer.Complete();
-
-        _logger.LogInformation("⏳ 等待剩余价格更新请求完成...");
-
+        _logger.LogInformation("等待剩余价格更新请求完成...");
         await base.StopAsync(cancellationToken);
     }
 }
