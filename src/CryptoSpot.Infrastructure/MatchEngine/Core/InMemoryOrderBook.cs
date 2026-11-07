@@ -20,8 +20,16 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Core
         {
             lock (_syncRoot)
             {
+                // 市价单不应停留在订单簿；限价单必须有正价格。
+                if (order.Type == OrderType.Market ||
+                    !order.Price.HasValue ||
+                    order.Price.Value <= 0)
+                {
+                    return;
+                }
+
                 var dict = order.Side == OrderSide.Buy ? _bids : _asks;
-                var price = order.Price ?? 0m;
+                var price = order.Price.Value;
                 if (!dict.TryGetValue(price, out var level))
                 {
                     level = new OrderLevel(price);

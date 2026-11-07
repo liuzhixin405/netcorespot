@@ -18,6 +18,16 @@ namespace CryptoSpot.Infrastructure.MatchEngine.Core
                     yield break;
                 }
 
+                // 历史脏数据可能包含 0 价/无价挂单；直接移出订单簿，不能参与成交。
+                if (maker.Type == OrderType.Market ||
+                    !maker.Price.HasValue ||
+                    maker.Price.Value <= 0)
+                {
+                    Debug.WriteLine($"[Match] Remove invalid maker {maker.OrderId} P={maker.Price}");
+                    book.Remove(maker);
+                    continue;
+                }
+
                 Debug.WriteLine($"[Match] Taker {taker.OrderId} P={taker.Price} S={taker.Side} vs Maker {maker.OrderId} P={maker.Price} S={maker.Side}");
 
                 if (!PriceCross(taker, maker))

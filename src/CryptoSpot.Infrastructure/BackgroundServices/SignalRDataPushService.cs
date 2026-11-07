@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR;
 using CryptoSpot.Domain.Entities;
 using CryptoSpot.Infrastructure.Hubs;
 using Microsoft.Extensions.Logging;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
 using CryptoSpot.Application.Abstractions.Services.Trading;
 using CryptoSpot.Application.Abstractions.Services.RealTime; // migrated
 using CryptoSpot.Application.DTOs.MarketData;
@@ -11,11 +13,13 @@ using CryptoSpot.Application.Mapping;
 
 namespace CryptoSpot.Infrastructure.BackgroundServices
 {
-    public class SignalRDataPushService : IRealTimeDataPushService
+    public class SignalRDataPushService : IRealTimeDataPushService, IExternalOrderBookSnapshotProvider
     {
         private readonly IHubContext<TradingHub> _hubContext;
         private readonly ILogger<SignalRDataPushService> _logger;
         private readonly IDtoMappingService _mapping;
+        private readonly ConcurrentDictionary<string, ExternalOrderBookState> _externalOrderBooks =
+            new(StringComparer.OrdinalIgnoreCase);
 
         public SignalRDataPushService(IHubContext<TradingHub> hubContext,ILogger<SignalRDataPushService> logger, IDtoMappingService mapping)
         {
@@ -126,12 +130,48 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             }
         }
 
-        public async Task PushOrderBookDeltaAsync(string symbol, List<OrderBookLevelDto> bidChanges, List<OrderBookLevelDto> askChanges)
+        public Task PushOrderBookDeltaAsync(string symbol, List<OrderBookLevelDto> bidChanges, List<OrderBookLevelDto> askChanges)
+            => PushOrderBookDeltaToGroupAsync(
+                symbol, $"orderbook_{symbol}", bidChanges, askChanges,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+        public Task PushExternalOrderBookDeltaAsync(
+            string symbol,
+            List<OrderBookLevelDto> bidChanges,
+            List<OrderBookLevelDto> askChanges,
+            long timestamp)
+            => PushExternalOrderBookDeltaCoreAsync(symbol, bidChanges, askChanges, timestamp);
+
+        private async Task PushExternalOrderBookDeltaCoreAsync(
+            string symbol,
+            List<OrderBookLevelDto> bidChanges,
+            List<OrderBookLevelDto> askChanges,
+            long timestamp)
+        {
+            var book = _externalOrderBooks.GetOrAdd(symbol, static _ => new ExternalOrderBookState());
+            await book.PublishGate.WaitAsync();
+            try
+            {
+                var sequence = book.ApplyDelta(bidChanges, askChanges, timestamp);
+                await PushOrderBookDeltaToGroupAsync(
+                    symbol, $"external_orderbook_{symbol}", bidChanges, askChanges, timestamp, sequence);
+            }
+            finally
+            {
+                book.PublishGate.Release();
+            }
+        }
+
+        private async Task PushOrderBookDeltaToGroupAsync(
+            string symbol,
+            string groupName,
+            List<OrderBookLevelDto> bidChanges,
+            List<OrderBookLevelDto> askChanges,
+            long timestamp,
+            long? sequence = null)
         {
             try
             {
-                var groupName = $"orderbook_{symbol}";
-                
                 var deltaData = new
                 {
                     type = "delta", // 标记为增量更新
@@ -148,7 +188,8 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
                         amount = a.Quantity,
                         total = a.Total
                     }).Cast<object>().ToList() ?? new List<object>(),
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                    timestamp,
+                    sequence
                 };
 
                 await _hubContext.Clients.Group(groupName).SendAsync("OrderBookUpdate", deltaData);
@@ -163,16 +204,20 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
 
         public async Task PushExternalOrderBookSnapshotAsync(string symbol, IReadOnlyList<OrderBookLevelDto> bids, IReadOnlyList<OrderBookLevelDto> asks, long timestamp)
         {
+            var book = _externalOrderBooks.GetOrAdd(symbol, static _ => new ExternalOrderBookState());
+            await book.PublishGate.WaitAsync();
             try
             {
-                var groupName = $"orderbook_{symbol}";
+                var sequence = book.SetSnapshot(bids, asks, timestamp);
+                var groupName = $"external_orderbook_{symbol}";
                 var data = new
                 {
                     type = "snapshot",
                     symbol,
                     bids = bids.Select(b => new { price = b.Price, amount = b.Quantity, total = b.Total }).ToList(),
                     asks = asks.Select(a => new { price = a.Price, amount = a.Quantity, total = a.Total }).ToList(),
-                    timestamp
+                    timestamp,
+                    sequence
                 };
                 await _hubContext.Clients.Group(groupName).SendAsync("OrderBookData", data);
                 _logger.LogDebug("Pushed external order book snapshot for {Symbol}", symbol);
@@ -181,6 +226,124 @@ namespace CryptoSpot.Infrastructure.BackgroundServices
             {
                 _logger.LogError(ex, "Failed to push external order book snapshot for {Symbol}", symbol);
             }
+            finally
+            {
+                book.PublishGate.Release();
+            }
+        }
+
+        public ExternalOrderBookSnapshot? GetSnapshot(string symbol)
+        {
+            return _externalOrderBooks.TryGetValue(symbol, out var book)
+                ? book.GetSnapshot(symbol)
+                : null;
+        }
+
+        public void RemoveExternalOrderBookSnapshot(string symbol)
+        {
+            _externalOrderBooks.TryRemove(symbol, out _);
+        }
+
+        private sealed class ExternalOrderBookState
+        {
+            private readonly object _sync = new();
+            private Dictionary<decimal, OrderBookLevelDto> _bids = new();
+            private Dictionary<decimal, OrderBookLevelDto> _asks = new();
+            private long _sequence;
+            private long _timestamp;
+            private bool _hasSnapshot;
+
+            public SemaphoreSlim PublishGate { get; } = new(1, 1);
+
+            public long SetSnapshot(
+                IReadOnlyList<OrderBookLevelDto> bids,
+                IReadOnlyList<OrderBookLevelDto> asks,
+                long timestamp)
+            {
+                lock (_sync)
+                {
+                    _bids = bids.Where(level => level.Quantity > 0)
+                        .ToDictionary(level => level.Price, CopyLevel);
+                    _asks = asks.Where(level => level.Quantity > 0)
+                        .ToDictionary(level => level.Price, CopyLevel);
+                    Trim(_bids, bids: true);
+                    Trim(_asks, bids: false);
+                    _timestamp = timestamp;
+                    _hasSnapshot = true;
+                    return ++_sequence;
+                }
+            }
+
+            public long ApplyDelta(
+                IReadOnlyList<OrderBookLevelDto> bids,
+                IReadOnlyList<OrderBookLevelDto> asks,
+                long timestamp)
+            {
+                lock (_sync)
+                {
+                    if (!_hasSnapshot)
+                    {
+                        return _sequence;
+                    }
+
+                    Apply(_bids, bids);
+                    Apply(_asks, asks);
+                    Trim(_bids, bids: true);
+                    Trim(_asks, bids: false);
+                    _timestamp = timestamp;
+                    return ++_sequence;
+                }
+            }
+
+            public ExternalOrderBookSnapshot? GetSnapshot(string symbol)
+            {
+                lock (_sync)
+                {
+                    if (!_hasSnapshot)
+                    {
+                        return null;
+                    }
+
+                    var bids = _bids.Values.OrderByDescending(level => level.Price)
+                        .Select(CopyLevel).ToList();
+                    var asks = _asks.Values.OrderBy(level => level.Price)
+                        .Select(CopyLevel).ToList();
+                    return new ExternalOrderBookSnapshot(symbol, bids, asks, _timestamp, _sequence);
+                }
+            }
+
+            private static void Apply(
+                Dictionary<decimal, OrderBookLevelDto> levels,
+                IReadOnlyList<OrderBookLevelDto> updates)
+            {
+                foreach (var level in updates)
+                {
+                    if (level.Quantity <= 0)
+                    {
+                        levels.Remove(level.Price);
+                    }
+                    else
+                    {
+                        levels[level.Price] = CopyLevel(level);
+                    }
+                }
+            }
+
+            private static void Trim(Dictionary<decimal, OrderBookLevelDto> levels, bool bids)
+            {
+                while (levels.Count > 400)
+                {
+                    levels.Remove(bids ? levels.Keys.Min() : levels.Keys.Max());
+                }
+            }
+
+            private static OrderBookLevelDto CopyLevel(OrderBookLevelDto level) => new()
+            {
+                Price = level.Price,
+                Quantity = level.Quantity,
+                Total = level.Price * level.Quantity,
+                OrderCount = level.OrderCount
+            };
         }
 
         // 新增

@@ -1,484 +1,411 @@
+using System.Collections.Concurrent;
+using CryptoSpot.Application.Abstractions.Repositories;
+using CryptoSpot.Application.Abstractions.Services.MarketData;
+using CryptoSpot.Application.Abstractions.Services.RealTime;
+using CryptoSpot.Application.DTOs.MarketData;
+using CryptoSpot.Application.DTOs.Trading;
 using CryptoSpot.Domain.Entities;
-
+using CryptoSpot.Infrastructure.BackgroundServices;
+using CryptoSpot.Infrastructure.MarketData;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
-using System.Collections.Concurrent;
-using CryptoSpot.Application.Abstractions.Services.MarketData;
-using CryptoSpot.Application.Abstractions.Repositories;
-using CryptoSpot.Application.Abstractions.Services.RealTime;
-using CryptoSpot.Application.DTOs.MarketData;
-using CryptoSpot.Application.DTOs.Trading;
 
-namespace CryptoSpot.Infrastructure.ExternalServices
+namespace CryptoSpot.Infrastructure.ExternalServices;
+
+/// <summary>
+/// Binance 市场数据提供者（REST 轮询，作为可选备用源）。默认不启用；
+/// 主实时源仍是 OKX WebSocket。价格落库统一交给 <see cref="PriceUpdateBatchService"/>。
+/// </summary>
+public class BinanceMarketDataProvider : IMarketDataProvider
 {
-    /// <summary>
-    /// Binance市场数据提供者 - 纯粹的业务服务，不继承BackgroundService
-    /// </summary>
-    public class BinanceMarketDataProvider : IMarketDataProvider
+    private static readonly string[] DefaultSymbols = LocalMarketCatalog.Symbols;
+    private static readonly string[] DefaultIntervals = { "1m", "5m", "15m", "1h", "4h", "1d" };
+
+    private readonly HttpClient _httpClient;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly IRealTimeDataPushService _realTimeDataPush;
+    private readonly PriceUpdateBatchService _priceUpdateBatchService;
+    private readonly ILogger<BinanceMarketDataProvider> _logger;
+    private readonly IConfiguration _configuration;
+    private readonly MarketDataMetrics _metrics;
+    private readonly Timer _timer;
+
+    private readonly ConcurrentDictionary<string, KLineDataDto> _klineCache = new();
+    private readonly ConcurrentDictionary<string, long> _tradingPairIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly string[] _symbols;
+    private readonly string[] _intervals;
+    private readonly int _maxConcurrency;
+    private readonly string _proxyUrl;
+
+    private CancellationTokenSource? _cts;
+    private DateTime _lastKlineSaveMinute = DateTime.MinValue;
+    private int _isSyncing;
+
+    public string ProviderName => "Binance";
+
+    public BinanceMarketDataProvider(
+        HttpClient httpClient,
+        IServiceScopeFactory serviceScopeFactory,
+        IRealTimeDataPushService realTimeDataPush,
+        PriceUpdateBatchService priceUpdateBatchService,
+        MarketDataMetrics metrics,
+        ILogger<BinanceMarketDataProvider> logger,
+        IConfiguration configuration)
     {
-        private readonly HttpClient _httpClient;
-        private readonly IServiceScopeFactory _serviceScopeFactory;
-        private readonly ILogger<BinanceMarketDataProvider> _logger;
-        private readonly IConfiguration _configuration;
-        private readonly Timer _timer;
-        private readonly ConcurrentDictionary<string, DateTime> _lastUpdateTimes = new();
-        private readonly ConcurrentDictionary<string, (decimal Price, decimal Change24h, decimal Volume24h, decimal High24h, decimal Low24h)> _priceCache = new();
-        private readonly ConcurrentDictionary<string, KLineDataDto> _klineCache = new();
-        private DateTime _lastMinuteSave = DateTime.MinValue;
+        _httpClient = httpClient;
+        _serviceScopeFactory = serviceScopeFactory;
+        _realTimeDataPush = realTimeDataPush;
+        _priceUpdateBatchService = priceUpdateBatchService;
+        _metrics = metrics;
+        _logger = logger;
+        _configuration = configuration;
 
-        private readonly string[] _topSymbols = { "BTCUSDT", "ETHUSDT", "SOLUSDT" };
-        private readonly string[] _intervals = { "1m", "5m", "15m", "1h", "4h", "1d" };
-        private readonly string _proxyUrl;
+        _symbols = ReadList("Binance:Symbols", DefaultSymbols);
+        _intervals = ReadList("Binance:Intervals", DefaultIntervals);
+        _maxConcurrency = Math.Clamp(configuration.GetValue("Binance:MaxConcurrency", 4), 1, 16);
+        _proxyUrl = _configuration["Binance:ProxyUrl"] ?? string.Empty;
 
-        public string ProviderName => "Binance";
+        _httpClient.BaseAddress = new Uri("https://api.binance.com/");
+        _timer = new Timer(_ => { _ = SyncDataCallbackAsync(); }, null, Timeout.Infinite, Timeout.Infinite);
+    }
 
-        public BinanceMarketDataProvider(
-            HttpClient httpClient,
-            IServiceScopeFactory serviceScopeFactory,
-            ILogger<BinanceMarketDataProvider> logger,
-            IConfiguration configuration)
+    public async Task<bool> IsAvailableAsync()
+    {
+        try
         {
-            _httpClient = httpClient;
-            _serviceScopeFactory = serviceScopeFactory;
-            _logger = logger;
-            _configuration = configuration;
-            _proxyUrl = _configuration["Binance:ProxyUrl"] ?? "";
-
-            _httpClient.BaseAddress = new Uri("https://api.binance.com/");
-            
-            if (!string.IsNullOrEmpty(_proxyUrl))
+            var response = await _httpClient.GetAsync("api/v3/ping");
+            var content = await response.Content.ReadAsStringAsync();
+            if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Using proxy for Binance API: {ProxyUrl}", _proxyUrl);
-                ConfigureProxy();
+                _logger.LogInformation("Binance connection successful. Response: {Content}", content);
+                return true;
             }
-            
-            _timer = new Timer(_ => { _ = SyncDataCallbackAsync(); }, null, Timeout.Infinite, Timeout.Infinite);
+
+            _logger.LogWarning("Binance connection failed. Status: {StatusCode}, Content: {Content}",
+                response.StatusCode, content);
+            return false;
         }
-
-        private void ConfigureProxy()
+        catch (Exception ex)
         {
-            _logger.LogInformation("Proxy configuration: {ProxyUrl}", _proxyUrl);
-        }
-
-        public async Task<bool> IsAvailableAsync()
-        {
-            try
-            {
-                _logger.LogInformation("Testing connection to Binance API...");
-                var response = await _httpClient.GetAsync("api/v3/ping");
-                var content = await response.Content.ReadAsStringAsync();
-                
-                if (response.IsSuccessStatusCode)
-                {
-                    _logger.LogInformation("✅ Binance connection successful. Response: {Content}", content);
-                    return true;
-                }
-                else
-                {
-                    _logger.LogWarning("⚠️ Binance connection failed. Status: {StatusCode}, Content: {Content}", 
-                        response.StatusCode, content);
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "❌ Binance connection test failed: {Message}", ex.Message);
-                return false;
-            }
-        }
-
-        public async Task<IEnumerable<TradingPairDto>> GetTopTradingPairsAsync(int count = 10)
-        {
-            try
-            {
-                var symbolsToQuery = _topSymbols.Take(count).ToArray();
-                var symbolsJson = "[" + string.Join(",", symbolsToQuery.Select(s => $"\"{s}\"")) + "]";
-                var symbolsParam = Uri.EscapeDataString(symbolsJson);
-                var url = $"api/v3/ticker/24hr?symbols={symbolsParam}";
-                var response = await _httpClient.GetStringAsync(url);
-                var tickerDataList = JsonConvert.DeserializeObject<List<BinanceTickerData>>(response) ?? new();
-                return tickerDataList.Select(t => new TradingPairDto
-                {
-                    Symbol = t.Symbol,
-                    BaseAsset = t.Symbol.Replace("USDT", string.Empty),
-                    QuoteAsset = "USDT",
-                    Price = t.LastPrice,
-                    Change24h = t.PriceChangePercent / 100,
-                    Change24hPercent = t.PriceChangePercent,
-                    Volume24h = t.Volume,
-                    High24h = t.HighPrice,
-                    Low24h = t.LowPrice,
-                    LastUpdated = DateTime.UtcNow,
-                    IsActive = true
-                }).ToList();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get top trading pairs from Binance API");
-                return Enumerable.Empty<TradingPairDto>();
-            }
-        }
-
-        public async Task<TradingPairDto?> GetTradingPairAsync(string symbol)
-        {
-            try
-            {
-                var response = await _httpClient.GetStringAsync($"api/v3/ticker/24hr?symbol={symbol}");
-                var t = JsonConvert.DeserializeObject<BinanceTickerData>(response);
-                if (t == null) return null;
-                return new TradingPairDto
-                {
-                    Symbol = t.Symbol,
-                    BaseAsset = t.Symbol.Replace("USDT", string.Empty),
-                    QuoteAsset = "USDT",
-                    Price = t.LastPrice,
-                    Change24h = t.PriceChangePercent / 100,
-                    Change24hPercent = t.PriceChangePercent,
-                    Volume24h = t.Volume,
-                    High24h = t.HighPrice,
-                    Low24h = t.LowPrice,
-                    LastUpdated = DateTime.UtcNow,
-                    IsActive = true
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get trading pair {Symbol} from Binance", symbol);
-                return null;
-            }
-        }
-
-        public async Task<IEnumerable<KLineDataDto>> GetKLineDataAsync(string symbol, string interval, int limit = 100)
-        {
-            try
-            {
-                var response = await _httpClient.GetStringAsync($"api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}");
-                var klineData = JsonConvert.DeserializeObject<List<object[]>>(response) ?? new();
-                // 获取 TradingPair Id 需要调用价格服务，但此处我们仅返回 DTO，不需要 Id
-                return klineData.Select(k => new KLineDataDto
-                {
-                    Symbol = symbol,
-                    TimeFrame = interval,
-                    OpenTime = Convert.ToInt64(k[0]),
-                    Open = Convert.ToDecimal(k[1]),
-                    High = Convert.ToDecimal(k[2]),
-                    Low = Convert.ToDecimal(k[3]),
-                    Close = Convert.ToDecimal(k[4]),
-                    Volume = Convert.ToDecimal(k[5]),
-                    CloseTime = Convert.ToInt64(k[6]),
-                    OpenDateTime = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(k[0])).UtcDateTime,
-                    CloseDateTime = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(k[6])).UtcDateTime
-                }).ToList();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to get K-line data for {Symbol} {Interval} from Binance", symbol, interval);
-                return Enumerable.Empty<KLineDataDto>();
-            }
-        }
-
-        public async Task StartRealTimeDataSyncAsync()
-        {
-            _logger.LogInformation("Starting Binance data sync with 5-second intervals");
-            
-            await SyncTradingPairsAsync();
-            await SyncKLineDataAsync();
-
-            // 改为5秒更新一次，平衡实时性和数据库负载
-            _timer.Change(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
-        }
-
-        public Task StopRealTimeDataSyncAsync()
-        {
-            _logger.LogInformation("Stopping Binance data sync");
-            _timer.Change(Timeout.Infinite, Timeout.Infinite);
-            return Task.CompletedTask;
-        }
-
-        public void Dispose()
-        {
-            _timer?.Dispose();
-        }
-
-        private async Task SyncDataCallbackAsync()
-        {
-            try
-            {
-                await SyncTradingPairsAsync();
-                await SyncKLineDataAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during data sync");
-            }
-        }
-
-        private async Task SyncTradingPairsAsync()
-        {
-            try
-            {
-                using var scope = _serviceScopeFactory.CreateScope();
-                var priceDataService = scope.ServiceProvider.GetRequiredService<IPriceDataService>();
-                var realTimeDataPush = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
-                var binancePairs = await GetTopTradingPairsAsync();
-                
-                var priceUpdates = new Dictionary<string, object>();
-                var now = DateTime.UtcNow;
-                var currentMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
-                
-                foreach (var binancePair in binancePairs)
-                {
-                    // 1. 实时推送所有价格数据
-                    if (realTimeDataPush != null)
-                    {
-                        var priceData = new
-                        {
-                            symbol = binancePair.Symbol,
-                            price = binancePair.Price,
-                            change24h = binancePair.Change24h,
-                            volume24h = binancePair.Volume24h,
-                            high24h = binancePair.High24h,
-                            low24h = binancePair.Low24h,
-                            timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                        };
-                        
-                        priceUpdates[binancePair.Symbol] = priceData;
-                    }
-                    
-                    // 2. 缓存价格数据（不立即入库）
-                    _priceCache[binancePair.Symbol] = (
-                        binancePair.Price,
-                        binancePair.Change24h,
-                        binancePair.Volume24h,
-                        binancePair.High24h,
-                        binancePair.Low24h
-                    );
-                }
-                
-                // 3. 批量推送实时价格更新
-                if (realTimeDataPush != null && priceUpdates.Count > 0)
-                {
-                    await realTimeDataPush.PushPriceDataToMultipleSymbolsAsync(priceUpdates);
-                }
-                
-                // 4. 检查是否需要入库（每分钟结束时入库一次）
-                if (_lastMinuteSave != currentMinute)
-                {
-                    await SaveCachedPricesToDatabaseAsync(priceDataService, currentMinute);
-                    _lastMinuteSave = currentMinute;
-                }
-                
-                _logger.LogInformation("Successfully synced {Count} trading pairs (real-time push)", binancePairs.Count());
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to sync trading pairs");
-            }
-        }
-
-        /// <summary>
-        /// 将缓存的价格数据保存到数据库（每分钟执行一次）
-        /// </summary>
-        private async Task SaveCachedPricesToDatabaseAsync(IPriceDataService priceDataService, DateTime currentMinute)
-        {
-            try
-            {
-                if (_priceCache.IsEmpty)
-                {
-                    _logger.LogDebug("No cached prices to save for minute {Minute}", currentMinute.ToString("HH:mm"));
-                    return;
-                }
-
-                foreach (var kvp in _priceCache)
-                {
-                    var symbol = kvp.Key;
-                    var (price, change24h, volume24h, high24h, low24h) = kvp.Value;
-                    
-                    await priceDataService.UpdateTradingPairPriceAsync(
-                        symbol, price, change24h, volume24h, high24h, low24h);
-                }
-                
-                _logger.LogInformation("💾 保存缓存价格数据到数据库: {Count} 个交易对, 时间: {Minute}", 
-                    _priceCache.Count, currentMinute.ToString("HH:mm"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "保存缓存价格数据到数据库失败: {Minute}", currentMinute.ToString("HH:mm"));
-            }
-        }
-
-        /// <summary>
-        /// 判断是否为新K线时间
-        /// </summary>
-        private bool IsNewKLineTime(long openTime, string interval)
-        {
-            var currentTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var intervalMs = GetIntervalMilliseconds(interval);
-            
-            // 如果当前时间距离K线开始时间超过间隔时间，认为是新K线
-            return (currentTime - openTime) >= intervalMs;
-        }
-
-        /// <summary>
-        /// 获取时间间隔对应的毫秒数
-        /// </summary>
-        private long GetIntervalMilliseconds(string interval)
-        {
-            return interval switch
-            {
-                "1m" => 60 * 1000,
-                "5m" => 5 * 60 * 1000,
-                "15m" => 15 * 60 * 1000,
-                "1h" => 60 * 60 * 1000,
-                "4h" => 4 * 60 * 60 * 1000,
-                "1d" => 24 * 60 * 60 * 1000,
-                _ => 60 * 1000 // 默认1分钟
-            };
-        }
-
-        /// <summary>
-        /// 将缓存的K线数据保存到数据库（每分钟执行一次）
-        /// </summary>
-        private async Task SaveCachedKLineDataToDatabaseAsync(DateTime currentMinute)
-        {
-            try
-            {
-                if (_klineCache.IsEmpty)
-                {
-                    _logger.LogDebug("No cached K-line data to save for minute {Minute}", currentMinute.ToString("HH:mm"));
-                    return;
-                }
-
-                using var scope = _serviceScopeFactory.CreateScope();
-                var klineDataRepository = scope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
-
-                foreach (var kvp in _klineCache)
-                {
-                    var klineData = kvp.Value;
-                    var entity = new CryptoSpot.Domain.Entities.KLineData
-                    {
-                        TradingPairId = 0,
-                        TimeFrame = klineData.TimeFrame,
-                        OpenTime = klineData.OpenTime,
-                        CloseTime = klineData.CloseTime,
-                        Open = klineData.Open,
-                        High = klineData.High,
-                        Low = klineData.Low,
-                        Close = klineData.Close,
-                        Volume = klineData.Volume
-                    };
-
-                    // Redis cache removed - save directly to database
-                    await klineDataRepository.UpsertKLineDataAsync(entity);
-                }
-                
-                _logger.LogInformation("💾 保存缓存K线数据到数据库: {Count} 条记录, 时间: {Minute}", 
-                    _klineCache.Count, currentMinute.ToString("HH:mm"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "保存缓存K线数据到数据库失败: {Minute}", currentMinute.ToString("HH:mm"));
-            }
-        }
-
-        private async Task SyncKLineDataAsync()
-        {
-            try
-            {
-                using var scope = _serviceScopeFactory.CreateScope();
-                var realTimeDataPush = scope.ServiceProvider.GetService<IRealTimeDataPushService>();
-                
-                var tasks = new List<Task>();
-                var now = DateTime.UtcNow;
-                var currentMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
-                
-                foreach (var symbol in _topSymbols)
-                {
-                    foreach (var interval in _intervals)
-                    {
-                        var task = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                var klineData = await GetKLineDataAsync(symbol, interval, 2);
-                                var latestKline = klineData.LastOrDefault();
-                                
-                                if (latestKline != null)
-                                {
-                                    // 1. 实时推送所有K线数据
-                                    if (realTimeDataPush != null)
-                                    {
-                                        // 判断是否为新K线（基于时间戳）
-                                        bool isNewKLine = IsNewKLineTime(latestKline.OpenTime, interval);
-                                        var dto = new KLineDataDto
-                                        {
-                                            Id = latestKline.Id,
-                                            Symbol = symbol,
-                                            TimeFrame = interval,
-                                            OpenTime = latestKline.OpenTime,
-                                            CloseTime = latestKline.CloseTime,
-                                            Open = latestKline.Open,
-                                            High = latestKline.High,
-                                            Low = latestKline.Low,
-                                            Close = latestKline.Close,
-                                            Volume = latestKline.Volume,
-                                            OpenDateTime = latestKline.OpenDateTime,
-                                            CloseDateTime = latestKline.CloseDateTime
-                                        };
-                                        await realTimeDataPush.PushKLineDataAsync(symbol, interval, dto, isNewKLine);
-                                    }
-                                    
-                                    // 2. 缓存K线数据（使用symbol+interval作为key）
-                                    var cacheKey = $"{symbol}_{interval}";
-                                    _klineCache[cacheKey] = new KLineDataDto
-                                    {
-                                        Symbol = symbol,
-                                        TimeFrame = interval,
-                                        OpenTime = latestKline.OpenTime,
-                                        CloseTime = latestKline.CloseTime,
-                                        Open = latestKline.Open,
-                                        High = latestKline.High,
-                                        Low = latestKline.Low,
-                                        Close = latestKline.Close,
-                                        Volume = latestKline.Volume,
-                                        OpenDateTime = latestKline.OpenDateTime,
-                                        CloseDateTime = latestKline.CloseDateTime
-                                    };
-                                }
-                                
-                                _logger.LogDebug("Synced K-line data for {Symbol} {Interval} (real-time push)", symbol, interval);
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "Error syncing K-line data for {Symbol} {Interval}", symbol, interval);
-                            }
-                        });
-                        
-                        tasks.Add(task);
-                    }
-                }
-                
-                await Task.WhenAll(tasks);
-                
-                // 3. 检查是否需要入库K线数据（每分钟结束时入库一次）
-                if (_lastMinuteSave != currentMinute)
-                {
-                    await SaveCachedKLineDataToDatabaseAsync(currentMinute);
-                }
-                
-                _logger.LogInformation("K-line data sync completed for {SymbolCount} symbols and {IntervalCount} intervals (real-time push)", 
-                    _topSymbols.Length, _intervals.Length);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to sync K-line data");
-            }
+            _logger.LogError(ex, "Binance connection test failed");
+            return false;
         }
     }
 
-    // Binance API response models
+    public async Task<IEnumerable<TradingPairDto>> GetTopTradingPairsAsync(int count = 10)
+    {
+        try
+        {
+            var symbolsToQuery = _symbols.Take(count).ToArray();
+            var symbolsJson = "[" + string.Join(",", symbolsToQuery.Select(s => $"\"{s}\"")) + "]";
+            var symbolsParam = Uri.EscapeDataString(symbolsJson);
+            var response = await _httpClient.GetStringAsync($"api/v3/ticker/24hr?symbols={symbolsParam}");
+            var tickerDataList = JsonConvert.DeserializeObject<List<BinanceTickerData>>(response) ?? new();
+
+            return tickerDataList.Select(t => new TradingPairDto
+            {
+                Symbol = t.Symbol,
+                BaseAsset = t.Symbol.Replace("USDT", string.Empty),
+                QuoteAsset = "USDT",
+                Price = t.LastPrice,
+                Change24h = t.PriceChangePercent / 100,
+                Change24hPercent = t.PriceChangePercent,
+                Volume24h = t.Volume,
+                High24h = t.HighPrice,
+                Low24h = t.LowPrice,
+                LastUpdated = DateTime.UtcNow,
+                IsActive = true
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get top trading pairs from Binance API");
+            return Enumerable.Empty<TradingPairDto>();
+        }
+    }
+
+    public async Task<TradingPairDto?> GetTradingPairAsync(string symbol)
+    {
+        try
+        {
+            var response = await _httpClient.GetStringAsync($"api/v3/ticker/24hr?symbol={symbol}");
+            var t = JsonConvert.DeserializeObject<BinanceTickerData>(response);
+            if (t == null) return null;
+
+            return new TradingPairDto
+            {
+                Symbol = t.Symbol,
+                BaseAsset = t.Symbol.Replace("USDT", string.Empty),
+                QuoteAsset = "USDT",
+                Price = t.LastPrice,
+                Change24h = t.PriceChangePercent / 100,
+                Change24hPercent = t.PriceChangePercent,
+                Volume24h = t.Volume,
+                High24h = t.HighPrice,
+                Low24h = t.LowPrice,
+                LastUpdated = DateTime.UtcNow,
+                IsActive = true
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get trading pair {Symbol} from Binance", symbol);
+            return null;
+        }
+    }
+
+    public async Task<IEnumerable<KLineDataDto>> GetKLineDataAsync(string symbol, string interval, int limit = 100)
+    {
+        try
+        {
+            var response = await _httpClient.GetStringAsync($"api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}");
+            var klineData = JsonConvert.DeserializeObject<List<object[]>>(response) ?? new();
+
+            return klineData.Select(k => new KLineDataDto
+            {
+                Symbol = symbol,
+                TimeFrame = interval,
+                OpenTime = Convert.ToInt64(k[0]),
+                Open = Convert.ToDecimal(k[1]),
+                High = Convert.ToDecimal(k[2]),
+                Low = Convert.ToDecimal(k[3]),
+                Close = Convert.ToDecimal(k[4]),
+                Volume = Convert.ToDecimal(k[5]),
+                CloseTime = Convert.ToInt64(k[6]),
+                OpenDateTime = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(k[0])).UtcDateTime,
+                CloseDateTime = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(k[6])).UtcDateTime
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get K-line data for {Symbol} {Interval} from Binance", symbol, interval);
+            return Enumerable.Empty<KLineDataDto>();
+        }
+    }
+
+    public async Task StartRealTimeDataSyncAsync()
+    {
+        _cts ??= new CancellationTokenSource();
+        _logger.LogInformation("Starting Binance data sync with 5-second intervals");
+
+        await SyncTradingPairsAsync(_cts.Token);
+        await SyncKLineDataAsync(_cts.Token);
+
+        _timer.Change(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    public Task StopRealTimeDataSyncAsync()
+    {
+        _logger.LogInformation("Stopping Binance data sync");
+        _timer.Change(Timeout.Infinite, Timeout.Infinite);
+        _cts?.Cancel();
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _cts?.Dispose();
+    }
+
+    private async Task SyncDataCallbackAsync()
+    {
+        if (Interlocked.Exchange(ref _isSyncing, 1) != 0)
+        {
+            _logger.LogDebug("Binance sync already running; skipping overlapping timer tick");
+            return;
+        }
+
+        try
+        {
+            var ct = _cts?.Token ?? CancellationToken.None;
+            await SyncTradingPairsAsync(ct);
+            await SyncKLineDataAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during data sync");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isSyncing, 0);
+        }
+    }
+
+    private async Task SyncTradingPairsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var binancePairs = await GetTopTradingPairsAsync(_symbols.Length);
+            foreach (var pair in binancePairs)
+            {
+                _priceUpdateBatchService.TryEnqueue(
+                    pair.Symbol, pair.Price, pair.Change24h, pair.Volume24h, pair.High24h, pair.Low24h);
+            }
+
+            _logger.LogInformation("Successfully synced {Count} Binance trading pairs", binancePairs.Count());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync trading pairs");
+        }
+    }
+
+    private async Task SyncKLineDataAsync(CancellationToken ct)
+    {
+        try
+        {
+            var items = (
+                from symbol in _symbols
+                from interval in _intervals
+                select (Symbol: symbol, Interval: interval)).ToArray();
+
+            // [联网-官方: https://learn.microsoft.com/en-us/dotnet/api/system.threading.tasks.parallel.foreachasync]
+            await Parallel.ForEachAsync(items, new ParallelOptions
+            {
+                MaxDegreeOfParallelism = _maxConcurrency,
+                CancellationToken = ct
+            }, async (item, token) =>
+            {
+                try
+                {
+                    var klineData = await GetKLineDataAsync(item.Symbol, item.Interval, 2);
+                    var latestKline = klineData.LastOrDefault();
+                    if (latestKline == null)
+                    {
+                        return;
+                    }
+
+                    var cacheKey = $"{item.Symbol}_{item.Interval}";
+                    var isNewKLine = !_klineCache.TryGetValue(cacheKey, out var previous) ||
+                                     previous.OpenTime != latestKline.OpenTime;
+
+                    await _realTimeDataPush.PushKLineDataAsync(
+                        item.Symbol, item.Interval, latestKline, isNewKLine);
+
+                    _klineCache[cacheKey] = latestKline;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error syncing K-line data for {Symbol} {Interval}", item.Symbol, item.Interval);
+                }
+            });
+
+            var now = DateTime.UtcNow;
+            var currentMinute = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0);
+            if (_lastKlineSaveMinute != currentMinute)
+            {
+                _lastKlineSaveMinute = currentMinute;
+                await SaveCachedKLineDataToDatabaseAsync(currentMinute, ct);
+            }
+
+            _logger.LogInformation("K-line data sync completed for {SymbolCount} symbols and {IntervalCount} intervals",
+                _symbols.Length, _intervals.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to sync K-line data");
+        }
+    }
+
+    private async Task SaveCachedKLineDataToDatabaseAsync(DateTime currentMinute, CancellationToken ct)
+    {
+        if (_klineCache.IsEmpty)
+        {
+            _logger.LogDebug("No cached K-line data to save for minute {Minute}", currentMinute.ToString("HH:mm"));
+            return;
+        }
+
+        try
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var klineDataRepository = scope.ServiceProvider.GetRequiredService<IKLineDataRepository>();
+            var entities = new List<KLineData>(_klineCache.Count);
+
+            foreach (var kvp in _klineCache)
+            {
+                var tradingPairId = await GetTradingPairIdAsync(kvp.Value.Symbol, scope, ct);
+                if (tradingPairId <= 0)
+                {
+                    continue;
+                }
+
+                entities.Add(new KLineData
+                {
+                    TradingPairId = tradingPairId,
+                    TimeFrame = kvp.Value.TimeFrame,
+                    OpenTime = kvp.Value.OpenTime,
+                    CloseTime = kvp.Value.CloseTime,
+                    Open = kvp.Value.Open,
+                    High = kvp.Value.High,
+                    Low = kvp.Value.Low,
+                    Close = kvp.Value.Close,
+                    Volume = kvp.Value.Volume
+                });
+            }
+
+            if (entities.Count == 0)
+            {
+                return;
+            }
+
+            await klineDataRepository.SaveKLineDataBatchAsync(entities);
+            _metrics.KLineSaved();
+            _klineCache.Clear();
+
+            _logger.LogInformation("保存缓存K线数据到数据库: {Count} 条记录, 时间: {Minute}",
+                entities.Count, currentMinute.ToString("HH:mm"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "保存缓存K线数据到数据库失败: {Minute}", currentMinute.ToString("HH:mm"));
+        }
+    }
+
+    private async Task<long> GetTradingPairIdAsync(string symbol, IServiceScope scope, CancellationToken ct)
+    {
+        if (_tradingPairIds.TryGetValue(symbol, out var cached))
+        {
+            return cached;
+        }
+
+        var repository = scope.ServiceProvider.GetService<ITradingPairRepository>();
+        if (repository is null)
+        {
+            return 0;
+        }
+
+        var pair = await repository.GetBySymbolAsync(symbol);
+        if (pair is null)
+        {
+            return 0;
+        }
+
+        _tradingPairIds[symbol] = pair.Id;
+        return pair.Id;
+    }
+
+    private string[] ReadList(string key, string[] defaults)
+    {
+        var configured = _configuration.GetValue<string>(key);
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return defaults;
+        }
+
+        var values = configured
+            .Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return values.Length > 0 ? values : defaults;
+    }
+
     public class BinanceTickerData
     {
         [JsonProperty("symbol")]

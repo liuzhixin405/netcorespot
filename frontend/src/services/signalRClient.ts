@@ -16,6 +16,8 @@ export class SignalRClient {
   private subscribedPriceSymbols: string[] = [];
   private subscribedKLines: { symbol: string; interval: string }[] = [];
   private subscribedOrderBooks: { symbol: string; depth: number }[] = [];
+  private orderBookSubscriberCounts = new Map<string, number>();
+  private orderBookOperations = new Map<string, Promise<void>>();
 
   private constructor() {
     // SignalR客户端初始化
@@ -80,7 +82,12 @@ export class SignalRClient {
           try {
             if (this.subscribedPriceSymbols.length) await this.connection!.invoke('SubscribePriceData', this.subscribedPriceSymbols);
             for (const k of this.subscribedKLines) await this.connection!.invoke('SubscribeKLineData', k.symbol, k.interval);
-            for (const ob of this.subscribedOrderBooks) await this.connection!.invoke('SubscribeOrderBook', ob.symbol, ob.depth ?? 20);
+            for (const ob of this.subscribedOrderBooks) {
+              await this.runOrderBookOperation(
+                ob.symbol,
+                () => this.connection!.invoke('SubscribeExternalOrderBook', ob.symbol)
+              );
+            }
           } catch (e) { }
         });
 
@@ -257,40 +264,102 @@ export class SignalRClient {
         throw new Error('SignalR连接状态异常');
       }
 
-      // 命名 handler，精确移除，防止影响其他组件的订阅
-      const dataHandler = (response: any) => { onOrderBookData(response); };
-      const updateHandler = (response: any) => { onOrderBookData(response); };
-
-      this.connection.off('OrderBookData', dataHandler);
-      this.connection.off('OrderBookUpdate', updateHandler);
+      // 命名 handler，过滤其他交易对并在取消时精确移除
+      const matchesSymbol = (response: any) =>
+        typeof response?.symbol === 'string' &&
+        response.symbol.toUpperCase() === symbol.toUpperCase();
+      const dataHandler = (response: any) => {
+        if (matchesSymbol(response)) onOrderBookData(response);
+      };
+      const updateHandler = (response: any) => {
+        if (matchesSymbol(response)) onOrderBookData(response);
+      };
 
       this.connection.on('OrderBookData', dataHandler);
       this.connection.on('OrderBookUpdate', updateHandler);
 
-      // 发送订阅请求
-      await this.connection.invoke('SubscribeOrderBook', symbol, 20);
+      const subscriberCount = this.orderBookSubscriberCounts.get(symbol) ?? 0;
+      this.orderBookSubscriberCounts.set(symbol, subscriberCount + 1);
+      try {
+        await this.runOrderBookOperation(
+          symbol,
+          () => this.connection!.invoke('SubscribeExternalOrderBook', symbol)
+        );
+      } catch (error) {
+        this.connection.off('OrderBookData', dataHandler);
+        this.connection.off('OrderBookUpdate', updateHandler);
+        this.decrementOrderBookSubscriberCount(symbol);
+        throw error;
+      }
 
       // 记录订阅
       if (!this.subscribedOrderBooks.some(o => o.symbol === symbol)) {
-        this.subscribedOrderBooks.push({ symbol, depth: 20 });
+        this.subscribedOrderBooks.push({ symbol, depth: 10 });
       }
 
       // 返回取消订阅函数
+      let active = true;
       return async () => {
+        if (!active) return;
+        active = false;
+        this.connection?.off('OrderBookData', dataHandler);
+        this.connection?.off('OrderBookUpdate', updateHandler);
+        if (this.decrementOrderBookSubscriberCount(symbol) > 0) return;
+
+        this.subscribedOrderBooks = this.subscribedOrderBooks.filter(o => o.symbol !== symbol);
         try {
           if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
-            await this.connection.invoke('UnsubscribeOrderBook', symbol);
+            await this.runOrderBookOperation(
+              symbol,
+              () => this.connection!.invoke('UnsubscribeExternalOrderBook', symbol)
+            );
           }
         } catch {
           // 取消订阅失败，忽略错误
         }
-        this.subscribedOrderBooks = this.subscribedOrderBooks.filter(o => o.symbol !== symbol);
       };
 
     } catch (error) {
       if (onError) onError(error);
       return () => {};
     }
+  }
+
+  private decrementOrderBookSubscriberCount(symbol: string): number {
+    const remaining = Math.max(0, (this.orderBookSubscriberCounts.get(symbol) ?? 1) - 1);
+    if (remaining === 0) {
+      this.orderBookSubscriberCounts.delete(symbol);
+    } else {
+      this.orderBookSubscriberCounts.set(symbol, remaining);
+    }
+    return remaining;
+  }
+
+  private runOrderBookOperation(symbol: string, operation: () => Promise<any>): Promise<void> {
+    const previous = this.orderBookOperations.get(symbol) ?? Promise.resolve();
+    const queued = previous.catch(() => undefined).then(operation).then(() => undefined);
+    this.orderBookOperations.set(symbol, queued);
+    queued.then(
+      () => {
+        if (this.orderBookOperations.get(symbol) === queued) {
+          this.orderBookOperations.delete(symbol);
+        }
+      },
+      () => {
+        if (this.orderBookOperations.get(symbol) === queued) {
+          this.orderBookOperations.delete(symbol);
+        }
+      }
+    );
+    return queued;
+  }
+
+  async requestOrderBookSnapshot(symbol: string): Promise<void> {
+    if (!this.connection || this.connection.state !== signalR.HubConnectionState.Connected) {
+      throw new Error('SignalR连接状态异常，无法重新同步订单簿');
+    }
+
+    await this.connection.invoke('RequestExternalOrderBookSnapshot', symbol);
   }
 
   // 订阅实时成交价和中间价
@@ -418,6 +487,8 @@ export class SignalRClient {
       this.subscribedPriceSymbols = [];
       this.subscribedKLines = [];
       this.subscribedOrderBooks = [];
+      this.orderBookSubscriberCounts.clear();
+      this.orderBookOperations.clear();
     }
   }
 }

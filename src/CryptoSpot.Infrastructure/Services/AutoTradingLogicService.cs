@@ -35,7 +35,18 @@ namespace CryptoSpot.Infrastructure.Services
             _logger = logger;
             _marketMakingStrategy = marketMakingStrategy;
             _marketMakerOptions = marketMakerOptions.Value;
-        }        public Task StartAutoTradingAsync()
+        }
+
+        private long SystemMakerUserId
+        {
+            get
+            {
+                var configured = _marketMakerOptions.UserIds.FirstOrDefault();
+                return configured > 0 ? configured : 1;
+            }
+        }
+
+        public Task StartAutoTradingAsync()
         {
             _logger.LogInformation("自动交易服务启动");
             
@@ -94,7 +105,7 @@ namespace CryptoSpot.Infrastructure.Services
                 }
                 var tradingPairs = tradingPairsResp.Data;
                 
-                foreach (var pair in tradingPairs.Take(5)) // 限制处理数量
+                foreach (var pair in tradingPairs.Take(Math.Max(1, _marketMakerOptions.ActiveTradeCount))) // 按配置处理 10 个交易对
                 {
                     try
                     {
@@ -124,7 +135,7 @@ namespace CryptoSpot.Infrastructure.Services
         {
             try
             {
-                const int systemUserId = 1; // 系统用户ID
+                var systemUserId = SystemMakerUserId;
                 
                 _logger.LogDebug("开始为交易对 {Symbol} 创建做市订单", symbol);
 
@@ -135,15 +146,16 @@ namespace CryptoSpot.Infrastructure.Services
 
                 // 获取当前价格
                 var currentPrice = await priceDataService.GetCurrentPriceAsync(symbol);
-                if (currentPrice == null)
+                if (currentPrice == null || currentPrice.Price <= 0)
                 {
-                    _logger.LogWarning("无法获取 {Symbol} 的当前价格", symbol);
+                    _logger.LogDebug("跳过 {Symbol}: 当前价格尚未就绪", symbol);
                     return;
                 }
 
                 var decision = await GetMarketMakingDecisionAsync(
                     symbol,
                     currentPrice.Price,
+                    SystemMakerUserId,
                     tradingService,
                     assetService);
                 var buyPrice = decision.BuyPrice;
@@ -199,6 +211,7 @@ namespace CryptoSpot.Infrastructure.Services
         private async Task<MarketMakingDecision> GetMarketMakingDecisionAsync(
             string symbol,
             decimal currentPrice,
+            long userId,
             ITradingService tradingService,
             IAssetService assetService)
         {
@@ -212,7 +225,7 @@ namespace CryptoSpot.Infrastructure.Services
                 var pair = pairResponse.Data;
                 var assets = pair == null
                     ? null
-                    : await assetService.GetUserAssetsAsync(1);
+                    : await assetService.GetUserAssetsAsync(userId);
                 var baseInventory = pair == null || assets == null || !assets.Success || assets.Data == null
                     ? 0m
                     : assets.Data.FirstOrDefault(asset =>
@@ -263,7 +276,7 @@ namespace CryptoSpot.Infrastructure.Services
             
             try
             {
-                const int systemUserId = 1; // 系统用户ID
+                var systemUserId = SystemMakerUserId;
                 
                 // 获取系统用户的待处理订单
                 var pendingOrdersResp = await orderService.GetUserOrdersDtoAsync(systemUserId, OrderStatus.Pending);
@@ -292,7 +305,7 @@ namespace CryptoSpot.Infrastructure.Services
             
             try
             {
-                const int systemUserId = 1; // 系统用户ID
+                var systemUserId = SystemMakerUserId;
                 
                 // 获取系统资产
                 var assetsResp = await assetService.GetUserAssetsAsync(systemUserId);

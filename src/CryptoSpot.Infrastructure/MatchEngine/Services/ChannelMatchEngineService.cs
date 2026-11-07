@@ -293,7 +293,19 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             "Processing order {OrderId}: Side={Side}, Type={Type}, Price={Price}, Qty={Qty}, UserId={UserId}",
             taker.OrderId, taker.Side, taker.Type, taker.Price, taker.Quantity, taker.UserId);
 
-        orderBook.Add(taker);
+        // 市价单不进入订单簿；无效限价单也不进入，避免 0 价挂单污染订单簿。
+        if (taker.Type == OrderType.Limit && taker.Price is > 0)
+        {
+            orderBook.Add(taker);
+        }
+        else if (taker.Type == OrderType.Market)
+        {
+            _logger.LogDebug("Market order {OrderId} will be matched without resting in the book", taker.OrderId);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Limit order {taker.OrderId} requires a positive price");
+        }
         if (_logger.IsEnabled(LogLevel.Debug))
         {
             _logger.LogDebug("Order {OrderId} added to book. Bids={Bids}, Asks={Asks}",
@@ -316,8 +328,8 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             }
 
             var qty = matchSlice.Quantity;
-            taker.FilledQuantity += qty;
-            matchSlice.Maker.FilledQuantity += qty;
+            ApplyFill(taker, qty, matchSlice.Price);
+            ApplyFill(matchSlice.Maker, qty, matchSlice.Price);
 
             if (matchSlice.Maker.FilledQuantity >= matchSlice.Maker.Quantity)
             {
@@ -333,6 +345,9 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             UpdateOrderStatus(taker);
             affectedMakers.Add(matchSlice.Maker);
 
+            await ReleaseExcessFrozenForFilledBuyAsync(taker, symbol);
+            await ReleaseExcessFrozenForFilledBuyAsync(matchSlice.Maker, symbol);
+
             await PublishTradeEventsAsync(symbol, trade, matchSlice.Maker, taker);
 
             if (taker.FilledQuantity >= taker.Quantity) break;
@@ -341,6 +356,10 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         if (taker.FilledQuantity >= taker.Quantity)
         {
             orderBook.Remove(taker);
+        }
+        else if (taker.Type == OrderType.Market)
+        {
+            await CancelUnfilledMarketOrderAsync(taker, symbol);
         }
 
         _logger.LogDebug(
@@ -360,6 +379,137 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
         if (affectedMakers.Count > 0)
         {
             await PersistOrderStatusBatchAsync(affectedMakers);
+        }
+    }
+
+    private async Task CancelUnfilledMarketOrderAsync(Order order, string symbol)
+    {
+        var remainingQuantity = order.Quantity - order.FilledQuantity;
+        if (remainingQuantity <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var tradingPair = await db.TradingPairs
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Symbol == symbol);
+            if (tradingPair is null)
+            {
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            order.Status = OrderStatus.Cancelled;
+            order.UpdatedAt = now;
+
+            if (order.UserId.HasValue)
+            {
+                if (order.Side == OrderSide.Sell)
+                {
+                    await db.Assets
+                        .Where(a => a.UserId == order.UserId.Value
+                                    && a.Symbol == tradingPair.BaseAsset
+                                    && a.Frozen >= remainingQuantity)
+                        .ExecuteUpdateAsync(s => s
+                            .SetProperty(a => a.Frozen, a => a.Frozen - remainingQuantity)
+                            .SetProperty(a => a.Available, a => a.Available + remainingQuantity)
+                            .SetProperty(a => a.UpdatedAt, now));
+                }
+                else
+                {
+                    var releaseAmount = remainingQuantity * tradingPair.Price;
+                    if (releaseAmount > 0)
+                    {
+                        await db.Assets
+                            .Where(a => a.UserId == order.UserId.Value
+                                        && a.Symbol == tradingPair.QuoteAsset
+                                        && a.Frozen >= releaseAmount)
+                            .ExecuteUpdateAsync(s => s
+                                .SetProperty(a => a.Frozen, a => a.Frozen - releaseAmount)
+                                .SetProperty(a => a.Available, a => a.Available + releaseAmount)
+                                .SetProperty(a => a.UpdatedAt, now));
+                    }
+                }
+            }
+
+            _logger.LogWarning(
+                "Market order {OrderId} could not be fully filled; remaining {Remaining} cancelled",
+                order.OrderId, remainingQuantity);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cancel unfilled market order {OrderId}", order.OrderId);
+        }
+    }
+
+    private static void ApplyFill(Order order, decimal quantity, decimal price)
+    {
+        var newFilled = order.FilledQuantity + quantity;
+        order.AveragePrice = order.FilledQuantity <= 0
+            ? price
+            : (order.AveragePrice * order.FilledQuantity + price * quantity) / newFilled;
+        order.FilledQuantity = newFilled;
+    }
+
+    private async Task ReleaseExcessFrozenForFilledBuyAsync(Order order, string symbol)
+    {
+        if (order.Side != OrderSide.Buy ||
+            order.Quantity <= 0 ||
+            order.FilledQuantity < order.Quantity ||
+            order.UserId is null)
+        {
+            return;
+        }
+
+        var referencePrice = order.Price ?? 0m;
+        if (referencePrice <= 0)
+        {
+            return;
+        }
+
+        var actualPrice = order.AveragePrice > 0 ? order.AveragePrice : referencePrice;
+        var excess = order.Quantity * referencePrice - order.FilledQuantity * actualPrice;
+        if (excess <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var tradingPair = await db.TradingPairs
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Symbol == symbol);
+            if (tradingPair is null)
+            {
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var rows = await db.Assets
+                .Where(a => a.UserId == order.UserId.Value
+                            && a.Symbol == tradingPair.QuoteAsset
+                            && a.Frozen >= excess)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(a => a.Frozen, a => a.Frozen - excess)
+                    .SetProperty(a => a.Available, a => a.Available + excess)
+                    .SetProperty(a => a.UpdatedAt, now));
+
+            if (rows > 0)
+            {
+                _logger.LogInformation(
+                    "Released excess frozen quote for filled buy {OrderId}: {Excess} {QuoteCurrency}",
+                    order.OrderId, excess, tradingPair.QuoteAsset);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to release excess frozen quote for order {OrderId}", order.OrderId);
         }
     }
 
@@ -387,12 +537,108 @@ public class ChannelMatchEngineService : IMatchEngineService, IAsyncDisposable
             await _assetStore.UnfreezeAssetAsync(sellerId, baseCurrency, quantity);
             await _assetStore.AddAvailableBalanceAsync(sellerId, quoteCurrency, tradeAmount);
 
+            // 内存资产仅用于撮合；真实余额以数据库为准。成交后必须同步扣减冻结并增加可用。
+            await PersistAssetSettlementAsync(
+                buyerId, sellerId, baseCurrency, quoteCurrency, quantity, tradeAmount);
+
             return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Settlement failed for {Symbol}", symbol);
             return false;
+        }
+    }
+
+    private async Task PersistAssetSettlementAsync(
+        long buyerId,
+        long sellerId,
+        string baseCurrency,
+        string quoteCurrency,
+        decimal quantity,
+        decimal tradeAmount)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            // 买方：冻结的计价币优先扣减，不足部分从可用余额补扣；同时获得基础币。
+            var buyerQuote = await db.Assets
+                .AsNoTracking()
+                .Where(a => a.UserId == buyerId && a.Symbol == quoteCurrency)
+                .Select(a => new { a.Frozen, a.Available })
+                .FirstOrDefaultAsync();
+
+            var buyerQuoteFromFrozen = buyerQuote is null ? 0m : Math.Min(buyerQuote.Frozen, tradeAmount);
+            var buyerQuoteFromAvailable = buyerQuote is null
+                ? 0m
+                : Math.Min(buyerQuote.Available, tradeAmount - buyerQuoteFromFrozen);
+
+            if (buyerQuoteFromFrozen + buyerQuoteFromAvailable < tradeAmount)
+            {
+                _logger.LogWarning(
+                    "买方 {BuyerId} {QuoteCurrency} 余额不足，成交 {TradeAmount}，实际扣减 {Deducted}",
+                    buyerId, quoteCurrency, tradeAmount, buyerQuoteFromFrozen + buyerQuoteFromAvailable);
+            }
+
+            var buyerQuoteRows = await db.Assets
+                .Where(a => a.UserId == buyerId && a.Symbol == quoteCurrency)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(a => a.Frozen, a => a.Frozen - buyerQuoteFromFrozen)
+                    .SetProperty(a => a.Available, a => a.Available - buyerQuoteFromAvailable)
+                    .SetProperty(a => a.UpdatedAt, now));
+
+            var buyerBaseRows = await db.Assets
+                .Where(a => a.UserId == buyerId && a.Symbol == baseCurrency)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(a => a.Available, a => a.Available + quantity)
+                    .SetProperty(a => a.UpdatedAt, now));
+
+            // 卖方：冻结的基础币优先扣减，不足部分从可用余额补扣；同时获得计价币。
+            var sellerBase = await db.Assets
+                .AsNoTracking()
+                .Where(a => a.UserId == sellerId && a.Symbol == baseCurrency)
+                .Select(a => new { a.Frozen, a.Available })
+                .FirstOrDefaultAsync();
+
+            var sellerBaseFromFrozen = sellerBase is null ? 0m : Math.Min(sellerBase.Frozen, quantity);
+            var sellerBaseFromAvailable = sellerBase is null
+                ? 0m
+                : Math.Min(sellerBase.Available, quantity - sellerBaseFromFrozen);
+
+            if (sellerBaseFromFrozen + sellerBaseFromAvailable < quantity)
+            {
+                _logger.LogWarning(
+                    "卖方 {SellerId} {BaseCurrency} 余额不足，成交 {Quantity}，实际扣减 {Deducted}",
+                    sellerId, baseCurrency, quantity, sellerBaseFromFrozen + sellerBaseFromAvailable);
+            }
+
+            var sellerBaseRows = await db.Assets
+                .Where(a => a.UserId == sellerId && a.Symbol == baseCurrency)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(a => a.Frozen, a => a.Frozen - sellerBaseFromFrozen)
+                    .SetProperty(a => a.Available, a => a.Available - sellerBaseFromAvailable)
+                    .SetProperty(a => a.UpdatedAt, now));
+
+            var sellerQuoteRows = await db.Assets
+                .Where(a => a.UserId == sellerId && a.Symbol == quoteCurrency)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(a => a.Available, a => a.Available + tradeAmount)
+                    .SetProperty(a => a.UpdatedAt, now));
+
+            _logger.LogInformation(
+                "DB asset settlement applied: Buyer={BuyerId} Seller={SellerId} Pair={Base}/{Quote} Qty={Quantity} Amount={Amount} Rows={BuyerQuoteRows}/{BuyerBaseRows}/{SellerBaseRows}/{SellerQuoteRows} BuyerQuoteFrozen={BuyerQuoteFrozen} BuyerQuoteAvailable={BuyerQuoteAvailable} SellerBaseFrozen={SellerBaseFrozen} SellerBaseAvailable={SellerBaseAvailable}",
+                buyerId, sellerId, baseCurrency, quoteCurrency, quantity, tradeAmount,
+                buyerQuoteRows, buyerBaseRows, sellerBaseRows, sellerQuoteRows,
+                buyerQuoteFromFrozen, buyerQuoteFromAvailable, sellerBaseFromFrozen, sellerBaseFromAvailable);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "DB asset settlement failed: Buyer={BuyerId}, Seller={SellerId}, Pair={Base}/{Quote}, Qty={Quantity}, Amount={Amount}",
+                buyerId, sellerId, baseCurrency, quoteCurrency, quantity, tradeAmount);
         }
     }
 

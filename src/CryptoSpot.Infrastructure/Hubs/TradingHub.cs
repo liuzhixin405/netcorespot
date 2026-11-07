@@ -13,13 +13,20 @@ namespace CryptoSpot.Infrastructure.Hubs
         private readonly IKLineDataRepository _klineDataRepository;
         private readonly ITradingPairService _tradingPairService;
         private readonly IOrderMatchingEngine _orderMatchingEngine;
+        private readonly IExternalOrderBookSnapshotProvider _externalOrderBookSnapshotProvider;
         private readonly ILogger<TradingHub> _logger;
 
-        public TradingHub(IKLineDataRepository klineDataRepository, ITradingPairService tradingPairService, IOrderMatchingEngine orderMatchingEngine, ILogger<TradingHub> logger)
+        public TradingHub(
+            IKLineDataRepository klineDataRepository,
+            ITradingPairService tradingPairService,
+            IOrderMatchingEngine orderMatchingEngine,
+            IExternalOrderBookSnapshotProvider externalOrderBookSnapshotProvider,
+            ILogger<TradingHub> logger)
         {
             _klineDataRepository = klineDataRepository;
             _tradingPairService = tradingPairService;
             _orderMatchingEngine = orderMatchingEngine;
+            _externalOrderBookSnapshotProvider = externalOrderBookSnapshotProvider;
             _logger = logger;
         }
         public async Task JoinGroup(string groupName)
@@ -135,7 +142,7 @@ namespace CryptoSpot.Infrastructure.Hubs
         }
 
         // 订阅订单簿数据
-        public async Task SubscribeOrderBook(string symbol, int depth = 5)
+        public async Task SubscribeOrderBook(string symbol, int depth = 10)
         {
             try
             {
@@ -181,6 +188,53 @@ namespace CryptoSpot.Infrastructure.Hubs
             var groupName = $"orderbook_{symbol}";
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, groupName);
             
+            await Clients.Caller.SendAsync("OrderBookUnsubscribed", symbol);
+        }
+
+        public async Task SubscribeExternalOrderBook(string symbol)
+        {
+            var groupName = $"external_orderbook_{symbol}";
+            await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
+            await SendExternalOrderBookSnapshotToCallerAsync(symbol);
+            await Clients.Caller.SendAsync("OrderBookSubscribed", symbol);
+        }
+
+        public Task RequestExternalOrderBookSnapshot(string symbol)
+        {
+            return SendExternalOrderBookSnapshotToCallerAsync(symbol);
+        }
+
+        private async Task SendExternalOrderBookSnapshotToCallerAsync(string symbol)
+        {
+            var snapshot = _externalOrderBookSnapshotProvider.GetSnapshot(symbol);
+            if (snapshot is not null)
+            {
+                await Clients.Caller.SendAsync("OrderBookData", new
+                {
+                    type = "snapshot",
+                    symbol = snapshot.Symbol,
+                    bids = snapshot.Bids.Select(level => new
+                    {
+                        price = level.Price,
+                        amount = level.Quantity,
+                        total = level.Total
+                    }).ToList(),
+                    asks = snapshot.Asks.Select(level => new
+                    {
+                        price = level.Price,
+                        amount = level.Quantity,
+                        total = level.Total
+                    }).ToList(),
+                    timestamp = snapshot.Timestamp,
+                    sequence = snapshot.Sequence
+                });
+            }
+        }
+
+        public async Task UnsubscribeExternalOrderBook(string symbol)
+        {
+            var groupName = $"external_orderbook_{symbol}";
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, groupName);
             await Clients.Caller.SendAsync("OrderBookUnsubscribed", symbol);
         }
 

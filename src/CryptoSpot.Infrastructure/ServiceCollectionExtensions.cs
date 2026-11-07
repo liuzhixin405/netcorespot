@@ -21,9 +21,11 @@ using CryptoSpot.Infrastructure.Ai;
 using CryptoSpot.Infrastructure.Services.MarketMaking;
 using CryptoSpot.Infrastructure.Analytics;
 using CryptoSpot.Infrastructure.Risk;
+using CryptoSpot.Infrastructure.MarketData;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -48,6 +50,8 @@ namespace CryptoSpot.Infrastructure
             
             // 后台服务
             services.AddBackgroundServices();
+            services.Configure<MarketDataFeedOptions>(configuration.GetSection(MarketDataFeedOptions.Section));
+            services.AddSingleton(sp => sp.GetRequiredService<IOptions<MarketDataFeedOptions>>().Value);
             
             return services;
         }
@@ -154,12 +158,16 @@ namespace CryptoSpot.Infrastructure
         /// </summary>
         public static IServiceCollection AddBackgroundServices(this IServiceCollection services)
         {
+            services.AddSingleton<MarketDataMetrics>();
+
             // 价格更新服务
             services.AddSingleton<PriceUpdateBatchService>();
             services.AddHostedService(sp => sp.GetRequiredService<PriceUpdateBatchService>());
             
             // SignalR 数据推送服务（不是后台服务，是普通服务）
-            services.AddSingleton<IRealTimeDataPushService, SignalRDataPushService>();
+            services.AddSingleton<SignalRDataPushService>();
+            services.AddSingleton<IRealTimeDataPushService>(sp => sp.GetRequiredService<SignalRDataPushService>());
+            services.AddSingleton<IExternalOrderBookSnapshotProvider>(sp => sp.GetRequiredService<SignalRDataPushService>());
             services.AddSingleton<MatchEngineEventQueue>();
             services.AddSingleton<IMatchEngineEventQueue>(sp => sp.GetRequiredService<MatchEngineEventQueue>());
             services.AddHostedService(sp => sp.GetRequiredService<MatchEngineEventQueue>());
@@ -169,6 +177,10 @@ namespace CryptoSpot.Infrastructure
             
             // 市场数据流服务（OKX WebSocket -> SignalR 推送）
             services.AddHostedService<MarketDataStreamService>();
+
+            // Binance REST 备用源（默认关闭；由 BinanceMarketDataSyncService 判断是否启动）
+            services.AddSingleton<IMarketDataProvider>(sp => sp.GetRequiredService<BinanceMarketDataProvider>());
+            services.AddHostedService<BinanceMarketDataSyncService>();
             
             // 自动交易服务（做市商）
             services.AddHostedService<AutoTradingService>();

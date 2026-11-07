@@ -361,10 +361,13 @@ export const AiAssistantPanel: React.FC<Props> = ({ symbol }) => {
         {sentiment && (
           <ResultMeta>情绪：{sentiment.sentiment} / 评分：{sentiment.score}</ResultMeta>
         )}
-        {!activeMode.requiresInput && !resultText && !error && (
+        {loading && !resultText && (
+          <Hint>AI 正在分析，请稍候…</Hint>
+        )}
+        {!loading && !activeMode.requiresInput && !resultText && !error && (
           <Hint>{activeMode.placeholder(symbol)}</Hint>
         )}
-        {resultText ? <>{resultText}{citations.length > 0 && <CitationList>数据来源：{citations.join('、')}</CitationList>}</> : activeMode.requiresInput && (
+        {resultText ? <>{resultText}{citations.length > 0 && <CitationList>数据来源：{citations.join('、')}</CitationList>}</> : !loading && activeMode.requiresInput && (
           <Hint>{activeMode.placeholder(symbol)}</Hint>
         )}
         {error && <ErrorText>{error}</ErrorText>}

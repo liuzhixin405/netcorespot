@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { signalRClient } from '../services/signalRClient';
-import { API_BASE_URL } from '../api/base';
 
 export interface OrderBookLevel {
   price: number;
@@ -13,7 +12,23 @@ export interface OrderBookData {
   bids: OrderBookLevel[];
   asks: OrderBookLevel[];
   timestamp: number;
+  sequence?: number;
 }
+
+const buildVisibleLevels = (
+  levels: Map<number, OrderBookLevel>,
+  depth: number,
+  descending: boolean
+): OrderBookLevel[] => {
+  let total = 0;
+  return Array.from(levels.entries())
+    .sort(([left], [right]) => descending ? right - left : left - right)
+    .slice(0, depth)
+    .map(([, level]) => {
+      total += level.amount;
+      return { ...level, total };
+    });
+};
 
 interface UseSignalROrderBookReturn {
   orderBookData: OrderBookData | null;
@@ -26,7 +41,8 @@ interface UseSignalROrderBookReturn {
 
 export const useSignalROrderBook = (
   symbol: string,
-  depth: number = 5
+  depth: number = 10,
+  paused = false
 ): UseSignalROrderBookReturn => {
   const [orderBookData, setOrderBookData] = useState<OrderBookData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,6 +54,12 @@ export const useSignalROrderBook = (
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const receivedSnapshotRef = useRef(false);
+  const currentSequenceRef = useRef<number | null>(null);
+  const snapshotRequestPendingRef = useRef(false);
+  const pendingDeltasRef = useRef<{
+    bids: Map<number, { level: OrderBookLevel; sequence: number }>;
+    asks: Map<number, { level: OrderBookLevel; sequence: number }>;
+  }>({ bids: new Map(), asks: new Map() });
   const maxReconnectAttempts = 5;
   
   // 本地订单簿缓存，用于增量更新
@@ -49,90 +71,66 @@ export const useSignalROrderBook = (
     asks: new Map()
   });
 
-  // 处理订单簿数据更新
-  const handleOrderBookData = useCallback((data: any) => {
-    receivedSnapshotRef.current = true;
-    // 如果是快照数据（首次加载或重新同步），立即处理
-    if (data.type === 'snapshot') {
-      const orderBook: OrderBookData = {
-        symbol: data.symbol,
-        bids: data.bids || [],
-        asks: data.asks || [],
-        timestamp: data.timestamp
-      };
-      // 更新本地缓存
-      localOrderBookRef.current.bids.clear();
-      localOrderBookRef.current.asks.clear();
-      
-      data.bids?.forEach((bid: OrderBookLevel) => {
-        localOrderBookRef.current.bids.set(bid.price, bid);
-      });
-      
-      data.asks?.forEach((ask: OrderBookLevel) => {
-        localOrderBookRef.current.asks.set(ask.price, ask);
-      });
-      
-      setOrderBookData(orderBook);
-      setLoading(false);
-    } else {
-      // 增量更新立即处理，不使用防抖
-      updateOrderBookIncremental(data);
+  const pendingCommitRef = useRef<OrderBookData | null>(null);
+  const commitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastCommitAtRef = useRef(0);
+  const commitIntervalMs = 100;
+  const pausedRef = useRef(paused);
+
+  const commitOrderBookData = useCallback((next: OrderBookData) => {
+    pendingCommitRef.current = next;
+
+    if (pausedRef.current) {
+      return;
     }
-    
-    setLastUpdate(Date.now());
-    setError(null);
-    setIsConnected(true);
-  }, []); // 移除 orderBookData 依赖
 
-  const fetchOrderBookSnapshot = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/v2/trade/orderbook/${symbol}?depth=${depth}`);
-      if (!response.ok) return;
-      const data = await response.json();
-      const normalizeLevels = (levels: any[] | undefined) => (levels || [])
-        .map((level) => Array.isArray(level)
-          ? { price: Number(level[0]), amount: Number(level[1]), total: Number(level[0]) * Number(level[1]) }
-          : { price: Number(level.price), amount: Number(level.amount ?? level.quantity), total: Number(level.total) })
-        .filter((level) => Number.isFinite(level.price) && Number.isFinite(level.amount) && level.amount > 0);
+    const elapsed = Date.now() - lastCommitAtRef.current;
+    const delay = Math.max(0, commitIntervalMs - elapsed);
 
-      const snapshot = {
-        type: 'snapshot',
-        symbol: data.symbol ?? symbol,
-        bids: normalizeLevels(data.bids),
-        asks: normalizeLevels(data.asks),
-        timestamp: data.timestamp ?? Date.now()
-      };
+    const commit = () => {
+      const pending = pendingCommitRef.current;
+      if (!pending) return;
 
-      if (snapshot.bids.length > 0 || snapshot.asks.length > 0) {
-        handleOrderBookData(snapshot);
-      } else {
-        setLoading(false);
-      }
-    } catch {
+      pendingCommitRef.current = null;
+      lastCommitAtRef.current = Date.now();
+      setOrderBookData(pending);
+      setLastUpdate(Date.now());
+      setError(null);
+      setIsConnected(true);
       setLoading(false);
+    };
+
+    if (delay === 0) {
+      commit();
+      return;
     }
-  }, [depth, handleOrderBookData, symbol]);
+
+    if (!commitTimerRef.current) {
+      commitTimerRef.current = setTimeout(() => {
+        commitTimerRef.current = null;
+        commit();
+      }, delay);
+    }
+  }, []);
+
+  useEffect(() => {
+    pausedRef.current = paused;
+    if (!paused && pendingCommitRef.current) {
+      lastCommitAtRef.current = 0;
+      commitOrderBookData(pendingCommitRef.current);
+    }
+  }, [paused, commitOrderBookData]);
+
+  useEffect(() => () => {
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+  }, []);
 
   // 增量更新订单簿
   const updateOrderBookIncremental = useCallback((data: any) => {
     const { bids, asks } = data;
-
-    // 如果当前还没有本地数据, 强制按 snapshot 处理
-    if (localOrderBookRef.current.bids.size === 0 && localOrderBookRef.current.asks.size === 0) {
-      // 回退到 snapshot 逻辑
-      const snapshotLike = {
-        symbol: data.symbol,
-        bids: (bids || []).filter((b: OrderBookLevel) => b.amount > 0),
-        asks: (asks || []).filter((a: OrderBookLevel) => a.amount > 0),
-        timestamp: data.timestamp
-      };
-      localOrderBookRef.current.bids.clear();
-      localOrderBookRef.current.asks.clear();
-      snapshotLike.bids.forEach((b: OrderBookLevel) => localOrderBookRef.current.bids.set(b.price, b));
-      snapshotLike.asks.forEach((a: OrderBookLevel) => localOrderBookRef.current.asks.set(a.price, a));
-      setOrderBookData(snapshotLike);
-      return;
-    }
 
     // 记录是否有任何变化
     let hasChanges = false;
@@ -176,30 +174,108 @@ export const useSignalROrderBook = (
 
     // 使用requestAnimationFrame优化渲染性能
     requestAnimationFrame(() => {
-      // 转换 & 排序 (保持最少重建)
-      const sortedBidEntries = Array.from(localOrderBookRef.current.bids.entries()).sort((a,b) => b[0]-a[0]).slice(0, depth);
-      const sortedAskEntries = Array.from(localOrderBookRef.current.asks.entries()).sort((a,b) => a[0]-b[0]).slice(0, depth);
-
-      let bidTotal = 0;
-      const bidsWithTotal = sortedBidEntries.map(([price, lvl]) => {
-        bidTotal += lvl.amount;
-        return { ...lvl, total: bidTotal };
-      });
-      let askTotal = 0;
-      const asksWithTotal = sortedAskEntries.map(([price, lvl]) => {
-        askTotal += lvl.amount;
-        return { ...lvl, total: askTotal };
-      });
-
       // 直接更新状态，因为我们已经知道有变化
-      setOrderBookData({ 
-        symbol: data.symbol, 
-        bids: bidsWithTotal, 
-        asks: asksWithTotal, 
+      commitOrderBookData({
+        symbol: data.symbol,
+        bids: buildVisibleLevels(localOrderBookRef.current.bids, depth, true),
+        asks: buildVisibleLevels(localOrderBookRef.current.asks, depth, false),
         timestamp: data.timestamp 
       });
     });
-  }, [depth]);
+  }, [commitOrderBookData, depth]);
+
+  // 处理订单簿数据更新
+  const handleOrderBookData = useCallback((data: any) => {
+    const sequence = Number(data.sequence);
+    if (data.type === 'snapshot') {
+      if (
+        Number.isFinite(sequence) &&
+        currentSequenceRef.current !== null &&
+        sequence < currentSequenceRef.current
+      ) {
+        return;
+      }
+
+      receivedSnapshotRef.current = true;
+      snapshotRequestPendingRef.current = false;
+      localOrderBookRef.current.bids.clear();
+      localOrderBookRef.current.asks.clear();
+
+      (data.bids || []).forEach((bid: OrderBookLevel) => {
+        if (bid.amount > 0) localOrderBookRef.current.bids.set(bid.price, bid);
+      });
+      (data.asks || []).forEach((ask: OrderBookLevel) => {
+        if (ask.amount > 0) localOrderBookRef.current.asks.set(ask.price, ask);
+      });
+
+      currentSequenceRef.current = Number.isFinite(sequence) ? sequence : null;
+      if (currentSequenceRef.current !== null) {
+        let latestSequence = currentSequenceRef.current;
+        for (const [price, pending] of pendingDeltasRef.current.bids) {
+          if (pending.sequence > currentSequenceRef.current) {
+            latestSequence = Math.max(latestSequence, pending.sequence);
+            if (pending.level.amount > 0) {
+              localOrderBookRef.current.bids.set(price, pending.level);
+            } else {
+              localOrderBookRef.current.bids.delete(price);
+            }
+          }
+        }
+        for (const [price, pending] of pendingDeltasRef.current.asks) {
+          if (pending.sequence > currentSequenceRef.current) {
+            latestSequence = Math.max(latestSequence, pending.sequence);
+            if (pending.level.amount > 0) {
+              localOrderBookRef.current.asks.set(price, pending.level);
+            } else {
+              localOrderBookRef.current.asks.delete(price);
+            }
+          }
+        }
+        currentSequenceRef.current = latestSequence;
+      }
+      pendingDeltasRef.current.bids.clear();
+      pendingDeltasRef.current.asks.clear();
+
+      commitOrderBookData({
+        symbol: data.symbol,
+        bids: buildVisibleLevels(localOrderBookRef.current.bids, depth, true),
+        asks: buildVisibleLevels(localOrderBookRef.current.asks, depth, false),
+        timestamp: data.timestamp
+      });
+      return;
+    }
+
+    if (!Number.isFinite(sequence)) return;
+    if (currentSequenceRef.current === null) {
+      (data.bids || []).forEach((level: OrderBookLevel) => {
+        const existing = pendingDeltasRef.current.bids.get(level.price);
+        if (!existing || sequence >= existing.sequence) {
+          pendingDeltasRef.current.bids.set(level.price, { level, sequence });
+        }
+      });
+      (data.asks || []).forEach((level: OrderBookLevel) => {
+        const existing = pendingDeltasRef.current.asks.get(level.price);
+        if (!existing || sequence >= existing.sequence) {
+          pendingDeltasRef.current.asks.set(level.price, { level, sequence });
+        }
+      });
+      return;
+    }
+    if (sequence <= currentSequenceRef.current) return;
+    if (sequence > currentSequenceRef.current + 1) {
+      if (!snapshotRequestPendingRef.current) {
+        snapshotRequestPendingRef.current = true;
+        signalRClient.requestOrderBookSnapshot(symbol).catch((error) => {
+          snapshotRequestPendingRef.current = false;
+          console.error('Order book snapshot resync failed:', error);
+        });
+      }
+      return;
+    }
+
+    updateOrderBookIncremental(data);
+    currentSequenceRef.current = sequence;
+  }, [commitOrderBookData, depth, symbol, updateOrderBookIncremental]);
 
   // 处理连接错误
   const handleError = useCallback((err: any) => {
@@ -250,6 +326,17 @@ export const useSignalROrderBook = (
     setError(null);
     setIsConnected(false);
     setOrderBookData(null);
+    pendingCommitRef.current = null;
+    currentSequenceRef.current = null;
+    snapshotRequestPendingRef.current = false;
+    pendingDeltasRef.current.bids.clear();
+    pendingDeltasRef.current.asks.clear();
+    localOrderBookRef.current.bids.clear();
+    localOrderBookRef.current.asks.clear();
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
     receivedSnapshotRef.current = false;
     
     try {
@@ -296,12 +383,6 @@ export const useSignalROrderBook = (
         }
       }, 500);
 
-      setTimeout(() => {
-        if (!receivedSnapshotRef.current) {
-          fetchOrderBookSnapshot();
-        }
-      }, 1200);
-      
       // 连接成功，重置重连计数器
       resetReconnectAttempts();
       
@@ -314,7 +395,7 @@ export const useSignalROrderBook = (
       // 连接失败，尝试重连
       scheduleReconnect();
     }
-  }, [symbol, handleOrderBookData, handleError, resetReconnectAttempts, scheduleReconnect, depth, fetchOrderBookSnapshot]);
+  }, [symbol, handleOrderBookData, handleError, resetReconnectAttempts, scheduleReconnect]);
 
   // 手动重连
   const reconnect = useCallback(() => {
@@ -336,6 +417,12 @@ export const useSignalROrderBook = (
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
+      }
+
+      pendingCommitRef.current = null;
+      if (commitTimerRef.current) {
+        clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = null;
       }
       
       // 重置重连计数器

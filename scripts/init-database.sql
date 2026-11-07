@@ -232,7 +232,7 @@ WHERE NOT EXISTS (SELECT 1 FROM Users WHERE Username = 'test_user_3');
 -- 如果不是，请根据实际情况修改 UserId
 
 -- 获取做市商用户ID
-SET @maker_user_id = (SELECT Id FROM Users WHERE Username = 'SystemMarketMaker' AND Type = 1 LIMIT 1);
+SET @maker_user_id = (SELECT Id FROM Users WHERE Username = 'SystemMarketMaker' AND Type = 2 LIMIT 1);
 
 -- USDT 资产
 INSERT INTO Assets (UserId, Symbol, Available, Frozen, MinReserve, TargetBalance, AutoRefillEnabled)

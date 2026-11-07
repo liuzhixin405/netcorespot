@@ -53,6 +53,7 @@ public sealed class OpenAiCompatAiModel : IAiModel
 
     private async Task<AiChatResponse> SendChatAsync(AiModelEndpoint endpoint, AiChatRequest request, CancellationToken cancellationToken)
     {
+        var options = _options.CurrentValue;
         using var timeoutCts = CreateTimeoutTokenSource(cancellationToken);
         using var message = new HttpRequestMessage(HttpMethod.Post, $"{endpoint.BaseUrl.TrimEnd('/')}/chat/completions")
         {
@@ -67,6 +68,7 @@ public sealed class OpenAiCompatAiModel : IAiModel
                 tools = request.Tools?.Select(tool => new { type = "function", function = new { name = tool.Name, description = tool.Description, parameters = JsonSerializer.Deserialize<JsonElement>(tool.ParametersJsonSchema) } }),
                 temperature = request.Temperature,
                 max_tokens = request.MaxTokens,
+                chat_template_kwargs = options.DisableThinking ? new { enable_thinking = false } : null,
                 stream = false
             }, options: JsonOptions)
         };
@@ -179,6 +181,7 @@ public sealed class OpenAiCompatAiModel : IAiModel
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         using var timeoutCts = CreateTimeoutTokenSource(cancellationToken);
+        var options = _options.CurrentValue;
         using var message = new HttpRequestMessage(HttpMethod.Post, $"{endpoint.BaseUrl.TrimEnd('/')}/chat/completions")
         {
             Content = JsonContent.Create(new
@@ -187,6 +190,7 @@ public sealed class OpenAiCompatAiModel : IAiModel
                 messages = request.Messages.Select(value => new { role = value.Role, content = value.Content }),
                 temperature = request.Temperature,
                 max_tokens = request.MaxTokens,
+                chat_template_kwargs = options.DisableThinking ? new { enable_thinking = false } : null,
                 stream = true
             }, options: JsonOptions)
         };

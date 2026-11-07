@@ -34,6 +34,11 @@ namespace CryptoSpot.Infrastructure.Services
                 logger.LogWarning(ex, "参数错误: {Message}", ex.Message);
                 return ApiResponseDto<T>.CreateError(ex.Message, "INVALID_ARGUMENT");
             }
+            catch (InvalidOperationException ex)
+            {
+                logger.LogWarning(ex, "业务操作失败: {Message}", ex.Message);
+                return ApiResponseDto<T>.CreateError(ex.Message, "OPERATION_FAILED");
+            }
             catch (Exception ex)
             {
                 logger.LogError(ex, errorMessage + " Context: {@Context}", context);
@@ -58,6 +63,11 @@ namespace CryptoSpot.Infrastructure.Services
             {
                 logger.LogWarning(ex, "参数错误: {Message}", ex.Message);
                 return ApiResponseDto<T>.CreateError(ex.Message, "INVALID_ARGUMENT");
+            }
+            catch (InvalidOperationException ex)
+            {
+                logger.LogWarning(ex, "业务操作失败: {Message}", ex.Message);
+                return ApiResponseDto<T>.CreateError(ex.Message, "OPERATION_FAILED");
             }
             catch (Exception ex)
             {
